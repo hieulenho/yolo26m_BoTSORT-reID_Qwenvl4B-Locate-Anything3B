@@ -1,0 +1,55 @@
+dataset:
+  name: mini_tracking_fixture
+  adapter: soccernet
+  raw_dir: tests/fixtures/mini_tracking_dataset
+  interim_dir: data/interim/mini_tracking_fixture
+
+classes:
+  mapping_config: configs/class_mapping.yaml
+  target_class: player
+
+frames:
+  extract_from_video: false
+  image_extension: .ppm
+  jpeg_quality: 95
+
+split:
+  strategy: sequence
+  train_ratio: 0.34
+  val_ratio: 0.33
+  test_ratio: 0.33
+  seed: 7
+  predefined_split_file: null
+
+yolo:
+  output_dir: data/yolo/mini_tracking_fixture
+  decimal_places: 6
+  copy_images: false
+  prefer_symlink: true
+
+mot:
+  output_dir: data/mot/mini_tracking_fixture
+  frame_index_base: 1
+  confidence_default: 1.0
+  visibility_default: 1.0
+
+validation:
+  clip_boxes: true
+  invalid_box_policy: warn_and_skip
+  unknown_class_policy: warn_and_skip
+  fail_on_duplicate_track_in_frame: false
+
+visualization:
+  output_dir: outputs/figures/annotation_samples
+  num_sequences: 2
+  frames_per_sequence: 2
+  seed: 7
+  draw_ignored: false
+  line_thickness: 1
+  font_scale: 0.4
+
+runtime:
+  dry_run: false
+  overwrite: true
+  fail_fast: false
+  log_level: INFO

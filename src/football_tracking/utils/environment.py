@@ -14,7 +14,6 @@ from typing import Any, Literal
 from football_tracking.config import ConfigError, load_config
 from football_tracking.paths import ProjectPathError, ensure_output_directories, get_project_root
 
-
 Status = Literal["OK", "WARNING", "FAILED"]
 EXPECTED_PYTHON_MAJOR = 3
 EXPECTED_PYTHON_MINOR = 12

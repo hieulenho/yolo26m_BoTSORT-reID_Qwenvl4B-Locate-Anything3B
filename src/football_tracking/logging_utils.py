@@ -6,7 +6,6 @@ import logging
 import sys
 from pathlib import Path
 
-
 LOGGER_NAME = "football_tracking"
 HANDLER_MARKER = "_football_tracking_handler"
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"

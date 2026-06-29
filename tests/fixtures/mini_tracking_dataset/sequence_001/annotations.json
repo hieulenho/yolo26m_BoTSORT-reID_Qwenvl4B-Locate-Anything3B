@@ -1,0 +1,91 @@
+{
+  "sequence": {
+    "name": "sequence_001",
+    "fps": 25,
+    "width": 64,
+    "height": 48,
+    "frame_count": 3
+  },
+  "frames": [
+    {
+      "frame_index": 1,
+      "image": "frames/000001.ppm",
+      "width": 64,
+      "height": 48,
+      "objects": [
+        {
+          "track_id": 1,
+          "class": "Player",
+          "bbox": [10, 8, 22, 34],
+          "confidence": 1.0,
+          "visibility": 0.95
+        },
+        {
+          "track_id": 2,
+          "class": "goalkeeper-home",
+          "bbox": [50, 5, 70, 30],
+          "confidence": 1.0,
+          "visibility": 0.75
+        },
+        {
+          "track_id": 99,
+          "class": "referee",
+          "bbox": [2, 2, 8, 18],
+          "confidence": 1.0,
+          "visibility": 1.0
+        }
+      ]
+    },
+    {
+      "frame_index": 2,
+      "image": "frames/000002.ppm",
+      "width": 64,
+      "height": 48,
+      "objects": [
+        {
+          "track_id": 1,
+          "class": "player team left",
+          "bbox": [12, 9, 24, 35],
+          "confidence": 1.0,
+          "visibility": 0.9
+        },
+        {
+          "track_id": 1,
+          "class": "player team left",
+          "bbox": [13, 10, 25, 36],
+          "confidence": 1.0,
+          "visibility": 0.9
+        },
+        {
+          "track_id": 5,
+          "class": "mystery mascot",
+          "bbox": [30, 10, 40, 20],
+          "confidence": 1.0,
+          "visibility": 1.0
+        }
+      ]
+    },
+    {
+      "frame_index": 3,
+      "image": "frames/000003.ppm",
+      "width": 64,
+      "height": 48,
+      "objects": [
+        {
+          "track_id": 1,
+          "class": "player",
+          "bbox": [14, 11, 26, 37],
+          "confidence": 1.0,
+          "visibility": 0.85
+        },
+        {
+          "track_id": 3,
+          "class": "player away",
+          "bbox": [20, 20, 20, 25],
+          "confidence": 1.0,
+          "visibility": 1.0
+        }
+      ]
+    }
+  ]
+}

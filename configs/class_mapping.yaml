@@ -1,0 +1,25 @@
+target_classes:
+  player: 0
+
+source_mapping:
+  player: player
+  player_team_left: player
+  player_team_right: player
+  player_home: player
+  player_away: player
+  goalkeeper: player
+  goalkeeper_team_left: player
+  goalkeeper_team_right: player
+  goalkeeper_home: player
+  goalkeeper_away: player
+
+ignored_classes:
+  - referee
+  - assistant_referee
+  - staff
+  - coach
+  - ball
+  - audience
+  - unknown
+
+unknown_class_policy: warn_and_skip
