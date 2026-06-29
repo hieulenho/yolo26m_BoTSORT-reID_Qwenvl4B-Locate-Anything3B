@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import random
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,10 @@ from football_tracking.data.schemas import SequenceInfo, SplitManifest
 
 class SplitError(RuntimeError):
     """Raised when sequence split configuration is invalid."""
+
+
+LOGGER = logging.getLogger(__name__)
+VALID_SPLITS = {"train", "val", "test"}
 
 
 def validate_split_ratios(train_ratio: float, val_ratio: float, test_ratio: float) -> None:
@@ -91,6 +96,11 @@ def split_sequences(
         validate_split_manifest(manifest, sequence_names)
         return manifest
 
+    metadata_split = _split_from_sequence_metadata(sequences, seed, strategy)
+    if metadata_split is not None:
+        validate_split_manifest(metadata_split, sequence_names)
+        return metadata_split
+
     shuffled = list(sequence_names)
     random.Random(seed).shuffle(shuffled)
     train_count, val_count, _test_count = _counts_for_small_dataset(
@@ -102,9 +112,34 @@ def split_sequences(
     train = sorted(shuffled[:train_count])
     val = sorted(shuffled[train_count : train_count + val_count])
     test = sorted(shuffled[train_count + val_count :])
+    if len(shuffled) < 3:
+        LOGGER.warning("Dataset has fewer than 3 sequences; some splits may be empty.")
     manifest = SplitManifest(seed=seed, strategy=strategy, train=train, val=val, test=test)
     validate_split_manifest(manifest, sequence_names)
     return manifest
+
+
+def _split_from_sequence_metadata(
+    sequences: list[SequenceInfo],
+    seed: int,
+    strategy: str,
+) -> SplitManifest | None:
+    split_values: dict[str, list[str]] = {"train": [], "val": [], "test": []}
+    for sequence in sequences:
+        split_name = sequence.metadata.get("split")
+        if split_name is None:
+            return None
+        normalized = str(split_name).lower()
+        if normalized not in VALID_SPLITS:
+            return None
+        split_values[normalized].append(sequence.name)
+    return SplitManifest(
+        seed=seed,
+        strategy=f"{strategy}_metadata",
+        train=sorted(split_values["train"]),
+        val=sorted(split_values["val"]),
+        test=sorted(split_values["test"]),
+    )
 
 
 def validate_split_manifest(manifest: SplitManifest, expected_sequence_names: list[str]) -> None:

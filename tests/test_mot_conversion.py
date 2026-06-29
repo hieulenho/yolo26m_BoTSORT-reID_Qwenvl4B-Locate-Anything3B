@@ -13,7 +13,7 @@ def test_mot_conversion_outputs_gt_with_frame_base_one(tmp_path: Path) -> None:
 
     gt_path = tmp_path / "train" / "sequence_001" / "gt" / "gt.txt"
     first_line = gt_path.read_text(encoding="utf-8").splitlines()[0]
-    assert first_line == "1,1,10.00,8.00,12.00,26.00,1,1,0.95"
+    assert first_line == "1,1,10.000000,8.000000,12.000000,26.000000,1,1,0.950000"
     assert len(first_line.split(",")) == 9
 
 

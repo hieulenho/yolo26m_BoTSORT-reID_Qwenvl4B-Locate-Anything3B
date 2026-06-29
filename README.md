@@ -2,7 +2,7 @@
 
 This project will use YOLOv8m to detect football players and DeepSORT to keep stable track IDs across video frames.
 
-Current scope: Milestone 2 data preparation. The repository contains project structure, Python package configuration, base YAML config, logging, CLI health checks, PowerShell environment setup, foundational tests, and a data pipeline that prepares detection and tracking ground truth.
+Current scope: Milestone 3 dataset QA and YOLOv8m pretrained detection baseline. The repository contains the Milestone 1/2 project setup and data conversion pipeline, plus audit reports, dataset plots, annotation samples, pretrained detector inference, prediction serialization, timing, and baseline reporting.
 
 Planned architecture:
 
@@ -10,7 +10,7 @@ Planned architecture:
 video -> YOLOv8m -> DeepSORT -> MOT evaluation
 ```
 
-Not implemented in this milestone: dataset download, YOLOv8m training, YOLO inference, DeepSORT tracking integration, TrackEval, SORT baseline, dashboards, mAP, HOTA, MOTA, or IDF1 metrics.
+Not implemented in this milestone: dataset download, YOLOv8m fine-tuning/training, DeepSORT tracking integration, TrackEval, SORT baseline, dashboards, HOTA, MOTA, or IDF1 metrics.
 
 ## Requirements
 
@@ -93,7 +93,7 @@ Install PyTorch separately for the CUDA version on this machine before treating 
 ## Doctor
 
 ```powershell
-python -m football_tracking.cli doctor
+.\.venv\Scripts\python.exe -m football_tracking.cli doctor
 ```
 
 The doctor command checks the project root, Python 3.12 runtime, Python executable location, operating system, config loading, output writability, PyTorch/CUDA, Ultralytics, OpenCV, NumPy, and DeepSORT availability.
@@ -135,23 +135,23 @@ The SoccerNet adapter currently discovers sequence directories that contain a fr
 Run a dry-run on the fixture config:
 
 ```powershell
-python -m football_tracking.cli prepare-data --config configs/data_test.yaml --dry-run
+.\.venv\Scripts\python.exe -m football_tracking.cli prepare-data --config configs/data_test.yaml --dry-run
 ```
 
 Run the fixture pipeline:
 
 ```powershell
-python -m football_tracking.cli prepare-data --config configs/data_test.yaml
+.\.venv\Scripts\python.exe -m football_tracking.cli prepare-data --config configs/data_test.yaml
 ```
 
 Run against the default raw dataset location:
 
 ```powershell
-python -m football_tracking.cli prepare-data --config configs/data.yaml --dry-run
-python -m football_tracking.cli prepare-data --config configs/data.yaml
-python -m football_tracking.cli validate-data --config configs/data.yaml
-python -m football_tracking.cli audit-data --config configs/data.yaml
-python -m football_tracking.cli visualize-annotations --config configs/data.yaml --num-samples 10
+.\.venv\Scripts\python.exe -m football_tracking.cli prepare-data --config configs/data.yaml --dry-run
+.\.venv\Scripts\python.exe -m football_tracking.cli prepare-data --config configs/data.yaml
+.\.venv\Scripts\python.exe -m football_tracking.cli validate-data --config configs/data.yaml
+.\.venv\Scripts\python.exe -m football_tracking.cli audit-data --config configs/data.yaml
+.\.venv\Scripts\python.exe -m football_tracking.cli visualize-annotations --config configs/data.yaml --num-samples 10
 ```
 
 Generated outputs:
@@ -166,18 +166,124 @@ outputs/figures/  annotation visualization samples
 
 Splits are made by sequence, not by frame, so one video/sequence cannot leak across train, validation, and test.
 
+## Milestone 3 Dataset Audit
+
+The dataset audit checks the prepared YOLO/MOT data and the mapped annotations:
+
+- sequence, frame, object, and track counts;
+- bounding-box width, height, area ratio, aspect ratio, clipping, invalid boxes, and boundary-touch boxes;
+- track length, single-frame tracks, frame gaps, continuous tracks, and duplicate track IDs within one frame;
+- split counts and split leakage;
+- source classes, target classes, ignored classes, unknown classes, goalkeeper-to-player mapping, and referee ignore counts;
+- ground-truth annotation samples under split and sequence folders.
+
+The default audit config uses the mini fixture when no real dataset exists:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli audit-data `
+  --config configs/audit.yaml
+```
+
+Main audit outputs:
+
+```text
+outputs/metrics/dataset_audit_summary.json
+outputs/metrics/dataset_audit_per_sequence.csv
+outputs/metrics/dataset_audit_per_split.csv
+outputs/metrics/dataset_audit_tracks.csv
+outputs/metrics/dataset_audit_errors.json
+outputs/figures/dataset_audit/
+outputs/figures/annotation_samples/<split>/<sequence>/
+```
+
+JSON audit reports use `null` plus a reason when a statistic cannot be computed; they do not write NaN.
+
+## Milestone 3 YOLOv8m Pretrained Baseline
+
+The baseline uses `yolov8m.pt` pretrained on COCO. It keeps only COCO class `person` and maps it to the project target class:
+
+```text
+0: player
+```
+
+This is a pretrained baseline, not the final football detector. It is useful because it gives a reproducible reference before fine-tuning in Milestone 4. A fine-tuned model learns the football-specific annotation policy; the pretrained COCO model only knows the broad `person` category.
+
+COCO `person` can include players, goalkeepers, referees, staff, coaches, and people outside the field. The MVP ground truth maps player-like labels and goalkeepers to `player`, while referees and staff are ignored. Because predictions must not be silently corrected with ground truth, this baseline can produce false positives on referees or staff.
+
+Run a safe dry-run with no inference and no checkpoint download:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli run-baseline `
+  --config configs/yolov8m_baseline.yaml `
+  --dry-run
+```
+
+Run a small CPU smoke test after `yolov8m.pt` is available or Ultralytics is allowed to download it:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli run-baseline `
+  --config configs/yolov8m_baseline.yaml `
+  --device cpu `
+  --max-images 20 `
+  --overwrite
+```
+
+Run on CUDA device 0:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli run-baseline `
+  --config configs/yolov8m_baseline.yaml `
+  --device 0 `
+  --max-images 100 `
+  --overwrite
+```
+
+Inference-only and evaluation-only commands are also available:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli baseline-detect `
+  --config configs/yolov8m_baseline.yaml `
+  --max-images 20 `
+  --overwrite
+
+.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-baseline `
+  --config configs/yolov8m_baseline.yaml
+```
+
+The baseline report distinguishes:
+
+- `mAP@50`: AP at IoU threshold 0.50.
+- `mAP@50:95`: mean AP over IoU thresholds 0.50 through 0.95 in steps of 0.05.
+
+Metrics come from the Ultralytics validator when it can run. If it cannot run, the report writes `not available` / `null` with the reason rather than filling fake zeros.
+
+Baseline outputs:
+
+```text
+outputs/detections/yolov8m_pretrained/predictions.jsonl
+outputs/detections/yolov8m_pretrained/yolo_labels/
+outputs/detections/yolov8m_pretrained/predictions_summary.csv
+outputs/detections/yolov8m_pretrained/run_metadata.json
+outputs/metrics/yolov8m_pretrained_baseline.json
+outputs/metrics/yolov8m_pretrained_baseline.csv
+outputs/metrics/yolov8m_pretrained_report.md
+outputs/figures/yolov8m_pretrained/
+```
+
+Fine-tuning is planned for Milestone 4. DeepSORT tracking and tracking metrics are planned for Milestone 5.
+
 ## Tests
 
 ```powershell
-python -m pytest -q
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 Optional lint check:
 
 ```powershell
-python -m ruff check src tests
+.\.venv\Scripts\python.exe -m ruff check src tests
 ```
 
 ## Next Milestones
 
-Future milestones may add dataset preparation, detector training, tracking, evaluation, and reporting. Those workflows are not implemented here yet.
+Milestone 4 may add YOLOv8m fine-tuning on football data. Milestone 5 may add DeepSORT tracking integration and MOT-style tracking evaluation. Those workflows are intentionally not part of Milestone 3.

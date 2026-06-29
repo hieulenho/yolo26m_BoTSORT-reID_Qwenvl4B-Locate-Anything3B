@@ -102,6 +102,8 @@ def load_data_config(config_path: str | Path) -> DataPipelineConfig:
     train_ratio = float(split.get("train_ratio", 0.7))
     val_ratio = float(split.get("val_ratio", 0.15))
     test_ratio = float(split.get("test_ratio", 0.15))
+    if any(ratio < 0.0 or ratio > 1.0 for ratio in (train_ratio, val_ratio, test_ratio)):
+        raise DataConfigError("Each split ratio must be in [0, 1].")
     if abs(train_ratio + val_ratio + test_ratio - 1.0) > 1e-6:
         raise DataConfigError("train_ratio + val_ratio + test_ratio must equal 1.0.")
     mot_frame_index_base = int(mot_config.get("frame_index_base", 1))
@@ -203,6 +205,7 @@ def _map_sequence_classes(sequence: SequenceInfo, class_mapping: ClassMapping) -
         name=sequence.name,
         source_path=sequence.source_path,
         frames_dir=sequence.frames_dir,
+        video_path=sequence.video_path,
         annotations_path=sequence.annotations_path,
         fps=sequence.fps,
         width=sequence.width,
@@ -347,6 +350,7 @@ def prepare_data(
         visualization_paths = draw_annotation_samples(
             sequences,
             output_dir=config.visualization_output_dir,
+            split_manifest=split_manifest,
             num_sequences=config.visualization_num_sequences,
             frames_per_sequence=config.visualization_frames_per_sequence,
             seed=config.visualization_seed,
@@ -404,6 +408,7 @@ def visualize_annotations(
     return draw_annotation_samples(
         sequences,
         output_dir=config.visualization_output_dir,
+        split_manifest=None,
         num_sequences=config.visualization_num_sequences,
         frames_per_sequence=frames_per_sequence,
         seed=config.visualization_seed,

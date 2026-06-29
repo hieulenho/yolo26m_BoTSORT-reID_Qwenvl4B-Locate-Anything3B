@@ -10,6 +10,7 @@ def _sequence(name: str) -> SequenceInfo:
         name=name,
         source_path=Path(name),
         frames_dir=Path(name) / "frames",
+        video_path=None,
         annotations_path=Path(name) / "annotations.json",
         fps=25,
         width=64,
@@ -49,6 +50,21 @@ def test_predefined_split_is_respected(tmp_path: Path) -> None:
     sequences = [_sequence(f"sequence_{index:03d}") for index in range(1, 4)]
 
     split = split_sequences(sequences, 0.34, 0.33, 0.33, seed=99, predefined_split_file=path)
+
+    assert split.train == ["sequence_001"]
+    assert split.val == ["sequence_002"]
+    assert split.test == ["sequence_003"]
+
+
+def test_dataset_metadata_split_is_respected() -> None:
+    train = _sequence("sequence_001")
+    val = _sequence("sequence_002")
+    test = _sequence("sequence_003")
+    train = SequenceInfo(**{**train.__dict__, "metadata": {"split": "train"}})
+    val = SequenceInfo(**{**val.__dict__, "metadata": {"split": "val"}})
+    test = SequenceInfo(**{**test.__dict__, "metadata": {"split": "test"}})
+
+    split = split_sequences([train, val, test], 0.34, 0.33, 0.33, seed=123)
 
     assert split.train == ["sequence_001"]
     assert split.val == ["sequence_002"]

@@ -157,9 +157,9 @@ def convert_to_mot(
         for frame_index, track_id, annotation in rows:
             xywh = xyxy_to_xywh(annotation.bbox_xyxy)
             lines.append(
-                f"{frame_index},{track_id},{xywh.x:.2f},{xywh.y:.2f},"
-                f"{xywh.width:.2f},{xywh.height:.2f},{confidence_default:g},1,"
-                f"{annotation.visibility:.2f}"
+                f"{frame_index},{track_id},{xywh.x:.6f},{xywh.y:.6f},"
+                f"{xywh.width:.6f},{xywh.height:.6f},{confidence_default:g},1,"
+                f"{annotation.visibility:.6f}"
             )
         (sequence_dir / "gt" / "gt.txt").write_text(
             "\n".join(lines) + ("\n" if lines else ""),

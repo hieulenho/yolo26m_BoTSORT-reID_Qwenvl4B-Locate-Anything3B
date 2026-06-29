@@ -1,1 +1,1 @@
-"""Detection package placeholder for future milestones."""
+"""Detection package for YOLOv8m pretrained baseline workflows."""

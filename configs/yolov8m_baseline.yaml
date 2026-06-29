@@ -1,0 +1,43 @@
+model:
+  weights: yolov8m.pt
+  task: detect
+
+dataset:
+  data_yaml: data/yolo/mini_tracking_fixture/dataset.yaml
+  split: val
+
+inference:
+  imgsz: 960
+  conf: 0.25
+  iou: 0.70
+  max_det: 300
+  device: auto
+  half: false
+  batch: 1
+  workers: 4
+  verbose: false
+
+classes:
+  coco_person_class_id: 0
+  target_class_id: 0
+  target_class_name: player
+  keep_only_person: true
+
+evaluation:
+  use_ultralytics_validator: true
+  save_predictions: true
+  save_visualizations: true
+  save_error_samples: true
+  max_visualization_samples: 30
+
+runtime:
+  max_images: null
+  max_sequences: null
+  warmup_iterations: 3
+  log_level: INFO
+  overwrite: false
+
+output:
+  root: outputs/detections/yolov8m_pretrained
+  metrics_dir: outputs/metrics
+  figures_dir: outputs/figures/yolov8m_pretrained

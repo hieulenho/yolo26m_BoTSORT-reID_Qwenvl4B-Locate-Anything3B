@@ -9,7 +9,10 @@ import traceback
 from collections.abc import Sequence
 from pathlib import Path
 
+import yaml
+
 from football_tracking.config import ConfigError, load_config
+from football_tracking.data.audit import AuditConfigError, run_dataset_audit
 from football_tracking.data.prepare import (
     DataConfigError,
     audit_data,
@@ -17,6 +20,12 @@ from football_tracking.data.prepare import (
     validate_data,
     visualize_annotations,
 )
+from football_tracking.detection.baseline import (
+    BaselineConfigError,
+    evaluate_baseline,
+    run_baseline,
+)
+from football_tracking.detection.detector import DetectorError
 from football_tracking.logging_utils import setup_logging
 from football_tracking.utils.environment import format_doctor_report, run_doctor
 
@@ -58,6 +67,27 @@ def _add_data_common_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_baseline_common_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/yolov8m_baseline.yaml"),
+        help="Path to the YOLOv8m baseline YAML config.",
+    )
+    parser.add_argument("--split", choices=("train", "val", "test"), default=None)
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--imgsz", type=int, default=None)
+    parser.add_argument("--conf", type=float, default=None)
+    parser.add_argument("--iou", type=float, default=None)
+    parser.add_argument("--batch", type=int, default=None)
+    parser.add_argument("--max-images", type=int, default=None)
+    parser.add_argument("--max-sequences", type=int, default=None)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--no-visualization", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="football-tracking")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -96,6 +126,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Frames per sequence.",
     )
 
+    baseline_detect_parser = subparsers.add_parser(
+        "baseline-detect",
+        help="Run YOLOv8m pretrained baseline inference and save predictions.",
+    )
+    _add_baseline_common_options(baseline_detect_parser)
+
+    evaluate_baseline_parser = subparsers.add_parser(
+        "evaluate-baseline",
+        help="Evaluate the YOLOv8m pretrained baseline with Ultralytics validator.",
+    )
+    _add_baseline_common_options(evaluate_baseline_parser)
+
+    run_baseline_parser = subparsers.add_parser(
+        "run-baseline",
+        help="Run YOLOv8m pretrained baseline inference and evaluation.",
+    )
+    _add_baseline_common_options(run_baseline_parser)
+
     return parser
 
 
@@ -109,6 +157,33 @@ def _configure_logging(config_path: Path | None) -> None:
     log_level = str(config.runtime.get("log_level", "INFO"))
     log_file = config.paths.get("logs_dir")
     setup_logging(log_level, log_file=log_file / "app.log" if log_file else None)
+
+
+def _looks_like_audit_config(path: Path) -> bool:
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except OSError:
+        return False
+    return (
+        isinstance(raw, dict)
+        and isinstance(raw.get("dataset"), dict)
+        and "config" in raw["dataset"]
+    )
+
+
+def _baseline_overrides(args: argparse.Namespace) -> dict[str, object]:
+    return {
+        "split": args.split,
+        "device": args.device,
+        "imgsz": args.imgsz,
+        "conf": args.conf,
+        "iou": args.iou,
+        "batch": args.batch,
+        "max_images": args.max_images,
+        "max_sequences": args.max_sequences,
+        "overwrite": True if args.overwrite else None,
+        "no_visualization": args.no_visualization,
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -142,7 +217,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sys.stdout.write("\n")
                 return 1 if report.has_errors else 0
             if args.command == "audit-data":
-                audit = audit_data(args.config, max_sequences=args.max_sequences)
+                audit = (
+                    run_dataset_audit(args.config, max_sequences=args.max_sequences)
+                    if _looks_like_audit_config(args.config)
+                    else audit_data(args.config, max_sequences=args.max_sequences)
+                )
                 sys.stdout.write(json.dumps(audit, indent=2))
                 sys.stdout.write("\n")
                 return 0
@@ -154,7 +233,53 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write(json.dumps({"written": [str(path) for path in paths]}, indent=2))
             sys.stdout.write("\n")
             return 0
-        except (DataConfigError, ConfigError, FileNotFoundError, RuntimeError, ValueError) as exc:
+        except (
+            AuditConfigError,
+            DataConfigError,
+            ConfigError,
+            FileNotFoundError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            if args.debug:
+                traceback.print_exc()
+            return 2
+
+    if args.command in {"baseline-detect", "evaluate-baseline", "run-baseline"}:
+        setup_logging("INFO")
+        try:
+            overrides = _baseline_overrides(args)
+            if args.command == "baseline-detect":
+                result = run_baseline(
+                    args.config,
+                    overrides=overrides,
+                    dry_run=args.dry_run,
+                    evaluate=False,
+                )
+            elif args.command == "evaluate-baseline":
+                result = evaluate_baseline(
+                    args.config,
+                    overrides=overrides,
+                    dry_run=args.dry_run,
+                )
+            else:
+                result = run_baseline(
+                    args.config,
+                    overrides=overrides,
+                    dry_run=args.dry_run,
+                    evaluate=True,
+                )
+            sys.stdout.write(json.dumps(result, indent=2))
+            sys.stdout.write("\n")
+            return 0
+        except (
+            BaselineConfigError,
+            DetectorError,
+            FileNotFoundError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
             sys.stderr.write(f"Error: {exc}\n")
             if args.debug:
                 traceback.print_exc()

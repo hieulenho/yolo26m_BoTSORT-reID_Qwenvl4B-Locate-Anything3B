@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import csv
 import json
+import platform
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from football_tracking.data.bbox import is_valid_bbox
+from football_tracking.data.bbox import clip_xyxy_to_image, is_valid_bbox
 from football_tracking.data.schemas import DatasetManifestEntry, SequenceInfo, SplitManifest
 
 
@@ -31,6 +32,19 @@ def _track_lengths(sequence: SequenceInfo) -> list[int]:
     for frame_index, track_id in _target_objects(sequence):
         frames_by_track[track_id].add(frame_index)
     return [len(frames) for frames in frames_by_track.values()]
+
+
+def _would_clip(sequence: SequenceInfo) -> int:
+    clipped = 0
+    for frame in sequence.annotations:
+        for annotation in frame.objects:
+            if annotation.is_ignored or annotation.target_class_id is None:
+                continue
+            box = annotation.bbox_xyxy
+            clipped_box = clip_xyxy_to_image(box, frame.width, frame.height)
+            if clipped_box != box and is_valid_bbox(clipped_box):
+                clipped += 1
+    return clipped
 
 
 def _sequence_record(
@@ -62,8 +76,8 @@ def _sequence_record(
         "split": split,
         "source_path": str(sequence.source_path),
         "annotation_path": str(sequence.annotations_path),
-        "video_path": sequence.metadata.get("video_path"),
-        "frames_path": str(sequence.frames_dir),
+        "video_path": str(sequence.video_path) if sequence.video_path is not None else None,
+        "frames_path": str(sequence.frames_dir) if sequence.frames_dir is not None else None,
         "frame_count": sequence.frame_count,
         "annotated_frame_count": len(annotated_frames),
         "empty_frame_count": sequence.frame_count - len(annotated_frames),
@@ -76,7 +90,7 @@ def _sequence_record(
         "max_track_length": max(track_lengths) if track_lengths else 0,
         "mean_track_length": mean(track_lengths) if track_lengths else 0.0,
         "ignored_object_count": ignored_count,
-        "clipped_box_count": sum(sequence.metadata.get("clipped_box_count", 0) for _ in [0]),
+        "clipped_box_count": _would_clip(sequence),
         "invalid_box_count": invalid_count,
         "unknown_class_count": unknown_count,
         "output_yolo_path": str(yolo_output_dir),
@@ -100,11 +114,15 @@ def build_manifest_entries(
                 split=split,
                 frame_count=sequence.frame_count,
                 annotated_frame_count=record["annotated_frame_count"],
+                empty_frame_count=record["empty_frame_count"],
                 width=sequence.width,
                 height=sequence.height,
                 fps=sequence.fps,
                 object_count=record["object_count"],
                 unique_track_count=record["unique_track_count"],
+                ignored_object_count=record["ignored_object_count"],
+                clipped_box_count=record["clipped_box_count"],
+                invalid_box_count=record["invalid_box_count"],
                 source_path=sequence.source_path,
                 output_yolo_path=yolo_output_dir,
                 output_mot_path=mot_output_dir / split / sequence.name,
@@ -141,6 +159,7 @@ def write_dataset_manifest(
     payload = {
         "dataset_name": dataset_name,
         "adapter": adapter,
+        "python_version": platform.python_version(),
         "created_at": datetime.now(UTC).isoformat(),
         "seed": seed,
         "config_path": str(config_path),

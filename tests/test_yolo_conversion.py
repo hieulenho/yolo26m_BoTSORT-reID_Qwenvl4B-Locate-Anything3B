@@ -32,6 +32,7 @@ def _load_sequences() -> list[SequenceInfo]:
                 name=sequence.name,
                 source_path=sequence.source_path,
                 frames_dir=sequence.frames_dir,
+                video_path=sequence.video_path,
                 annotations_path=sequence.annotations_path,
                 fps=sequence.fps,
                 width=sequence.width,

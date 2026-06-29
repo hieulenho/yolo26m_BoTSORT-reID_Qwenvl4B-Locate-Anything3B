@@ -64,6 +64,7 @@ class SoccerNetAdapter(DatasetAdapter):
             name=str(sequence_payload.get("name") or candidate.name),
             source_path=candidate.source_path,
             frames_dir=candidate.frames_dir,
+            video_path=candidate.video_path,
             annotations_path=candidate.annotations_path,
             fps=float(sequence_payload["fps"]),
             width=width,

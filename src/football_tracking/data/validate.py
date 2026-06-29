@@ -145,6 +145,28 @@ def validate_sequences(
                             annotation.track_id,
                         )
                     )
+                if isinstance(annotation.track_id, int) and annotation.track_id <= 0:
+                    report.issues.append(
+                        _issue(
+                            "ERROR",
+                            "track_id",
+                            "Track ID must be positive.",
+                            sequence.name,
+                            frame.frame_index,
+                            annotation.track_id,
+                        )
+                    )
+                if isinstance(annotation.track_id, str) and not annotation.track_id.strip():
+                    report.issues.append(
+                        _issue(
+                            "ERROR",
+                            "track_id",
+                            "Track ID string must not be empty.",
+                            sequence.name,
+                            frame.frame_index,
+                            annotation.track_id,
+                        )
+                    )
                 if not 0.0 <= annotation.visibility <= 1.0:
                     report.issues.append(
                         _issue(

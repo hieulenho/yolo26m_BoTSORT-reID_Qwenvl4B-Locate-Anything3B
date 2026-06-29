@@ -54,7 +54,8 @@ class FrameAnnotation:
 class SequenceInfo:
     name: str
     source_path: Path
-    frames_dir: Path
+    frames_dir: Path | None
+    video_path: Path | None
     annotations_path: Path
     fps: float
     width: int
@@ -70,11 +71,15 @@ class DatasetManifestEntry:
     split: str
     frame_count: int
     annotated_frame_count: int
+    empty_frame_count: int
     width: int
     height: int
     fps: float
     object_count: int
     unique_track_count: int
+    ignored_object_count: int
+    clipped_box_count: int
+    invalid_box_count: int
     source_path: Path
     output_yolo_path: Path
     output_mot_path: Path

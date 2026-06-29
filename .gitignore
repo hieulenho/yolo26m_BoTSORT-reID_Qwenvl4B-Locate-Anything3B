@@ -24,10 +24,20 @@ data/mot/*
 
 models/**/*.pt
 models/**/*.pth
+*.pt
+*.pth
+*.onnx
+*.engine
+*.torchscript
+*.mlpackage
+*.tflite
+*.pb
+*.safetensors
 
 *.mp4
 *.avi
 *.mov
+*.mkv
 
 .env
 .vscode/
