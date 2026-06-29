@@ -24,7 +24,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra"
+addopts = "-ra -p no:cacheprovider"
 
 [tool.ruff]
 target-version = "py312"
