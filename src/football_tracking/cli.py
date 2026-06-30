@@ -25,8 +25,17 @@ from football_tracking.detection.baseline import (
     evaluate_baseline,
     run_baseline,
 )
+from football_tracking.detection.checkpoint import CheckpointError, validate_checkpoint
+from football_tracking.detection.compare_models import compare_detector_reports
 from football_tracking.detection.detector import DetectorError
+from football_tracking.detection.evaluate import evaluate_detector
+from football_tracking.detection.trainer import TrainingError, YOLOv8Trainer, run_training_preflight
+from football_tracking.detection.training_config import (
+    TrainingConfigError,
+    load_training_config,
+)
 from football_tracking.logging_utils import setup_logging
+from football_tracking.reporting.detector_report import write_finetuned_report
 from football_tracking.utils.environment import format_doctor_report, run_doctor
 
 
@@ -88,6 +97,28 @@ def _add_baseline_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--debug", action="store_true")
 
 
+def _parse_batch(value: str) -> int | float:
+    if "." in value:
+        return float(value)
+    return int(value)
+
+
+def _add_training_common_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--config", type=Path, default=Path("configs/yolov8m_train.yaml"))
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--batch", type=_parse_batch, default=None)
+    parser.add_argument("--imgsz", type=int, default=None)
+    parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--checkpoint", type=Path, default=None)
+    parser.add_argument("--split", choices=("train", "val", "test"), default=None)
+    parser.add_argument("--max-images", type=int, default=None)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="football-tracking")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -144,6 +175,43 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_baseline_common_options(run_baseline_parser)
 
+    preflight_parser = subparsers.add_parser(
+        "preflight-training",
+        help="Validate YOLO training config and dataset before training.",
+    )
+    _add_training_common_options(preflight_parser)
+
+    train_parser = subparsers.add_parser(
+        "train-detector",
+        help="Fine-tune YOLOv8m detector.",
+    )
+    _add_training_common_options(train_parser)
+
+    resume_parser = subparsers.add_parser(
+        "resume-detector",
+        help="Resume detector training from last.pt.",
+    )
+    _add_training_common_options(resume_parser)
+
+    eval_parser = subparsers.add_parser(
+        "evaluate-detector",
+        help="Evaluate fine-tuned detector on val or test split.",
+    )
+    _add_training_common_options(eval_parser)
+    eval_parser.set_defaults(config=Path("configs/yolov8m_eval.yaml"))
+
+    compare_parser = subparsers.add_parser(
+        "compare-detectors",
+        help="Compare pretrained baseline and fine-tuned detector metrics.",
+    )
+    compare_parser.add_argument("--metrics-dir", type=Path, default=Path("outputs/metrics"))
+    compare_parser.add_argument(
+        "--figures-dir",
+        type=Path,
+        default=Path("outputs/figures/yolov8m_finetuned/comparison"),
+    )
+    compare_parser.add_argument("--debug", action="store_true")
+
     return parser
 
 
@@ -183,6 +251,21 @@ def _baseline_overrides(args: argparse.Namespace) -> dict[str, object]:
         "max_sequences": args.max_sequences,
         "overwrite": True if args.overwrite else None,
         "no_visualization": args.no_visualization,
+    }
+
+
+def _training_overrides(args: argparse.Namespace) -> dict[str, object]:
+    return {
+        "device": getattr(args, "device", None),
+        "epochs": getattr(args, "epochs", None),
+        "batch": getattr(args, "batch", None),
+        "imgsz": getattr(args, "imgsz", None),
+        "workers": getattr(args, "workers", None),
+        "resume": getattr(args, "resume", None) or None,
+        "overwrite": True if getattr(args, "overwrite", False) else None,
+        "dry_run": True if getattr(args, "dry_run", False) else None,
+        "split": getattr(args, "split", None),
+        "max_images": getattr(args, "max_images", None),
     }
 
 
@@ -282,6 +365,66 @@ def main(argv: Sequence[str] | None = None) -> int:
         ) as exc:
             sys.stderr.write(f"Error: {exc}\n")
             if args.debug:
+                traceback.print_exc()
+            return 2
+
+    if args.command in {
+        "preflight-training",
+        "train-detector",
+        "resume-detector",
+        "evaluate-detector",
+        "compare-detectors",
+    }:
+        setup_logging("INFO")
+        try:
+            if args.command == "compare-detectors":
+                result = compare_detector_reports(args.metrics_dir, args.figures_dir)
+                write_finetuned_report(args.metrics_dir, comparison=result)
+                sys.stdout.write(json.dumps(result, indent=2))
+                sys.stdout.write("\n")
+                return 0
+            overrides = _training_overrides(args)
+            if args.command == "preflight-training":
+                config = load_training_config(args.config, overrides=overrides)
+                report = run_training_preflight(config)
+                sys.stdout.write(json.dumps(report.to_dict(), indent=2))
+                sys.stdout.write("\n")
+                return 1 if report.has_errors else 0
+            if args.command == "train-detector":
+                config = load_training_config(args.config, overrides=overrides)
+                result = YOLOv8Trainer(config).train(dry_run=args.dry_run)
+                sys.stdout.write(json.dumps(result, indent=2, default=str))
+                sys.stdout.write("\n")
+                return 0
+            if args.command == "resume-detector":
+                checkpoint = args.checkpoint
+                if checkpoint is None:
+                    config = load_training_config(args.config, overrides=overrides)
+                    checkpoint = config.run_dir / "weights" / "last.pt"
+                validate_checkpoint(checkpoint)
+                config = load_training_config(args.config, overrides={**overrides, "resume": True})
+                result = YOLOv8Trainer(config).resume(checkpoint)
+                sys.stdout.write(json.dumps(result, indent=2, default=str))
+                sys.stdout.write("\n")
+                return 0
+            result = evaluate_detector(
+                args.config,
+                overrides=overrides,
+                dry_run=args.dry_run,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        except (
+            CheckpointError,
+            TrainingConfigError,
+            TrainingError,
+            FileNotFoundError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            if getattr(args, "debug", False):
                 traceback.print_exc()
             return 2
 

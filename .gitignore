@@ -11,8 +11,13 @@ outputs/**
 !outputs/
 !outputs/**/
 !outputs/**/.gitkeep
+outputs/pytest_tmp/
+outputs/training/
+outputs/evaluation/
 
 runs/
+wandb/
+mlruns/
 
 data/raw/*
 !data/raw/.gitkeep

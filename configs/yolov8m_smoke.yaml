@@ -1,0 +1,53 @@
+experiment:
+  name: yolov8m_smoke
+  seed: 42
+  deterministic: true
+
+model:
+  weights: yolov8m.pt
+  task: detect
+
+dataset:
+  data_yaml: data/yolo/dataset.yaml
+  train_split: train
+  validation_split: val
+  test_split: test
+
+training:
+  epochs: 1
+  imgsz: 640
+  batch: 2
+  patience: 1
+  device: auto
+  workers: 0
+  cache: false
+  pretrained: true
+  amp: true
+  plots: false
+  verbose: true
+  resume: false
+  save: true
+
+augmentation:
+  degrees: 0.0
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.0
+  fliplr: 0.5
+  mixup: 0.0
+  copy_paste: 0.0
+
+runtime:
+  smoke_test: true
+  max_train_images: 32
+  max_val_images: 16
+  overwrite: true
+  dry_run: false
+  log_level: INFO
+
+output:
+  project: outputs/training
+  run_name: yolov8m_smoke
+  models_dir: models/detector
+  metrics_dir: outputs/metrics
+  figures_dir: outputs/figures/yolov8m_finetuned

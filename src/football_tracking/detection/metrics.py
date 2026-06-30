@@ -91,3 +91,10 @@ def parse_ultralytics_metrics(result: Any) -> BaselineMetrics:
         map75=map75,
         reason=reason,
     )
+
+
+DetectionMetrics = BaselineMetrics
+
+
+def metrics_to_flat_record(metrics: BaselineMetrics) -> dict[str, Any]:
+    return metrics.to_dict()

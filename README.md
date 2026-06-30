@@ -272,6 +272,107 @@ outputs/figures/yolov8m_pretrained/
 
 Fine-tuning is planned for Milestone 4. DeepSORT tracking and tracking metrics are planned for Milestone 5.
 
+## Milestone 4 YOLOv8m Fine-Tuning
+
+Milestone 4 adds the detector fine-tuning and evaluation pipeline. It still handles object detection only; DeepSORT, SORT, TrackEval, HOTA, MOTA, and IDF1 are not implemented here.
+
+The intended protocol is:
+
+```text
+train split -> training
+val split   -> monitoring and best.pt selection
+test split  -> one final evaluation after configuration is fixed
+```
+
+Do not tune thresholds or hyperparameters on the test split.
+
+Run training preflight:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli preflight-training `
+  --config configs/yolov8m_train.yaml
+```
+
+Dry-run training without loading the full model:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli train-detector `
+  --config configs/yolov8m_train.yaml `
+  --dry-run
+```
+
+Smoke training:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli train-detector `
+  --config configs/yolov8m_smoke.yaml
+```
+
+Full training:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli train-detector `
+  --config configs/yolov8m_train.yaml `
+  --device 0
+```
+
+Resume from `last.pt`:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli resume-detector `
+  --checkpoint outputs/training/yolov8m_players/weights/last.pt
+```
+
+Validation and test evaluation:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector `
+  --config configs/yolov8m_eval.yaml
+
+.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector `
+  --config configs/yolov8m_test.yaml
+```
+
+Compare pretrained and fine-tuned reports:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli compare-detectors
+```
+
+PowerShell wrappers are available and do not require activating the virtual environment:
+
+```powershell
+.\scripts\train_detector.ps1
+.\scripts\resume_detector.ps1 -Checkpoint outputs/training/yolov8m_players/weights/last.pt
+.\scripts\evaluate_detector.ps1 -Config configs/yolov8m_eval.yaml
+```
+
+For an RTX 4060 Laptop, start with `imgsz=960` and `batch=-1`. If CUDA runs out of memory, try `batch=4`, then `batch=2`, then `imgsz=640`, keep `cache=false`, and close other GPU applications. The repository does not assume one fixed batch size will always fit.
+
+Metric names:
+
+- `mAP@50`: AP at IoU 0.50.
+- `mAP@50:95`: AP averaged from IoU 0.50 to 0.95 in steps of 0.05.
+
+Do not use names like `mAP@95:50` or `mAP@9550`.
+
+Fine-tuned detector outputs:
+
+```text
+outputs/training/<run_name>/experiment_manifest.json
+outputs/training/<run_name>/results.csv
+outputs/training/<run_name>/weights/best.pt
+outputs/training/<run_name>/weights/last.pt
+models/detector/*_best.pt
+models/detector/*_last.pt
+outputs/metrics/yolov8m_finetuned_val.json
+outputs/metrics/yolov8m_finetuned_test.json
+outputs/metrics/yolov8m_finetuned_report.md
+outputs/figures/yolov8m_finetuned/
+```
+
+Model weights are ignored by Git.
+
 ## Tests
 
 ```powershell
@@ -286,4 +387,4 @@ Optional lint check:
 
 ## Next Milestones
 
-Milestone 4 may add YOLOv8m fine-tuning on football data. Milestone 5 may add DeepSORT tracking integration and MOT-style tracking evaluation. Those workflows are intentionally not part of Milestone 3.
+Milestone 5 may add DeepSORT tracking integration and MOT-style tracking evaluation. Those workflows are intentionally not part of Milestone 4.
