@@ -1,0 +1,52 @@
+model:
+  checkpoint: models/detector/yolov8m_sportsmot_best.pt
+  alternative_checkpoints:
+    - models/detector/yolov8m_players_best.pt
+  fallback_checkpoint: yolov8m.pt
+  allow_pretrained_fallback: true
+  allow_smoke_checkpoint: true
+
+detector:
+  imgsz: 640
+  conf: 0.15
+  iou: 0.70
+  max_det: 300
+  device: auto
+  half: false
+  class_ids:
+    - 0
+
+tracker:
+  config: configs/deepsort.yaml
+
+dataset:
+  mot_root: data/mot/sportsmot_football
+  split: val
+  seqmap: data/mot/sportsmot_football/seqmaps/val.txt
+
+output:
+  tracks_dir: outputs/tracks/deepsort/sportsmot_football
+  videos_dir: outputs/videos/deepsort/sportsmot_football
+  metrics_dir: outputs/metrics
+  render_video: true
+  save_mot: true
+
+render:
+  enabled: true
+  show_confidence: true
+  show_class: true
+  show_track_id: true
+  show_trajectory: true
+  trajectory_length: 30
+  line_thickness: 2
+  font_scale: 0.6
+  show_fps: true
+
+runtime:
+  max_sequences: 1
+  max_frames_per_sequence: 100
+  overwrite: true
+  show_window: false
+  fail_fast: true
+  smoke_only: true
+  log_level: INFO

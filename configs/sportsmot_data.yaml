@@ -1,0 +1,29 @@
+dataset:
+  name: sportsmot_football
+  adapter: sportsmot
+  raw_dir: data/raw/sportsmot
+  interim_dir: data/interim/sportsmot
+
+split:
+  seed: 42
+  local_val_ratio: 0.20
+
+yolo:
+  output_dir: data/yolo/sportsmot_football
+  smoke_output_dir: data/yolo/sportsmot_football_smoke
+  decimal_places: 6
+  prefer_symlink: true
+
+mot:
+  output_dir: data/mot/sportsmot_football
+
+smoke:
+  max_train_sequences: 2
+  max_val_sequences: 1
+  max_train_frames: 100
+  max_val_frames: 50
+
+runtime:
+  overwrite: false
+  dry_run: false
+  log_level: INFO

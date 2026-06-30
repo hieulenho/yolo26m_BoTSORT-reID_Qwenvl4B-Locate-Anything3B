@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import cv2  # type: ignore[import-not-found]
 import yaml
 
 from football_tracking.data.class_mapping import apply_mapping_to_object, load_class_mapping
@@ -83,5 +84,23 @@ def test_yolo_dataset_yaml_and_unique_image_names(tmp_path: Path) -> None:
     dataset_yaml = yaml.safe_load((tmp_path / "dataset.yaml").read_text(encoding="utf-8"))
     assert dataset_yaml["nc"] == 1
     assert dataset_yaml["names"][0] == "player"
-    assert (tmp_path / "images" / "train" / "sequence_001_000001.ppm").exists()
-    assert (tmp_path / "images" / "train" / "sequence_002_000001.ppm").exists()
+    assert (tmp_path / "images" / "train" / "sequence_001_000001.png").exists()
+    assert (tmp_path / "images" / "train" / "sequence_002_000001.png").exists()
+    image = cv2.imread(str(tmp_path / "images" / "train" / "sequence_001_000001.png"))
+    assert image.shape[:2] == (48, 64)
+
+
+def test_yolo_overwrite_removes_stale_split_files(tmp_path: Path) -> None:
+    sequences = _load_sequences()
+    stale_image = tmp_path / "images" / "val" / "stale.ppm"
+    stale_label = tmp_path / "labels" / "val" / "stale.txt"
+    stale_image.parent.mkdir(parents=True)
+    stale_label.parent.mkdir(parents=True)
+    stale_image.write_text("P3\n1 1\n255\n0 0 0\n", encoding="ascii")
+    stale_label.write_text("", encoding="utf-8")
+    split = SplitManifest(1, "sequence", ["sequence_001"], [], [])
+
+    convert_to_yolo(sequences[:1], split, tmp_path, {0: "player"}, overwrite=True)
+
+    assert not stale_image.exists()
+    assert not stale_label.exists()

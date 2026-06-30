@@ -21,15 +21,23 @@ mlruns/
 
 data/raw/*
 !data/raw/.gitkeep
+data/raw/sportsmot/
 data/interim/*
 !data/interim/.gitkeep
+data/interim/sportsmot/
 data/yolo/*
 !data/yolo/.gitkeep
+data/yolo/sportsmot_football/
+data/yolo/sportsmot_football_smoke/
 data/mot/*
 !data/mot/.gitkeep
+data/mot/sportsmot_football/
+.cache/
+tools/.venv-download/
 
 models/**/*.pt
 models/**/*.pth
+models/**/*.metadata.json
 *.pt
 *.pth
 *.onnx
@@ -44,6 +52,10 @@ models/**/*.pth
 *.avi
 *.mov
 *.mkv
+*.zip
+*.tar
+*.tar.gz
+*.7z
 
 .env
 .vscode/

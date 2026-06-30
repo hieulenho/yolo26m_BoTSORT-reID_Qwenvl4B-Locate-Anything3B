@@ -1,0 +1,26 @@
+tracker:
+  name: deepsort
+  max_age: 30
+  n_init: 3
+  max_iou_distance: 0.7
+  max_cosine_distance: 0.3
+  nn_budget: 100
+  embedder: mobilenet
+  half: true
+  bgr: true
+  embedder_gpu: true
+  polygon: false
+  today: null
+
+association:
+  only_position: false
+  use_appearance: true
+
+output:
+  confirmed_only: true
+  require_recent_update: true
+  max_time_since_update_for_output: 1
+  use_original_detection_box: true
+
+runtime:
+  log_level: INFO

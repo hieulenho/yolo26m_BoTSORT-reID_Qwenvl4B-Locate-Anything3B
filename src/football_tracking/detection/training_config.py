@@ -101,7 +101,7 @@ class EvaluationConfig:
 
     @property
     def output_prefix(self) -> str:
-        return "yolov8m_finetuned_test" if self.split == "test" else "yolov8m_finetuned_val"
+        return self.run_name
 
     def sanitized_val_args(self) -> dict[str, Any]:
         args = {
@@ -142,11 +142,14 @@ def _resolve_path(value: Any, project_root: Path, section: str) -> Path:
 
 
 def _resolve_weights(value: Any, project_root: Path, require_exists: bool = False) -> str | Path:
-    if not isinstance(value, str) or not value.strip():
+    if isinstance(value, Path):
+        raw = value
+    elif isinstance(value, str) and value.strip():
+        if value in KNOWN_ULTRALYTICS_CHECKPOINTS:
+            return value
+        raw = Path(value)
+    else:
         raise TrainingConfigError("model.weights must be a non-empty string.")
-    if value in KNOWN_ULTRALYTICS_CHECKPOINTS:
-        return value
-    raw = Path(value)
     path = raw.resolve() if raw.is_absolute() else resolve_project_path(raw, project_root)
     if require_exists and not path.is_file():
         raise TrainingConfigError(f"Checkpoint does not exist: {path}")
@@ -382,6 +385,11 @@ def apply_evaluation_overrides(
     overrides: dict[str, Any],
 ) -> EvaluationConfig:
     evaluation = dict(config.evaluation)
+    if overrides.get("checkpoint") is not None:
+        config = replace(
+            config,
+            weights=_resolve_weights(overrides["checkpoint"], config.project_root),
+        )
     if overrides.get("device") is not None:
         evaluation["device"] = _validate_device(overrides["device"])
     if overrides.get("batch") is not None:

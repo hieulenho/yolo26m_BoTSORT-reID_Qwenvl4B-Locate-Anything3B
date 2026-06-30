@@ -1,0 +1,32 @@
+model:
+  weights: models/detector/yolov8m_sportsmot_smoke_best.pt
+
+dataset:
+  data_yaml: data/yolo/sportsmot_football_smoke/dataset.yaml
+  split: val
+
+evaluation:
+  imgsz: 640
+  batch: 2
+  conf: 0.001
+  iou: 0.70
+  max_det: 300
+  device: auto
+  half: false
+  plots: false
+  save_json: true
+  save_txt: true
+  save_conf: true
+  verbose: true
+
+output:
+  project: outputs/evaluation
+  run_name: yolov8m_sportsmot_smoke_val
+  metrics_dir: outputs/metrics
+  figures_dir: outputs/figures/yolov8m_sportsmot
+
+runtime:
+  overwrite: true
+  max_images: null
+  warmup_iterations: 1
+  log_level: INFO

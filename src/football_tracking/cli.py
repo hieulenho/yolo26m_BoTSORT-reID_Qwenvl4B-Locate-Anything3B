@@ -20,6 +20,12 @@ from football_tracking.data.prepare import (
     validate_data,
     visualize_annotations,
 )
+from football_tracking.data.sportsmot_adapter import (
+    SportsMotError,
+    audit_sportsmot,
+    prepare_sportsmot,
+    validate_sportsmot,
+)
 from football_tracking.detection.baseline import (
     BaselineConfigError,
     evaluate_baseline,
@@ -139,6 +145,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Validate and plan without writing files.",
     )
 
+    sportsmot_parser = subparsers.add_parser(
+        "prepare-sportsmot",
+        help="Prepare SportsMOT football-only YOLO and MOT datasets.",
+    )
+    _add_data_common_options(sportsmot_parser)
+    sportsmot_parser.set_defaults(config=Path("configs/sportsmot_data.yaml"))
+    sportsmot_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate SportsMOT and plan splits without writing converted outputs.",
+    )
+
     validate_parser = subparsers.add_parser("validate-data", help="Validate raw data annotations.")
     _add_data_common_options(validate_parser)
 
@@ -239,6 +257,18 @@ def _looks_like_audit_config(path: Path) -> bool:
     )
 
 
+def _looks_like_sportsmot_config(path: Path) -> bool:
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except OSError:
+        return False
+    return (
+        isinstance(raw, dict)
+        and isinstance(raw.get("dataset"), dict)
+        and raw["dataset"].get("adapter") == "sportsmot"
+    )
+
+
 def _baseline_overrides(args: argparse.Namespace) -> dict[str, object]:
     return {
         "split": args.split,
@@ -261,6 +291,7 @@ def _training_overrides(args: argparse.Namespace) -> dict[str, object]:
         "batch": getattr(args, "batch", None),
         "imgsz": getattr(args, "imgsz", None),
         "workers": getattr(args, "workers", None),
+        "checkpoint": getattr(args, "checkpoint", None),
         "resume": getattr(args, "resume", None) or None,
         "overwrite": True if getattr(args, "overwrite", False) else None,
         "dry_run": True if getattr(args, "dry_run", False) else None,
@@ -280,10 +311,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stdout.write("\n")
         return report.exit_code
 
-    if args.command in {"prepare-data", "validate-data", "audit-data", "visualize-annotations"}:
+    if args.command in {
+        "prepare-data",
+        "prepare-sportsmot",
+        "validate-data",
+        "audit-data",
+        "visualize-annotations",
+    }:
         setup_logging(args.log_level or "INFO")
         try:
-            if args.command == "prepare-data":
+            is_sportsmot = args.command == "prepare-sportsmot" or _looks_like_sportsmot_config(
+                args.config
+            )
+            if args.command in {"prepare-data", "prepare-sportsmot"}:
+                if is_sportsmot:
+                    result = prepare_sportsmot(
+                        args.config,
+                        dry_run=args.dry_run,
+                        overwrite=args.overwrite or None,
+                    )
+                    sys.stdout.write(json.dumps(result, indent=2, default=str))
+                    sys.stdout.write("\n")
+                    return 0
                 result = prepare_data(
                     args.config,
                     dry_run=args.dry_run,
@@ -295,12 +344,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sys.stdout.write("\n")
                 return 1 if result.validation_report.has_errors else 0
             if args.command == "validate-data":
-                report = validate_data(args.config, max_sequences=args.max_sequences)
+                report = (
+                    validate_sportsmot(args.config)
+                    if is_sportsmot
+                    else validate_data(args.config, max_sequences=args.max_sequences)
+                )
                 sys.stdout.write(json.dumps(report.to_dict(), indent=2))
                 sys.stdout.write("\n")
                 return 1 if report.has_errors else 0
             if args.command == "audit-data":
                 audit = (
+                    audit_sportsmot(args.config)
+                    if is_sportsmot
+                    else
                     run_dataset_audit(args.config, max_sequences=args.max_sequences)
                     if _looks_like_audit_config(args.config)
                     else audit_data(args.config, max_sequences=args.max_sequences)
@@ -317,6 +373,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write("\n")
             return 0
         except (
+            SportsMotError,
             AuditConfigError,
             DataConfigError,
             ConfigError,

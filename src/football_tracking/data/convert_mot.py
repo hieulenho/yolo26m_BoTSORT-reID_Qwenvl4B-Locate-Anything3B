@@ -10,6 +10,7 @@ from typing import Any
 from football_tracking.data.bbox import clip_xyxy_to_image, is_valid_bbox, xyxy_to_xywh
 from football_tracking.data.convert_yolo import (
     ConversionError,
+    _clear_generated_outputs,
     _ensure_output_root,
     _link_or_copy_image,
 )
@@ -119,6 +120,12 @@ def convert_to_mot(
     if frame_index_base != 1:
         raise ConversionError("MOT frame_index_base must be 1.")
     _ensure_output_root(output_dir, overwrite=overwrite, dry_run=dry_run)
+    if overwrite:
+        _clear_generated_outputs(
+            output_dir,
+            ("train", "val", "test", "seqmaps"),
+            dry_run=dry_run,
+        )
     stats: dict[str, Any] = {"gt_rows": 0, "sequences": 0, "dry_run": dry_run}
 
     seqmaps: dict[str, list[str]] = {"train": [], "val": [], "test": []}

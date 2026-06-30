@@ -43,6 +43,28 @@ def test_preflight_reports_missing_dataset_yaml(tmp_path: Path) -> None:
     assert any(issue.code == "dataset_yaml_missing" for issue in report.issues)
 
 
+def test_preflight_reports_cuda_issue_even_when_dataset_yaml_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "football_tracking.detection.trainer._runtime_metadata",
+        lambda device: {"device": device, "cuda_available": False},
+    )
+    config_path = _config(tmp_path)
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    payload["dataset"]["data_yaml"] = str(tmp_path / "missing.yaml")
+    payload["training"]["device"] = "0"
+    config_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    config = load_training_config(config_path)
+
+    report = run_training_preflight(config)
+
+    codes = {issue.code for issue in report.issues}
+    assert "dataset_yaml_missing" in codes
+    assert "cuda_unavailable" in codes
+
+
 def test_preflight_reports_malformed_label_and_leakage(tmp_path: Path) -> None:
     _write_ppm(tmp_path / "images" / "train" / "same.ppm")
     _write_ppm(tmp_path / "images" / "val" / "same.ppm")
@@ -57,3 +79,22 @@ def test_preflight_reports_malformed_label_and_leakage(tmp_path: Path) -> None:
     codes = {issue.code for issue in report.issues}
     assert "label_malformed" in codes
     assert "split_leakage" in codes
+
+
+def test_preflight_reports_sequence_leakage_and_writes_sportsmot_report(
+    tmp_path: Path,
+) -> None:
+    _write_ppm(tmp_path / "images" / "train" / "football_alpha_c001_000001.ppm")
+    _write_ppm(tmp_path / "images" / "val" / "football_alpha_c001_000002.ppm")
+    for split, frame in (("train", "000001"), ("val", "000002")):
+        label = tmp_path / "labels" / split / f"football_alpha_c001_{frame}.txt"
+        label.parent.mkdir(parents=True, exist_ok=True)
+        label.write_text("0 0.5 0.5 1.0 1.0\n", encoding="utf-8")
+    config = load_training_config(_config(tmp_path, output__run_name="yolov8m_sportsmot_test"))
+
+    report = run_training_preflight(config)
+
+    codes = {issue.code for issue in report.issues}
+    assert "sequence_split_leakage" in codes
+    assert report.metadata["train_val_sequence_overlap_count"] == 1
+    assert (tmp_path / "metrics" / "training_preflight_sportsmot.json").is_file()

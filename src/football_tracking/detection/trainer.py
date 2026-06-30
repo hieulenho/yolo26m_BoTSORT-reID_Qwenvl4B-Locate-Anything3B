@@ -94,6 +94,18 @@ def _label_paths(path: Path) -> list[Path]:
     return sorted(path.rglob("*.txt")) if path.is_dir() else []
 
 
+def _sequence_name_from_image(path: Path) -> str:
+    stem = path.stem
+    sequence_name, separator, frame_token = stem.rpartition("_")
+    if separator and frame_token.isdigit():
+        return sequence_name
+    return stem
+
+
+def _is_sportsmot_config(config: TrainingConfig) -> bool:
+    return "sportsmot" in str(config.data_yaml).lower() or "sportsmot" in config.run_name.lower()
+
+
 def _validate_label_file(path: Path, class_count: int, report: PreflightReport) -> int:
     objects = 0
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -165,6 +177,21 @@ def run_training_preflight(config: TrainingConfig) -> PreflightReport:
     report.metadata.update(_runtime_metadata(str(config.training.get("device", "auto"))))
     if not platform.python_version().startswith("3.12."):
         report.add("ERROR", "python_version", "Python 3.12.x is required.")
+    if (
+        config.training.get("device") not in {"auto", "cpu"}
+        and not report.metadata.get("cuda_available")
+    ):
+        report.add(
+            "ERROR",
+            "cuda_unavailable",
+            "CUDA device requested but torch CUDA is unavailable.",
+        )
+    if config.training.get("device") == "auto" and not report.metadata.get("cuda_available"):
+        report.add(
+            "WARNING",
+            "cuda_auto_unavailable",
+            "device=auto resolved on a machine where torch CUDA is unavailable.",
+        )
     if not config.data_yaml.is_file():
         report.add("ERROR", "dataset_yaml_missing", "Dataset YAML is missing.", config.data_yaml)
         return write_preflight_report(config, report)
@@ -251,6 +278,15 @@ def run_training_preflight(config: TrainingConfig) -> PreflightReport:
         leakage = sorted(train_stems & val_stems)
         if leakage:
             report.add("ERROR", "split_leakage", f"Train/val leakage detected: {leakage[:10]}")
+        train_sequences = {_sequence_name_from_image(path) for path in train_images}
+        val_sequences = {_sequence_name_from_image(path) for path in val_images}
+        sequence_leakage = sorted(train_sequences & val_sequences)
+        if sequence_leakage:
+            report.add(
+                "ERROR",
+                "sequence_split_leakage",
+                f"Train/val sequence leakage detected: {sequence_leakage[:10]}",
+            )
     if config.run_dir.exists() and not config.overwrite and not config.training.get("resume"):
         report.add(
             "ERROR",
@@ -272,16 +308,6 @@ def run_training_preflight(config: TrainingConfig) -> PreflightReport:
         checkpoint = Path(str(config.weights))
         if not checkpoint.is_file():
             report.add("ERROR", "checkpoint_missing", "Checkpoint does not exist.", checkpoint)
-    if (
-        config.training.get("device") not in {"auto", "cpu"}
-        and not report.metadata.get("cuda_available")
-    ):
-        report.add(
-            "ERROR",
-            "cuda_unavailable",
-            "CUDA device requested but torch CUDA is unavailable.",
-        )
-
     report.metadata.update(
         {
             "dataset_yaml": str(config.data_yaml),
@@ -289,6 +315,20 @@ def run_training_preflight(config: TrainingConfig) -> PreflightReport:
             "split_records": split_records,
             "ground_truth_count": total_objects,
             "train_val_overlap_count": len(train_stems & val_stems),
+            "train_val_sequence_overlap_count": len(
+                {
+                    _sequence_name_from_image(path)
+                    for path in _image_paths(Path(split_records[config.train_split]["image_dir"]))
+                }
+                & {
+                    _sequence_name_from_image(path)
+                    for path in _image_paths(
+                        Path(split_records[config.validation_split]["image_dir"])
+                    )
+                }
+            )
+            if config.train_split in split_records and config.validation_split in split_records
+            else 0,
         }
     )
     return write_preflight_report(config, report)
@@ -298,7 +338,26 @@ def write_preflight_report(config: TrainingConfig, report: PreflightReport) -> P
     config.metrics_dir.mkdir(parents=True, exist_ok=True)
     path = config.metrics_dir / "training_preflight.json"
     path.write_text(json.dumps(report.to_dict(), indent=2, default=str), encoding="utf-8")
+    if _is_sportsmot_config(config):
+        sportsmot_path = config.metrics_dir / "training_preflight_sportsmot.json"
+        sportsmot_path.write_text(
+            json.dumps(report.to_dict(), indent=2, default=str),
+            encoding="utf-8",
+        )
     return report
+
+
+def _summarize_training_result(result: Any) -> Any:
+    results_dict = getattr(result, "results_dict", None)
+    if isinstance(results_dict, dict):
+        return {
+            key: float(value) if isinstance(value, int | float) else value
+            for key, value in results_dict.items()
+        }
+    if isinstance(result, str):
+        return result
+    text = str(result)
+    return text if len(text) <= 1000 else f"{text[:1000]}..."
 
 
 class YOLOv8Trainer:
@@ -398,7 +457,12 @@ class YOLOv8Trainer:
             )
         except CheckpointError:
             copied = {}
-        return {"dry_run": False, "result": str(result), "artifacts": artifacts, "copied": copied}
+        return {
+            "dry_run": False,
+            "result": _summarize_training_result(result),
+            "artifacts": artifacts,
+            "copied": copied,
+        }
 
     def resume(self, checkpoint: Path) -> dict[str, Any]:
         validate_checkpoint(checkpoint)

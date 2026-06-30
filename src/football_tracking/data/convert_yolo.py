@@ -22,6 +22,21 @@ from football_tracking.data.schemas import (
 )
 
 LOGGER = logging.getLogger(__name__)
+YOLO_SUPPORTED_IMAGE_SUFFIXES = {
+    ".avif",
+    ".bmp",
+    ".dng",
+    ".heic",
+    ".heif",
+    ".jp2",
+    ".jpeg",
+    ".jpg",
+    ".mpo",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
 
 
 class ConversionError(RuntimeError):
@@ -36,6 +51,24 @@ def _ensure_output_root(path: Path, overwrite: bool, dry_run: bool) -> None:
         if meaningful:
             raise ConversionError(f"Output already exists and overwrite=false: {path}")
     path.mkdir(parents=True, exist_ok=True)
+
+
+def _remove_output_path(path: Path, dry_run: bool) -> None:
+    if dry_run or not path.exists():
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def _clear_generated_outputs(
+    output_dir: Path,
+    relative_paths: tuple[str, ...],
+    dry_run: bool,
+) -> None:
+    for relative_path in relative_paths:
+        _remove_output_path(output_dir / relative_path, dry_run=dry_run)
 
 
 def _link_or_copy_image(
@@ -63,6 +96,60 @@ def _link_or_copy_image(
         LOGGER.info("Hardlink failed for %s -> %s: %s", destination, source, exc)
     shutil.copy2(source, destination)
     return "copy"
+
+
+def _transcode_image_to_png(
+    source: Path,
+    destination: Path,
+    expected_width: int,
+    expected_height: int,
+) -> str:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        destination.unlink()
+    try:
+        import cv2  # type: ignore[import-not-found]
+    except Exception as exc:  # noqa: BLE001
+        raise ConversionError(
+            f"OpenCV is required to transcode unsupported image format: {source}"
+        ) from exc
+    image = cv2.imread(str(source))
+    if image is None:
+        raise ConversionError(f"Could not read image for YOLO conversion: {source}")
+    if expected_width > 0 and expected_height > 0:
+        height, width = image.shape[:2]
+        if (width, height) != (expected_width, expected_height):
+            image = cv2.resize(
+                image,
+                (expected_width, expected_height),
+                interpolation=cv2.INTER_NEAREST,
+            )
+    if not cv2.imwrite(str(destination), image):
+        raise ConversionError(f"Could not write transcoded YOLO image: {destination}")
+    return "transcode_png"
+
+
+def _write_yolo_image(
+    source: Path,
+    destination_stem: Path,
+    expected_width: int,
+    expected_height: int,
+    prefer_symlink: bool,
+    copy_images: bool,
+) -> str:
+    if source.suffix.lower() in YOLO_SUPPORTED_IMAGE_SUFFIXES:
+        return _link_or_copy_image(
+            source,
+            destination_stem.with_suffix(source.suffix),
+            prefer_symlink=prefer_symlink,
+            copy_images=copy_images,
+        )
+    return _transcode_image_to_png(
+        source,
+        destination_stem.with_suffix(".png"),
+        expected_width=expected_width,
+        expected_height=expected_height,
+    )
 
 
 def _eligible_objects(
@@ -124,6 +211,12 @@ def convert_to_yolo(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     _ensure_output_root(output_dir, overwrite=overwrite, dry_run=dry_run)
+    if overwrite:
+        _clear_generated_outputs(
+            output_dir,
+            ("images", "labels", "dataset.yaml", "manifest.json"),
+            dry_run=dry_run,
+        )
     planned_images = 0
     planned_labels = 0
     link_methods: dict[str, int] = {}
@@ -139,9 +232,7 @@ def convert_to_yolo(
             continue
         for frame in sequence.annotations:
             stem = f"{sequence.name}_{frame.frame_index:06d}"
-            image_destination = (
-                output_dir / "images" / split_name / f"{stem}{frame.image_path.suffix}"
-            )
+            image_destination_stem = output_dir / "images" / split_name / stem
             label_destination = output_dir / "labels" / split_name / f"{stem}.txt"
             planned_images += 1
             planned_labels += 1
@@ -154,9 +245,11 @@ def convert_to_yolo(
             if not frame.image_path.is_file():
                 LOGGER.warning("Image does not exist for YOLO conversion: %s", frame.image_path)
                 continue
-            method = _link_or_copy_image(
+            method = _write_yolo_image(
                 frame.image_path,
-                image_destination,
+                image_destination_stem,
+                expected_width=frame.width,
+                expected_height=frame.height,
                 prefer_symlink=prefer_symlink,
                 copy_images=copy_images,
             )

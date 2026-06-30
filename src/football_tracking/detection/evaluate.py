@@ -20,30 +20,35 @@ from football_tracking.reporting.detector_report import write_detector_metrics
 
 def evaluate_with_ultralytics(
     weights: str | Path,
-    data_yaml: Path,
-    split: str,
-    imgsz: int,
-    conf: float,
-    iou: float,
-    batch: int,
-    device: str,
+    val_args_or_data_yaml: dict[str, Any] | Path,
+    split: str | None = None,
+    imgsz: int | None = None,
+    conf: float | None = None,
+    iou: float | None = None,
+    batch: int | None = None,
+    device: str | None = None,
     model: Any | None = None,
 ) -> BaselineMetrics:
+    if isinstance(val_args_or_data_yaml, dict):
+        val_args = val_args_or_data_yaml
+    else:
+        val_args = {
+            "data": str(val_args_or_data_yaml),
+            "split": split,
+            "imgsz": imgsz,
+            "conf": conf,
+            "iou": iou,
+            "batch": batch,
+            "device": None if device == "auto" else device,
+            "verbose": False,
+        }
+        val_args = {key: value for key, value in val_args.items() if value is not None}
     try:
         if model is None:
             from ultralytics import YOLO  # type: ignore[import-not-found]
 
             model = YOLO(str(weights))
-        result = model.val(
-            data=str(data_yaml),
-            split=split,
-            imgsz=imgsz,
-            conf=conf,
-            iou=iou,
-            batch=batch,
-            device=None if device == "auto" else device,
-            verbose=False,
-        )
+        result = model.val(**val_args)
     except Exception as exc:  # noqa: BLE001
         return metrics_not_available(f"Ultralytics evaluator failed: {exc}")
     return parse_ultralytics_metrics(result)
@@ -69,13 +74,7 @@ def evaluate_detector(
     else:
         metrics = evaluate_with_ultralytics(
             config.weights,
-            config.data_yaml,
-            config.split,
-            int(config.evaluation["imgsz"]),
-            float(config.evaluation["conf"]),
-            float(config.evaluation["iou"]),
-            int(config.evaluation["batch"]),
-            str(config.evaluation["device"]),
+            config.sanitized_val_args(),
             model=model,
         )
     versions = runtime_versions()
@@ -96,6 +95,8 @@ def evaluate_detector(
         "device": config.evaluation.get("device"),
         "gpu": versions.get("gpu_name"),
         "cuda_available": versions.get("cuda_available"),
+        "smoke_only": "smoke" in config.run_name.lower()
+        or "smoke" in str(config.data_yaml).lower(),
     }
     paths = write_detector_metrics(payload, config.metrics_dir, config.output_prefix)
     return {"metrics": payload, "paths": {key: str(path) for key, path in paths.items()}}

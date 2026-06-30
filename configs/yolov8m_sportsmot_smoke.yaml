@@ -1,5 +1,5 @@
 experiment:
-  name: yolov8m_players_finetuned
+  name: yolov8m_sportsmot_smoke
   seed: 42
   deterministic: true
 
@@ -8,18 +8,18 @@ model:
   task: detect
 
 dataset:
-  data_yaml: data/yolo/dataset.yaml
+  data_yaml: data/yolo/sportsmot_football_smoke/dataset.yaml
   train_split: train
   validation_split: val
   test_split: test
 
 training:
-  epochs: 100
-  imgsz: 960
+  epochs: 1
+  imgsz: 640
   batch: 2
-  patience: 20
+  patience: 1
   device: auto
-  workers: 4
+  workers: 0
   cache: false
   pretrained: true
   optimizer: auto
@@ -27,40 +27,34 @@ training:
   lrf: null
   weight_decay: null
   warmup_epochs: null
-  close_mosaic: 10
+  close_mosaic: 0
   amp: true
   resume: false
   save: true
   save_period: -1
-  plots: true
+  plots: false
   verbose: true
 
 augmentation:
-  hsv_h: null
-  hsv_s: null
-  hsv_v: null
   degrees: 0.0
-  translate: null
-  scale: null
   shear: 0.0
   perspective: 0.0
   flipud: 0.0
   fliplr: 0.5
-  mosaic: null
   mixup: 0.0
   copy_paste: 0.0
 
 output:
   project: outputs/training
-  run_name: yolov8m_players
+  run_name: yolov8m_sportsmot_smoke
   models_dir: models/detector
   metrics_dir: outputs/metrics
-  figures_dir: outputs/figures/yolov8m_finetuned
+  figures_dir: outputs/figures/yolov8m_sportsmot
 
 runtime:
-  overwrite: false
+  overwrite: true
   dry_run: false
-  smoke_test: false
+  smoke_test: true
   max_train_images: null
   max_val_images: null
   log_level: INFO

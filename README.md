@@ -286,6 +286,63 @@ test split  -> one final evaluation after configuration is fixed
 
 Do not tune thresholds or hyperparameters on the test split.
 
+## SportsMOT Football Dataset
+
+SportsMOT is the recommended real dataset path for this milestone because it
+contains MOT-style annotations, track IDs, frames, and an official football
+sequence list. The project prepares only football sequences:
+
+```text
+official train football -> local train/val by sequence group
+official val football   -> local test
+```
+
+First check the downloader command without downloading anything:
+
+```powershell
+.\scripts\download_sportsmot.ps1 -Split "train,val" -DryRun
+```
+
+Download train and val when you are ready for a long network/disk operation:
+
+```powershell
+.\scripts\download_sportsmot.ps1 -Split "train,val"
+```
+
+The downloader uses a separate environment at `tools/.venv-download`, writes
+raw data under `data/raw/sportsmot`, and caches ZIPs under `.cache/sportsmot`.
+If the official downloader asks for terms or authentication, complete that step
+through the official source and rerun the script; do not bypass access controls.
+
+Prepare SportsMOT football YOLO and MOT outputs:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli prepare-sportsmot `
+  --config configs/sportsmot_data.yaml `
+  --overwrite
+```
+
+Validation and audit:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli validate-data `
+  --config configs/sportsmot_data.yaml
+
+.\.venv\Scripts\python.exe -m football_tracking.cli audit-data `
+  --config configs/sportsmot_data.yaml
+```
+
+Main SportsMOT outputs:
+
+```text
+data/yolo/sportsmot_football/dataset.yaml
+data/yolo/sportsmot_football_smoke/dataset.yaml
+data/mot/sportsmot_football/
+outputs/metrics/sportsmot_download_validation.json
+outputs/metrics/sportsmot_football_audit.json
+outputs/metrics/sportsmot_football_per_sequence.csv
+```
+
 Run training preflight:
 
 ```powershell
@@ -308,13 +365,33 @@ Smoke training:
   --config configs/yolov8m_smoke.yaml
 ```
 
+The default smoke config uses the checked-in mini fixture at
+`data/yolo/mini_tracking_fixture/dataset.yaml`. After SportsMOT is prepared, use
+the SportsMOT smoke config:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli train-detector `
+  --config configs/yolov8m_sportsmot_smoke.yaml `
+  --device 0
+```
+
+Validate the SportsMOT smoke checkpoint:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector `
+  --config configs/yolov8m_sportsmot_smoke_eval.yaml
+```
+
 Full training:
 
 ```powershell
 .\.venv\Scripts\python.exe -m football_tracking.cli train-detector `
-  --config configs/yolov8m_train.yaml `
+  --config configs/yolov8m_sportsmot_train.yaml `
   --device 0
 ```
+
+Full training can take hours. Run the SportsMOT smoke command first and keep the
+test split untouched until final reporting.
 
 Resume from `last.pt`:
 
@@ -327,10 +404,18 @@ Validation and test evaluation:
 
 ```powershell
 .\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector `
-  --config configs/yolov8m_eval.yaml
+  --config configs/yolov8m_sportsmot_eval.yaml
 
 .\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector `
-  --config configs/yolov8m_test.yaml
+  --config configs/yolov8m_sportsmot_test.yaml
+```
+
+You can also evaluate an explicit checkpoint without editing the YAML:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector `
+  --config configs/yolov8m_eval.yaml `
+  --checkpoint models/detector/yolov8m_players_best.pt
 ```
 
 Compare pretrained and fine-tuned reports:

@@ -8,7 +8,7 @@ model:
   task: detect
 
 dataset:
-  data_yaml: data/yolo/dataset.yaml
+  data_yaml: data/yolo/mini_tracking_fixture/dataset.yaml
   train_split: train
   validation_split: val
   test_split: test

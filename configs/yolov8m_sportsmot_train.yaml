@@ -1,5 +1,5 @@
 experiment:
-  name: yolov8m_players_finetuned
+  name: yolov8m_sportsmot
   seed: 42
   deterministic: true
 
@@ -8,14 +8,14 @@ model:
   task: detect
 
 dataset:
-  data_yaml: data/yolo/dataset.yaml
+  data_yaml: data/yolo/sportsmot_football/dataset.yaml
   train_split: train
   validation_split: val
   test_split: test
 
 training:
   epochs: 100
-  imgsz: 960
+  imgsz: 640
   batch: 2
   patience: 20
   device: auto
@@ -36,26 +36,20 @@ training:
   verbose: true
 
 augmentation:
-  hsv_h: null
-  hsv_s: null
-  hsv_v: null
   degrees: 0.0
-  translate: null
-  scale: null
   shear: 0.0
   perspective: 0.0
   flipud: 0.0
   fliplr: 0.5
-  mosaic: null
   mixup: 0.0
   copy_paste: 0.0
 
 output:
   project: outputs/training
-  run_name: yolov8m_players
+  run_name: yolov8m_sportsmot
   models_dir: models/detector
   metrics_dir: outputs/metrics
-  figures_dir: outputs/figures/yolov8m_finetuned
+  figures_dir: outputs/figures/yolov8m_sportsmot
 
 runtime:
   overwrite: false

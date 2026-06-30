@@ -1,0 +1,50 @@
+model:
+  checkpoint: models/detector/yolov8m_players_best.pt
+  fallback_checkpoint: yolov8m.pt
+  allow_fallback_checkpoint: false
+  allow_smoke_checkpoint: false
+  allow_pretrained_fallback: false
+
+detector:
+  imgsz: 960
+  conf: 0.20
+  iou: 0.70
+  max_det: 300
+  device: auto
+  half: false
+  class_ids:
+    - 0
+
+tracker:
+  config: configs/deepsort.yaml
+
+source:
+  path: data/samples/match.mp4
+  type: video
+
+output:
+  video: outputs/videos/tracked_match.mp4
+  mot: outputs/tracks/deepsort/tracked_match.txt
+  metadata: outputs/tracks/deepsort/tracked_match.metadata.json
+  render_video: true
+  save_mot: true
+
+render:
+  enabled: true
+  show_confidence: true
+  show_class: true
+  show_track_id: true
+  show_trajectory: true
+  trajectory_length: 30
+  line_thickness: 2
+  font_scale: 0.6
+  show_fps: true
+
+runtime:
+  max_frames: null
+  start_frame: 1
+  overwrite: false
+  show_window: false
+  save_mot: true
+  fail_fast: true
+  log_level: INFO

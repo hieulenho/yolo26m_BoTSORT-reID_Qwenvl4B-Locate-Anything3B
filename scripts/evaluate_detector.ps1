@@ -1,5 +1,6 @@
 param(
     [string]$Config = "configs/yolov8m_eval.yaml",
+    [string]$Checkpoint = "",
     [string]$Split = "",
     [string]$Device = "auto"
 )
@@ -10,6 +11,9 @@ $Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 Set-Location $ProjectRoot
 
 $argsList = @("-m", "football_tracking.cli", "evaluate-detector", "--config", $Config)
+if ($Checkpoint) {
+    $argsList += @("--checkpoint", $Checkpoint)
+}
 if ($Split) {
     $argsList += @("--split", $Split)
 }
