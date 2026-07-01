@@ -1,0 +1,10 @@
+services:
+  tracking:
+    build: .
+    image: football-tracking:latest
+    working_dir: /app
+    environment:
+      FOOTBALL_TRACKING_ROOT: /app
+    volumes:
+      - .:/app
+    command: python -m football_tracking.cli doctor

@@ -1,0 +1,14 @@
+tracker:
+  name: sort
+  max_age: 30
+  min_hits: 3
+  iou_threshold: 0.3
+
+output:
+  confirmed_only: true
+  require_recent_update: true
+  max_time_since_update_for_output: 1
+  output_predicted_tracks_without_detection: false
+
+runtime:
+  log_level: INFO

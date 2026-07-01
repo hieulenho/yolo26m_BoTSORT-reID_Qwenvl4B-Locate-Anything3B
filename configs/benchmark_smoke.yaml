@@ -1,0 +1,12 @@
+inputs:
+  detector_metrics: outputs/metrics/yolov8m_finetuned_val.json
+  tracker_overall: outputs/metrics/experiments_smoke/sort_vs_deepsort_overall.json
+  tracker_per_sequence: outputs/metrics/experiments_smoke/sort_vs_deepsort_per_sequence.csv
+
+output:
+  root: outputs/metrics/benchmark_smoke
+  figures_root: outputs/figures/benchmark_smoke
+
+runtime:
+  overwrite: true
+  log_level: INFO

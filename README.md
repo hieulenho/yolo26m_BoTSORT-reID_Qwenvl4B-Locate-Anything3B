@@ -1,385 +1,126 @@
 # Football Player Detection and Multi-Object Tracking
 
-This project will use YOLOv8m to detect football players and DeepSORT to keep stable track IDs across video frames.
+YOLOv8m detector training, SORT/DeepSORT tracking, TrackEval evaluation, benchmark tables, figures, and demo video rendering for football player tracking.
 
-Current scope: Milestone 3 dataset QA and YOLOv8m pretrained detection baseline. The repository contains the Milestone 1/2 project setup and data conversion pipeline, plus audit reports, dataset plots, annotation samples, pretrained detector inference, prediction serialization, timing, and baseline reporting.
+## Overview
 
-Planned architecture:
+This repository is a reproducible benchmark pipeline for football player detection and multi-object tracking. It prepares SportsMOT football sequences, fine-tunes YOLOv8m, caches detections once, compares SORT and DeepSORT from the same detector outputs, evaluates with TrackEval, renders annotated videos, and generates final reports.
 
-```text
-video -> YOLOv8m -> DeepSORT -> MOT evaluation
-```
-
-Not implemented in this milestone: dataset download, YOLOv8m fine-tuning/training, DeepSORT tracking integration, TrackEval, SORT baseline, dashboards, HOTA, MOTA, or IDF1 metrics.
-
-## Requirements
-
-- Windows 10 or Windows 11
-- Python 3.12.x
-- Python Launcher for Windows
-- Git
-- NVIDIA GPU is optional
-
-PyTorch is intentionally not listed in `requirements/base.txt`. Install PyTorch separately for your CPU/CUDA environment from the official PyTorch instructions so an existing CUDA-compatible install is not overwritten by accident.
-
-## Check Python
-
-From PowerShell:
-
-```powershell
-py -0p
-py -3.12 --version
-```
-
-Expected Python version:
+Core flow:
 
 ```text
-Python 3.12.x
+SportsMOT frames + GT
+-> YOLO dataset / MOT dataset
+-> YOLOv8m fine-tuning and detector evaluation
+-> shared detection cache
+-> SORT and DeepSORT
+-> TrackEval metrics, figures, videos, reports
 ```
 
-## Setup
+## Features
 
-Recommended setup:
+- SportsMOT football adapter with YOLO and MOTChallenge exports.
+- YOLOv8m training, resume, preflight validation, and evaluation commands.
+- Shared detection cache so SORT and DeepSORT compare against identical boxes.
+- SORT baseline and DeepSORT tracker integration without Ultralytics built-in tracking.
+- Official TrackEval integration for HOTA, DetA, AssA, MOTA, IDF1, IDSW, FP, and FN.
+- OpenCV video rendering with bbox, track id, confidence, FPS, frame, tracker, and sequence overlays.
+- Matplotlib figures for detector, tracker, speed-vs-quality, and per-sequence metrics.
+- CSV, JSON, Markdown benchmark outputs and final Markdown report generation.
+- Demo scripts, GitHub Actions, Dockerfile, docker-compose, tests, ruff, and MIT license.
 
-```powershell
-cd F:\Tracking
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\setup_env.ps1
-```
-
-Manual environment creation:
-
-```powershell
-cd F:\Tracking
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-Check the active interpreter:
-
-```powershell
-python --version
-python -c "import sys; print(sys.executable)"
-```
-
-Expected result:
-
-```text
-Python 3.12.x
-F:\Tracking\.venv\Scripts\python.exe
-```
-
-If an older Python 3.11 virtual environment exists, recreate it. Python cannot be upgraded inside an existing virtual environment.
-
-To keep the old environment as a backup:
-
-```powershell
-deactivate
-Rename-Item .venv .venv-py311-backup
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-After the Python 3.12 environment is ready, install project dependencies:
-
-```powershell
-python -m pip install --upgrade pip setuptools wheel
-python -m pip install -r requirements/dev.txt
-python -m pip install --editable .
-```
-
-Install PyTorch separately for the CUDA version on this machine before treating the environment as fully complete.
-
-## Doctor
+Main CLI commands:
 
 ```powershell
 .\.venv\Scripts\python.exe -m football_tracking.cli doctor
+.\.venv\Scripts\python.exe -m football_tracking.cli prepare-dataset --help
+.\.venv\Scripts\python.exe -m football_tracking.cli train-detector --help
+.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector --help
+.\.venv\Scripts\python.exe -m football_tracking.cli cache-detections --help
+.\.venv\Scripts\python.exe -m football_tracking.cli track --help
+.\.venv\Scripts\python.exe -m football_tracking.cli compare-trackers --help
+.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-tracking --help
+.\.venv\Scripts\python.exe -m football_tracking.cli render-video --help
+.\.venv\Scripts\python.exe -m football_tracking.cli benchmark --help
+.\.venv\Scripts\python.exe -m football_tracking.cli generate-report --help
+.\.venv\Scripts\python.exe -m football_tracking.cli summarize-experiments --help
 ```
 
-The doctor command checks the project root, Python 3.12 runtime, Python executable location, operating system, config loading, output writability, PyTorch/CUDA, Ultralytics, OpenCV, NumPy, and DeepSORT availability.
-
-## Milestone 2 Data Pipeline
-
-The data pipeline converts football tracking annotations into two ground-truth formats:
-
-YOLO detection labels:
+## Project Structure
 
 ```text
-class_id x_center y_center width height
+configs/                 YAML configs for data, training, cache, tracking, reports
+data/raw/sportsmot/      downloaded SportsMOT source data
+data/yolo/               prepared YOLO datasets
+data/mot/                prepared MOTChallenge datasets
+models/detector/         exported detector checkpoints, ignored by Git
+src/football_tracking/   package source
+outputs/detections/      predictions and shared detection cache
+outputs/tracks/          MOT tracker outputs
+outputs/videos/          rendered MP4 demos
+outputs/metrics/         JSON/CSV/Markdown metrics and reports
+outputs/figures/         matplotlib figures
+outputs/reports/         final project reports
+demo/                    one-command demo scripts
+tests/                   pytest suite
 ```
 
-MOTChallenge tracking labels:
+## Installation
 
-```text
-frame,track_id,left,top,width,height,confidence,class,visibility
-```
-
-YOLO ground truth is needed for detector training/evaluation such as mAP. MOT ground truth keeps `track_id`, so later milestones can evaluate tracking metrics such as HOTA, MOTA, and IDF1.
-
-The MVP class set is intentionally single-class:
-
-```text
-0: player
-```
-
-Player-like source labels such as `player`, `player team left`, `player home`, and `goalkeeper` are mapped to `player` through `configs/class_mapping.yaml`. Referees, staff, ball, audience, and unknown classes are skipped unless the mapping config is changed.
-
-Place real raw datasets under:
-
-```text
-data/raw/
-```
-
-The SoccerNet adapter currently discovers sequence directories that contain a frame directory plus an explicit annotation JSON file. Real SoccerNet layouts can vary; the adapter validates the discovered layout and raises a descriptive error when it cannot recognize the annotation schema. It does not download datasets and does not invent missing annotations.
-
-Run a dry-run on the fixture config:
+Windows / PowerShell:
 
 ```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli prepare-data --config configs/data_test.yaml --dry-run
+cd F:\Tracking
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
+.\.venv\Scripts\python.exe -m pip install -r requirements/dev.txt
+.\.venv\Scripts\python.exe -m pip install --editable .
+.\.venv\Scripts\python.exe -m football_tracking.cli doctor
 ```
 
-Run the fixture pipeline:
+Install PyTorch for your CUDA/CPU environment from the official PyTorch instructions before GPU training. The project does not pin PyTorch in `requirements/base.txt` so it does not overwrite a working CUDA install.
 
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli prepare-data --config configs/data_test.yaml
-```
+## Dataset
 
-Run against the default raw dataset location:
+SportsMOT is the recommended real dataset because it provides football videos, MOT-style ground truth, track IDs, and official football sequence lists.
 
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli prepare-data --config configs/data.yaml --dry-run
-.\.venv\Scripts\python.exe -m football_tracking.cli prepare-data --config configs/data.yaml
-.\.venv\Scripts\python.exe -m football_tracking.cli validate-data --config configs/data.yaml
-.\.venv\Scripts\python.exe -m football_tracking.cli audit-data --config configs/data.yaml
-.\.venv\Scripts\python.exe -m football_tracking.cli visualize-annotations --config configs/data.yaml --num-samples 10
-```
-
-Generated outputs:
-
-```text
-data/interim/      split files and dataset manifest
-data/yolo/         YOLO images, labels, dataset.yaml, manifest
-data/mot/          MOTChallenge train/val/test sequences and seqmaps
-outputs/metrics/  validation and audit reports
-outputs/figures/  annotation visualization samples
-```
-
-Splits are made by sequence, not by frame, so one video/sequence cannot leak across train, validation, and test.
-
-## Milestone 3 Dataset Audit
-
-The dataset audit checks the prepared YOLO/MOT data and the mapped annotations:
-
-- sequence, frame, object, and track counts;
-- bounding-box width, height, area ratio, aspect ratio, clipping, invalid boxes, and boundary-touch boxes;
-- track length, single-frame tracks, frame gaps, continuous tracks, and duplicate track IDs within one frame;
-- split counts and split leakage;
-- source classes, target classes, ignored classes, unknown classes, goalkeeper-to-player mapping, and referee ignore counts;
-- ground-truth annotation samples under split and sequence folders.
-
-The default audit config uses the mini fixture when no real dataset exists:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli audit-data `
-  --config configs/audit.yaml
-```
-
-Main audit outputs:
-
-```text
-outputs/metrics/dataset_audit_summary.json
-outputs/metrics/dataset_audit_per_sequence.csv
-outputs/metrics/dataset_audit_per_split.csv
-outputs/metrics/dataset_audit_tracks.csv
-outputs/metrics/dataset_audit_errors.json
-outputs/figures/dataset_audit/
-outputs/figures/annotation_samples/<split>/<sequence>/
-```
-
-JSON audit reports use `null` plus a reason when a statistic cannot be computed; they do not write NaN.
-
-## Milestone 3 YOLOv8m Pretrained Baseline
-
-The baseline uses `yolov8m.pt` pretrained on COCO. It keeps only COCO class `person` and maps it to the project target class:
-
-```text
-0: player
-```
-
-This is a pretrained baseline, not the final football detector. It is useful because it gives a reproducible reference before fine-tuning in Milestone 4. A fine-tuned model learns the football-specific annotation policy; the pretrained COCO model only knows the broad `person` category.
-
-COCO `person` can include players, goalkeepers, referees, staff, coaches, and people outside the field. The MVP ground truth maps player-like labels and goalkeepers to `player`, while referees and staff are ignored. Because predictions must not be silently corrected with ground truth, this baseline can produce false positives on referees or staff.
-
-Run a safe dry-run with no inference and no checkpoint download:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli run-baseline `
-  --config configs/yolov8m_baseline.yaml `
-  --dry-run
-```
-
-Run a small CPU smoke test after `yolov8m.pt` is available or Ultralytics is allowed to download it:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli run-baseline `
-  --config configs/yolov8m_baseline.yaml `
-  --device cpu `
-  --max-images 20 `
-  --overwrite
-```
-
-Run on CUDA device 0:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli run-baseline `
-  --config configs/yolov8m_baseline.yaml `
-  --device 0 `
-  --max-images 100 `
-  --overwrite
-```
-
-Inference-only and evaluation-only commands are also available:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli baseline-detect `
-  --config configs/yolov8m_baseline.yaml `
-  --max-images 20 `
-  --overwrite
-
-.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-baseline `
-  --config configs/yolov8m_baseline.yaml
-```
-
-The baseline report distinguishes:
-
-- `mAP@50`: AP at IoU threshold 0.50.
-- `mAP@50:95`: mean AP over IoU thresholds 0.50 through 0.95 in steps of 0.05.
-
-Metrics come from the Ultralytics validator when it can run. If it cannot run, the report writes `not available` / `null` with the reason rather than filling fake zeros.
-
-Baseline outputs:
-
-```text
-outputs/detections/yolov8m_pretrained/predictions.jsonl
-outputs/detections/yolov8m_pretrained/yolo_labels/
-outputs/detections/yolov8m_pretrained/predictions_summary.csv
-outputs/detections/yolov8m_pretrained/run_metadata.json
-outputs/metrics/yolov8m_pretrained_baseline.json
-outputs/metrics/yolov8m_pretrained_baseline.csv
-outputs/metrics/yolov8m_pretrained_report.md
-outputs/figures/yolov8m_pretrained/
-```
-
-Fine-tuning is planned for Milestone 4. DeepSORT tracking and tracking metrics are planned for Milestone 5.
-
-## Milestone 4 YOLOv8m Fine-Tuning
-
-Milestone 4 adds the detector fine-tuning and evaluation pipeline. It still handles object detection only; DeepSORT, SORT, TrackEval, HOTA, MOTA, and IDF1 are not implemented here.
-
-The intended protocol is:
-
-```text
-train split -> training
-val split   -> monitoring and best.pt selection
-test split  -> one final evaluation after configuration is fixed
-```
-
-Do not tune thresholds or hyperparameters on the test split.
-
-## SportsMOT Football Dataset
-
-SportsMOT is the recommended real dataset path for this milestone because it
-contains MOT-style annotations, track IDs, frames, and an official football
-sequence list. The project prepares only football sequences:
-
-```text
-official train football -> local train/val by sequence group
-official val football   -> local test
-```
-
-First check the downloader command without downloading anything:
-
-```powershell
-.\scripts\download_sportsmot.ps1 -Split "train,val" -DryRun
-```
-
-Download train and val when you are ready for a long network/disk operation:
+Download train and val:
 
 ```powershell
 .\scripts\download_sportsmot.ps1 -Split "train,val"
 ```
 
-The downloader uses a separate environment at `tools/.venv-download`, writes
-raw data under `data/raw/sportsmot`, and caches ZIPs under `.cache/sportsmot`.
-If the official downloader asks for terms or authentication, complete that step
-through the official source and rerun the script; do not bypass access controls.
-
-Prepare SportsMOT football YOLO and MOT outputs:
+Prepare football-only YOLO and MOT data:
 
 ```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli prepare-sportsmot `
+.\.venv\Scripts\python.exe -m football_tracking.cli prepare-dataset `
   --config configs/sportsmot_data.yaml `
   --overwrite
 ```
 
-Validation and audit:
+Validate and audit:
 
 ```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli validate-data `
-  --config configs/sportsmot_data.yaml
-
-.\.venv\Scripts\python.exe -m football_tracking.cli audit-data `
-  --config configs/sportsmot_data.yaml
+.\.venv\Scripts\python.exe -m football_tracking.cli validate-data --config configs/sportsmot_data.yaml
+.\.venv\Scripts\python.exe -m football_tracking.cli audit-data --config configs/sportsmot_data.yaml
 ```
 
-Main SportsMOT outputs:
+## Training
 
-```text
-data/yolo/sportsmot_football/dataset.yaml
-data/yolo/sportsmot_football_smoke/dataset.yaml
-data/mot/sportsmot_football/
-outputs/metrics/sportsmot_download_validation.json
-outputs/metrics/sportsmot_football_audit.json
-outputs/metrics/sportsmot_football_per_sequence.csv
-```
-
-Run training preflight:
+Run preflight first:
 
 ```powershell
 .\.venv\Scripts\python.exe -m football_tracking.cli preflight-training `
-  --config configs/yolov8m_train.yaml
-```
-
-Dry-run training without loading the full model:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli train-detector `
-  --config configs/yolov8m_train.yaml `
-  --dry-run
+  --config configs/yolov8m_sportsmot_train.yaml
 ```
 
 Smoke training:
 
 ```powershell
 .\.venv\Scripts\python.exe -m football_tracking.cli train-detector `
-  --config configs/yolov8m_smoke.yaml
-```
-
-The default smoke config uses the checked-in mini fixture at
-`data/yolo/mini_tracking_fixture/dataset.yaml`. After SportsMOT is prepared, use
-the SportsMOT smoke config:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli train-detector `
   --config configs/yolov8m_sportsmot_smoke.yaml `
-  --device 0
-```
-
-Validate the SportsMOT smoke checkpoint:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector `
-  --config configs/yolov8m_sportsmot_smoke_eval.yaml
+  --device 0 `
+  --overwrite
 ```
 
 Full training:
@@ -387,89 +128,143 @@ Full training:
 ```powershell
 .\.venv\Scripts\python.exe -m football_tracking.cli train-detector `
   --config configs/yolov8m_sportsmot_train.yaml `
-  --device 0
+  --device 0 `
+  --overwrite
 ```
 
-Full training can take hours. Run the SportsMOT smoke command first and keep the
-test split untouched until final reporting.
-
-Resume from `last.pt`:
+Resume:
 
 ```powershell
 .\.venv\Scripts\python.exe -m football_tracking.cli resume-detector `
   --checkpoint outputs/training/yolov8m_players/weights/last.pt
 ```
 
-Validation and test evaluation:
+## Evaluation
+
+Detector validation:
 
 ```powershell
 .\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector `
   --config configs/yolov8m_sportsmot_eval.yaml
+```
 
+Detector test evaluation, after validation decisions are frozen:
+
+```powershell
 .\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector `
   --config configs/yolov8m_sportsmot_test.yaml
 ```
 
-You can also evaluate an explicit checkpoint without editing the YAML:
+Evaluate existing tracker outputs with TrackEval:
 
 ```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector `
-  --config configs/yolov8m_eval.yaml `
-  --checkpoint models/detector/yolov8m_players_best.pt
+.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-tracking `
+  --config configs/compare_trackers.yaml
 ```
 
-Compare pretrained and fine-tuned reports:
+## Tracking
+
+Create the shared detector cache. Use `--overwrite` when rerunning after an interrupted or older cache run:
 
 ```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli compare-detectors
+.\.venv\Scripts\python.exe -m football_tracking.cli cache-detections `
+  --config configs/detection_cache.yaml `
+  --overwrite
 ```
 
-PowerShell wrappers are available and do not require activating the virtual environment:
+Compare SORT and DeepSORT from the same cache:
 
 ```powershell
-.\scripts\train_detector.ps1
-.\scripts\resume_detector.ps1 -Checkpoint outputs/training/yolov8m_players/weights/last.pt
-.\scripts\evaluate_detector.ps1 -Config configs/yolov8m_eval.yaml
+.\.venv\Scripts\python.exe -m football_tracking.cli compare-trackers `
+  --config configs/compare_trackers.yaml `
+  --overwrite
 ```
 
-For an RTX 4060 Laptop, start with `imgsz=960` and `batch=-1`. If CUDA runs out of memory, try `batch=4`, then `batch=2`, then `imgsz=640`, keep `cache=false`, and close other GPU applications. The repository does not assume one fixed batch size will always fit.
+Run the DeepSORT tracking pipeline directly:
 
-Metric names:
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli track `
+  --config configs/track_sportsmot.yaml `
+  --overwrite
+```
 
-- `mAP@50`: AP at IoU 0.50.
-- `mAP@50:95`: AP averaged from IoU 0.50 to 0.95 in steps of 0.05.
+## Benchmark
 
-Do not use names like `mAP@95:50` or `mAP@9550`.
+Generate benchmark artifacts:
 
-Fine-tuned detector outputs:
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli benchmark `
+  --config configs/benchmark.yaml
+```
+
+Outputs:
 
 ```text
-outputs/training/<run_name>/experiment_manifest.json
-outputs/training/<run_name>/results.csv
-outputs/training/<run_name>/weights/best.pt
-outputs/training/<run_name>/weights/last.pt
-models/detector/*_best.pt
-models/detector/*_last.pt
-outputs/metrics/yolov8m_finetuned_val.json
-outputs/metrics/yolov8m_finetuned_test.json
-outputs/metrics/yolov8m_finetuned_report.md
-outputs/figures/yolov8m_finetuned/
+outputs/metrics/benchmark/benchmark.csv
+outputs/metrics/benchmark/benchmark.json
+outputs/metrics/benchmark/benchmark.md
+outputs/figures/benchmark/
 ```
 
-Model weights are ignored by Git.
+The benchmark table includes detector, tracker, mAP50, mAP50-95, precision, recall, HOTA, DetA, AssA, MOTA, IDF1, IDSW, FP, FN, and FPS.
 
-## Tests
+## Visualization
+
+Render annotated videos:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m football_tracking.cli render-video `
+  --config configs/render_video.yaml `
+  --overwrite
 ```
 
-Optional lint check:
+Generated videos are written under `outputs/videos/rendered/<tracker>/<split>/`. The renderer keeps the source FPS and resolution and overlays bbox, track id, confidence, FPS, frame number, tracker name, and sequence name.
+
+Figures are written with matplotlib only, under `outputs/figures/`.
+
+## Demo
+
+Quick smoke pipeline:
 
 ```powershell
-.\.venv\Scripts\python.exe -m ruff check src tests
+.\demo\demo.ps1 -Mode smoke -Device 0
 ```
 
-## Next Milestones
+Full pipeline:
 
-Milestone 5 may add DeepSORT tracking integration and MOT-style tracking evaluation. Those workflows are intentionally not part of Milestone 4.
+```powershell
+.\demo\demo.ps1 -Mode full -Device 0
+```
+
+Bash:
+
+```bash
+./demo/demo.sh smoke
+./demo/demo.sh full
+```
+
+## Results
+
+Current full validation comparison on the prepared SportsMOT football validation split:
+
+| Tracker | Frames | HOTA | DetA | AssA | MOTA | IDF1 | IDSW | FP | FN | Tracker FPS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| SORT | 2900 | 43.060 | 60.344 | 30.860 | 60.960 | 40.727 | 788 | 10246 | 1554 | 190.171 |
+| DeepSORT | 2900 | 50.570 | 62.218 | 41.331 | 60.886 | 49.022 | 539 | 10572 | 1501 | 15.001 |
+
+DeepSORT improves HOTA, AssA, and IDF1 on this validation run, while SORT is much faster. TrackEval is the source of truth for official tracking metrics.
+
+Generate the final report:
+
+```powershell
+.\.venv\Scripts\python.exe -m football_tracking.cli generate-report `
+  --config configs/report.yaml
+```
+
+## Citation
+
+If you use this project, cite the upstream datasets and libraries used in your experiment, including SportsMOT, YOLO/Ultralytics, SORT, DeepSORT, and TrackEval.
+
+## License
+
+This project is released under the MIT License. See [LICENSE](LICENSE).

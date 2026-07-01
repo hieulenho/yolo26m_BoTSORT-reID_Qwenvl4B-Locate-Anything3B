@@ -1,0 +1,48 @@
+experiment:
+  name: sort_vs_deepsort
+  seed: 42
+  split: val
+
+dataset:
+  mot_root: data/mot/sportsmot_football
+  seqmap: data/mot/sportsmot_football/seqmaps/val.txt
+
+detections:
+  cache_config: configs/detection_cache.yaml
+  cache_root: outputs/detections/cache/sportsmot_football
+  confidence_threshold: 0.15
+
+trackers:
+  - name: sort
+    config: configs/sort.yaml
+  - name: deepsort
+    config: configs/deepsort.yaml
+
+evaluation:
+  trackeval_config: configs/trackeval.yaml
+  metrics:
+    - HOTA
+    - CLEAR
+    - Identity
+  allow_partial_sequences: false
+
+benchmark:
+  render_video: false
+  measure_tracker_only: true
+  measure_end_to_end_from_cache: true
+  warmup_sequences: 0
+
+output:
+  root: outputs/experiments/sort_vs_deepsort
+  tracks_root: outputs/tracks/comparison
+  metrics_root: outputs/metrics/experiments
+  figures_root: outputs/figures/experiments
+  videos_root: outputs/videos/comparison
+
+runtime:
+  max_sequences: null
+  max_frames_per_sequence: null
+  overwrite: false
+  fail_fast: true
+  smoke_only: false
+  log_level: INFO

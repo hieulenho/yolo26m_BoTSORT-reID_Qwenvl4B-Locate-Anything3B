@@ -19,6 +19,8 @@ OUTPUT_DIRECTORIES = (
     "outputs/videos",
     "outputs/metrics",
     "outputs/figures",
+    "outputs/reports",
+    "outputs/experiments",
     "outputs/logs",
 )
 

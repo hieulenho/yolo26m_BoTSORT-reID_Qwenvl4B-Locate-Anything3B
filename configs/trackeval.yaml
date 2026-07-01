@@ -1,0 +1,10 @@
+trackeval:
+  benchmark: SportsMOT-football
+  split: val
+  do_preproc: false
+  metrics:
+    - HOTA
+    - CLEAR
+    - Identity
+  use_parallel: false
+  num_parallel_cores: 1

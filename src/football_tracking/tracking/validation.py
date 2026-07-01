@@ -36,7 +36,7 @@ class TrackValidationReport:
     def has_errors(self) -> bool:
         return self.error_count > 0
 
-    def extend(self, other: "TrackValidationReport") -> None:
+    def extend(self, other: TrackValidationReport) -> None:
         self.issues.extend(other.issues)
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,7 +63,12 @@ def validate_mot_prediction_file(
     report = TrackValidationReport()
     if not mot_path.is_file():
         report.issues.append(
-            TrackValidationIssue("ERROR", "missing_mot", f"Missing MOT output: {mot_path}", mot_path)
+            TrackValidationIssue(
+                "ERROR",
+                "missing_mot",
+                f"Missing MOT output: {mot_path}",
+                mot_path,
+            )
         )
         return report
     if metadata_path is not None and not metadata_path.is_file():

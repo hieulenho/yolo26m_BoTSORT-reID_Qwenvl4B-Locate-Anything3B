@@ -11,9 +11,17 @@ outputs/**
 !outputs/
 !outputs/**/
 !outputs/**/.gitkeep
+outputs/tracks/
+outputs/tracks/comparison/
+outputs/videos/
+outputs/detections/cache/
+outputs/experiments/
+outputs/metrics/experiments/
+outputs/figures/experiments/
 outputs/pytest_tmp/
 outputs/training/
 outputs/evaluation/
+configs/generated/
 
 runs/
 wandb/

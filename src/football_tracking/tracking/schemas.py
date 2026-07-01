@@ -215,6 +215,7 @@ class TrackingRunSummary:
     detector_seconds: float
     tracker_seconds: float
     rendering_seconds: float
+    video_write_seconds: float
     total_seconds: float
     detector_fps: float | None
     tracker_fps: float | None
@@ -237,6 +238,7 @@ class TrackingRunSummary:
             "detector_seconds": self.detector_seconds,
             "tracker_seconds": self.tracker_seconds,
             "rendering_seconds": self.rendering_seconds,
+            "video_write_seconds": self.video_write_seconds,
             "total_seconds": self.total_seconds,
             "detector_fps": self.detector_fps,
             "tracker_fps": self.tracker_fps,

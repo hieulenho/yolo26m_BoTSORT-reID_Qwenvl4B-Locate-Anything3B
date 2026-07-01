@@ -26,7 +26,7 @@ class ManagedVideoWriter:
         self.overwrite = overwrite
         self.writer: Any | None = None
 
-    def open(self) -> "ManagedVideoWriter":
+    def open(self) -> ManagedVideoWriter:
         if self.path.exists() and not self.overwrite:
             raise VideoWriterError(f"Video output exists and overwrite=false: {self.path}")
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -58,7 +58,7 @@ class ManagedVideoWriter:
             self.writer.release()
             self.writer = None
 
-    def __enter__(self) -> "ManagedVideoWriter":
+    def __enter__(self) -> ManagedVideoWriter:
         return self.open()
 
     def __exit__(self, *_exc: object) -> None:

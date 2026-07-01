@@ -130,7 +130,8 @@ def resolve_detector_checkpoint(
         checkpoint_type = identify_checkpoint_type(configured_path)
         if checkpoint_type == "smoke" and not allow_smoke:
             raise CheckpointResolutionError(
-                f"Configured checkpoint is smoke but allow_smoke_checkpoint=false: {configured_path}"
+                "Configured checkpoint is smoke but allow_smoke_checkpoint=false: "
+                f"{configured_path}"
             )
         return ResolvedCheckpoint(
             checkpoint=configured_path,
@@ -149,7 +150,10 @@ def resolve_detector_checkpoint(
         checkpoint_type = identify_checkpoint_type(alternative_path)
         if checkpoint_type == "smoke" and not allow_smoke:
             continue
-        warnings.append(f"Using alternative checkpoint because configured one is missing: {alternative_path}")
+        warnings.append(
+            "Using alternative checkpoint because configured one is missing: "
+            f"{alternative_path}"
+        )
         return ResolvedCheckpoint(
             checkpoint=alternative_path,
             checkpoint_type=checkpoint_type,
@@ -204,7 +208,10 @@ def resolve_detector_checkpoint(
     if allow_pretrained and fallback:
         checkpoint = _resolve_candidate(fallback, project_root)
         checkpoint_type = identify_checkpoint_type(checkpoint)
-        validate_detector_checkpoint(checkpoint, allow_pretrained=checkpoint_type == "pretrained_coco")
+        validate_detector_checkpoint(
+            checkpoint,
+            allow_pretrained=checkpoint_type == "pretrained_coco",
+        )
         warnings.append(f"Using pretrained fallback for plumbing only: {checkpoint}")
         return ResolvedCheckpoint(
             checkpoint=checkpoint,

@@ -21,6 +21,7 @@ def draw_tracks(
     fps: float | None = None,
     frame_index: int | None = None,
     sequence_name: str | None = None,
+    tracker_name: str | None = None,
     line_thickness: int = 2,
     font_scale: float = 0.6,
 ) -> Any:
@@ -65,6 +66,8 @@ def draw_tracks(
                     cv2.LINE_AA,
                 )
     overlay = []
+    if tracker_name:
+        overlay.append(tracker_name)
     if sequence_name:
         overlay.append(sequence_name)
     if frame_index is not None:

@@ -1,0 +1,30 @@
+dataset:
+  mot_root: data/mot/sportsmot_football
+  split: val
+  seqmap: data/mot/sportsmot_football/seqmaps/val.txt
+
+tracking:
+  tracker_name: deepsort
+  tracks_root: outputs/tracks/comparison_smoke
+
+output:
+  videos_root: outputs/videos/rendered_smoke
+
+overlay:
+  show_confidence: true
+  show_class: true
+  show_track_id: true
+  show_trajectory: true
+  show_fps: true
+  show_frame_number: true
+  show_sequence_name: true
+  show_tracker_name: true
+  trajectory_length: 30
+  line_thickness: 2
+  font_scale: 0.6
+
+runtime:
+  max_sequences: 1
+  max_frames_per_sequence: 100
+  overwrite: true
+  log_level: INFO

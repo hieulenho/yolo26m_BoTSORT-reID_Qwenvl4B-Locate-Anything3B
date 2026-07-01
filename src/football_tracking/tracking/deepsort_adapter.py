@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import yaml
 
@@ -71,7 +72,8 @@ def load_deepsort_config(config_path: str | Path, device: str = "auto") -> DeepS
     embedder_gpu = bool(tracker.get("embedder_gpu", True))
     half = bool(tracker.get("half", True))
     device_text = str(device).lower()
-    if device_text == "cpu" or (device_text == "auto" and not _cuda_available()) or not _cuda_available():
+    cuda_available = _cuda_available()
+    if device_text == "cpu" or (device_text == "auto" and not cuda_available) or not cuda_available:
         embedder_gpu = False
         half = False
 
@@ -154,7 +156,9 @@ class DeepSortTrackerAdapter:
         if self.tracker is not None:
             return self.tracker
         if self.tracker_factory is None:
-            from deep_sort_realtime.deepsort_tracker import DeepSort  # type: ignore[import-not-found]
+            from deep_sort_realtime.deepsort_tracker import (
+                DeepSort,  # type: ignore[import-not-found]
+            )
 
             self.tracker_factory = DeepSort
         self.tracker = self.tracker_factory(
@@ -233,7 +237,7 @@ class DeepSortTrackerAdapter:
         clipped = clip_xyxy_to_image(bbox, image_width, image_height)
         if not is_valid_bbox(clipped):
             return None
-        track_id = int(getattr(raw_track, "track_id"))
+        track_id = int(raw_track.track_id)
         confidence = _maybe_call(raw_track, "get_det_conf")
         if confidence is not None:
             confidence = float(confidence)
