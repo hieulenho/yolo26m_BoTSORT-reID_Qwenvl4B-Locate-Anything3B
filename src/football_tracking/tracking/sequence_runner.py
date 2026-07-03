@@ -195,6 +195,12 @@ def discover_mot_sequences(
     max_sequences: int | None = None,
 ) -> list[SequenceSource]:
     split_dir = mot_root / split
+    if split == "all" and not split_dir.is_dir():
+        return discover_mot_sequences_across_splits(
+            mot_root,
+            seqmap=seqmap,
+            max_sequences=max_sequences,
+        )
     if not split_dir.is_dir():
         raise SequenceRunnerError(f"Missing MOT split directory: {split_dir}")
     names = (
@@ -208,6 +214,39 @@ def discover_mot_sequences(
         sources.append(source)
         if max_sequences is not None and len(sources) >= max_sequences:
             break
+    return sources
+
+
+def discover_mot_sequences_across_splits(
+    mot_root: Path,
+    seqmap: Path | None = None,
+    max_sequences: int | None = None,
+    split_names: tuple[str, ...] = ("train", "val", "test"),
+) -> list[SequenceSource]:
+    sequence_dirs: dict[str, Path] = {}
+    for split_name in split_names:
+        split_dir = mot_root / split_name
+        if not split_dir.is_dir():
+            continue
+        for item in sorted(split_dir.iterdir()):
+            if item.is_dir():
+                sequence_dirs[item.name] = item
+    names = read_seqmap(seqmap) if seqmap is not None else sorted(sequence_dirs)
+    sources: list[SequenceSource] = []
+    missing: list[str] = []
+    for name in names:
+        sequence_dir = sequence_dirs.get(name)
+        if sequence_dir is None:
+            missing.append(name)
+            continue
+        sources.append(mot_sequence_source(sequence_dir))
+        if max_sequences is not None and len(sources) >= max_sequences:
+            break
+    if missing:
+        raise SequenceRunnerError(
+            "Sequences from seqmap were not found in train/val/test: "
+            + ", ".join(missing[:10])
+        )
     return sources
 
 

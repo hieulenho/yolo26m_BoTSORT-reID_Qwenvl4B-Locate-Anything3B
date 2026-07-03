@@ -65,3 +65,4 @@ output:
 
     assert isinstance(tracker, UltralyticsTrackerAdapter)
     assert tracker.get_runtime_config()["tracker_type"] == "botsort"
+    assert tracker.get_runtime_config()["model"] == "yolo26n-cls.pt"

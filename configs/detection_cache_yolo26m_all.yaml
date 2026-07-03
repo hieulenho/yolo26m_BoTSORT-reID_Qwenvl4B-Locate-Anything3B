@@ -1,0 +1,44 @@
+model:
+  name: yolo26m
+  backend: ultralytics
+  checkpoint: models/detector/yolo26m_best.pt
+  alternative_checkpoints:
+    - yolo26m.pt
+  fallback_checkpoint: yolo26m.pt
+  allow_smoke_checkpoint: false
+  allow_pretrained_fallback: true
+
+dataset:
+  name: SportsMOT football
+  mot_root: data/mot/sportsmot_football
+  split: all
+  seqmap: data/mot/sportsmot_football/seqmaps/all.txt
+
+inference:
+  imgsz: 960
+  conf_floor: 0.001
+  iou: 0.70
+  max_det: 300
+  device: auto
+  half: false
+  batch: 1
+  class_ids:
+    - 0
+  target_class_id: 0
+  target_class_name: player
+  preserve_source_classes: false
+
+cache:
+  root: outputs/detections/cache/yolo26m_sportsmot_football
+  format: jsonl
+  save_npz: false
+  include_empty_frames: true
+  overwrite: false
+  validate_after_write: true
+
+runtime:
+  max_sequences: null
+  max_frames_per_sequence: null
+  warmup_iterations: 3
+  smoke_only: false
+  log_level: INFO

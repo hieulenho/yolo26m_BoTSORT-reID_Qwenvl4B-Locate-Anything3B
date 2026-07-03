@@ -158,6 +158,7 @@ def _add_tracking_common_options(
 ) -> None:
     parser.add_argument("--config", type=Path, default=default_config)
     parser.add_argument("--source", type=Path, default=None)
+    parser.add_argument("--output-video", type=Path, default=None)
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--conf", type=float, default=None)
@@ -345,7 +346,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "track-video",
         help="Track objects in a video with the configured detector and tracker.",
     )
-    _add_tracking_common_options(track_video_parser, Path("configs/track_video.yaml"))
+    _add_tracking_common_options(
+        track_video_parser,
+        Path("configs/track_video_yolo26m_botsort.yaml"),
+    )
 
     track_parser = subparsers.add_parser(
         "track",
@@ -525,6 +529,7 @@ def _training_overrides(args: argparse.Namespace) -> dict[str, object]:
 def _tracking_overrides(args: argparse.Namespace) -> dict[str, object]:
     return {
         "source": getattr(args, "source", None),
+        "output_video": getattr(args, "output_video", None),
         "checkpoint": getattr(args, "checkpoint", None),
         "device": getattr(args, "device", None),
         "conf": getattr(args, "conf", None),

@@ -25,20 +25,19 @@ tracker:
   name: botsort_reid
   config: configs/botsort_reid.yaml
 
-dataset:
-  mot_root: data/mot/sportsmot_football
-  split: val
-  seqmap: data/mot/sportsmot_football/seqmaps/val.txt
+source:
+  path: data/samples/match.mp4
+  type: video
 
 output:
-  tracks_dir: outputs/tracks/botsort_reid/sportsmot_football
-  videos_dir: outputs/videos/botsort_reid/sportsmot_football
-  metrics_dir: outputs/metrics
-  render_video: false
+  video: outputs/videos/tracked_match.mp4
+  mot: outputs/tracks/botsort_reid/tracked_match.txt
+  metadata: outputs/tracks/botsort_reid/tracked_match.metadata.json
+  render_video: true
   save_mot: true
 
 render:
-  enabled: false
+  enabled: true
   show_confidence: false
   show_class: false
   show_track_id: true
@@ -49,10 +48,10 @@ render:
   show_fps: true
 
 runtime:
-  max_sequences: null
-  max_frames_per_sequence: null
+  max_frames: null
+  start_frame: 1
   overwrite: false
   show_window: false
+  save_mot: true
   fail_fast: true
-  smoke_only: false
   log_level: INFO

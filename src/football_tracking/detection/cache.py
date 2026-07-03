@@ -36,6 +36,7 @@ from football_tracking.tracking.sequence_runner import (
     discover_mot_sequences,
     iter_source_frames,
 )
+from football_tracking.utils.progress import progress_iter
 
 
 class DetectionCacheError(RuntimeError):
@@ -384,7 +385,17 @@ def _create_sequence_cache(
     frames: list[CachedFrameDetections] = []
     detection_count = 0
     started = time.perf_counter()
-    for frame_item in iter_source_frames(source, max_frames=config.max_frames_per_sequence):
+    expected_frames = (
+        min(source.frame_count, config.max_frames_per_sequence)
+        if source.frame_count is not None and config.max_frames_per_sequence is not None
+        else source.frame_count
+    )
+    for frame_item in progress_iter(
+        iter_source_frames(source, max_frames=config.max_frames_per_sequence),
+        total=expected_frames,
+        desc=f"cache {source.name}",
+        unit="frame",
+    ):
         frame = frame_item.image
         image_height, image_width = frame.shape[:2]
         detector_started = time.perf_counter()

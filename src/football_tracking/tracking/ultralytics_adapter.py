@@ -37,6 +37,8 @@ class UltralyticsTrackerRuntimeConfig:
     output_confirmed_only: bool
     require_recent_update: bool
     max_time_since_update_for_output: int
+    min_hits_for_output: int
+    compact_ids: bool
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -80,6 +82,12 @@ def load_ultralytics_tracker_config(
     ).lower()
     if tracker_type == "botsort_reid":
         tracker_type = "botsort"
+    with_reid = bool(tracker.get("with_reid", tracker.get("use_reid", False)))
+    reid_model = str(tracker.get("model", "auto"))
+    if with_reid and reid_model == "auto":
+        # The Ultralytics "auto" ReID path expects predictor-side feature hooks.
+        # This adapter calls tracker.update directly, so use a real embedder model.
+        reid_model = "yolo26n-cls.pt"
     config = UltralyticsTrackerRuntimeConfig(
         tracker_type=tracker_type,
         track_high_thresh=float(tracker.get("track_high_thresh", 0.25)),
@@ -91,13 +99,15 @@ def load_ultralytics_tracker_config(
         gmc_method=str(tracker.get("gmc_method", "sparseOptFlow")),
         proximity_thresh=float(tracker.get("proximity_thresh", 0.5)),
         appearance_thresh=float(tracker.get("appearance_thresh", 0.25)),
-        with_reid=bool(tracker.get("with_reid", tracker.get("use_reid", False))),
-        model=str(tracker.get("model", "auto")),
+        with_reid=with_reid,
+        model=reid_model,
         output_confirmed_only=bool(output.get("confirmed_only", True)),
         require_recent_update=bool(output.get("require_recent_update", True)),
         max_time_since_update_for_output=int(
             output.get("max_time_since_update_for_output", 0)
         ),
+        min_hits_for_output=int(output.get("min_hits_for_output", 1)),
+        compact_ids=bool(output.get("compact_ids", False)),
     )
     validate_ultralytics_tracker_config(config)
     return config
@@ -125,6 +135,8 @@ def validate_ultralytics_tracker_config(config: UltralyticsTrackerRuntimeConfig)
         raise UltralyticsTrackerConfigError(
             "max_time_since_update_for_output must be >= 0."
         )
+    if config.min_hits_for_output < 1:
+        raise UltralyticsTrackerConfigError("min_hits_for_output must be >= 1.")
 
 
 class _TrackerResults:
@@ -190,6 +202,8 @@ class UltralyticsTrackerAdapter:
         self.tracker_factory = tracker_factory
         self.tracker: Any | None = None
         self.initialization_count = 0
+        self._output_id_map: dict[int, int] = {}
+        self._next_output_id = 1
 
     def initialize(self) -> Any:
         if self.tracker is not None:
@@ -221,6 +235,8 @@ class UltralyticsTrackerAdapter:
         tracker = self.initialize()
         if hasattr(tracker, "reset"):
             tracker.reset()
+        self._output_id_map.clear()
+        self._next_output_id = 1
 
     def close(self) -> None:
         self.tracker = None
@@ -240,6 +256,7 @@ class UltralyticsTrackerAdapter:
         tracker = self.initialize()
         results = _TrackerResults(detections)
         raw_tracks = tracker.update(results, frame)
+        track_info = self._track_info_by_id(tracker)
         outputs = [
             output
             for row in np.asarray(raw_tracks).tolist()
@@ -251,11 +268,49 @@ class UltralyticsTrackerAdapter:
                     detections,
                     image_width,
                     image_height,
+                    track_info.get(int(row[4])) if len(row) >= 5 else None,
                 )
             )
             is not None
         ]
         return sorted(outputs, key=lambda item: item.track_id)
+
+    @staticmethod
+    def _track_info_by_id(tracker: Any) -> dict[int, Any]:
+        tracks = getattr(tracker, "tracked_stracks", None)
+        if not tracks:
+            return {}
+        return {
+            int(track.track_id): track
+            for track in tracks
+            if getattr(track, "track_id", None) is not None
+        }
+
+    def _visible_track_id(self, raw_track_id: int) -> int:
+        if not self.config.compact_ids:
+            return raw_track_id
+        if raw_track_id not in self._output_id_map:
+            self._output_id_map[raw_track_id] = self._next_output_id
+            self._next_output_id += 1
+        return self._output_id_map[raw_track_id]
+
+    def _should_emit_track(self, track: Any | None) -> bool:
+        if track is None:
+            return True
+        if self.config.output_confirmed_only and not bool(
+            getattr(track, "is_activated", True)
+        ):
+            return False
+        if self.config.require_recent_update:
+            tracker_frame = int(getattr(self.tracker, "frame_id", 0) or 0)
+            track_frame = int(getattr(track, "frame_id", tracker_frame) or tracker_frame)
+            if (
+                tracker_frame - track_frame
+                > self.config.max_time_since_update_for_output
+            ):
+                return False
+        hits = int(getattr(track, "tracklet_len", 0) or 0) + 1
+        return hits >= self.config.min_hits_for_output
 
     def _to_track_output(
         self,
@@ -265,11 +320,15 @@ class UltralyticsTrackerAdapter:
         detections: list[TrackerDetection],
         image_width: int | None,
         image_height: int | None,
+        track: Any | None,
     ) -> TrackOutput | None:
         if len(row) < 7:
             return None
         x1, y1, x2, y2 = [float(value) for value in row[:4]]
-        track_id = int(row[4])
+        raw_track_id = int(row[4])
+        if not self._should_emit_track(track):
+            return None
+        track_id = self._visible_track_id(raw_track_id)
         confidence = float(row[5]) if 0.0 <= float(row[5]) <= 1.0 else None
         class_id = int(row[6])
         class_name = f"class_{class_id}"
@@ -296,5 +355,6 @@ class UltralyticsTrackerAdapter:
                 "tracker": self.config.tracker_type,
                 "bbox_source": "ultralytics_tracker",
                 "with_reid": self.config.with_reid,
+                "raw_track_id": raw_track_id,
             },
         )

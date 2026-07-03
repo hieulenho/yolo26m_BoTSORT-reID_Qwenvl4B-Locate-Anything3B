@@ -60,3 +60,15 @@ def test_discover_mot_sequences_uses_seqmap(tmp_path) -> None:
     sources = discover_mot_sequences(tmp_path, "val", seqmap)
 
     assert [source.name for source in sources] == ["seq_a"]
+
+
+def test_discover_mot_sequences_all_reads_across_splits_in_seqmap_order(tmp_path) -> None:
+    _write_sequence(tmp_path / "train", "seq_train")
+    _write_sequence(tmp_path / "val", "seq_val")
+    _write_sequence(tmp_path / "test", "seq_test")
+    seqmap = tmp_path / "all.txt"
+    seqmap.write_text("name\nseq_test\nseq_train\nseq_val\n", encoding="utf-8")
+
+    sources = discover_mot_sequences(tmp_path, "all", seqmap)
+
+    assert [source.name for source in sources] == ["seq_test", "seq_train", "seq_val"]

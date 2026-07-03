@@ -78,6 +78,24 @@ def _write_sequence(root: Path) -> Path:
     return sequence_dir
 
 
+def _write_video(path: Path) -> Path:
+    import cv2  # type: ignore[import-not-found]
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    writer = cv2.VideoWriter(
+        str(path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        25.0,
+        (50, 40),
+    )
+    try:
+        for _ in range(2):
+            writer.write(np.zeros((40, 50, 3), dtype=np.uint8))
+    finally:
+        writer.release()
+    return path
+
+
 def _write_deepsort_config(path: Path) -> None:
     path.write_text(
         """
@@ -178,6 +196,65 @@ def test_tracking_pipeline_writes_mot_and_metadata(tmp_path, monkeypatch) -> Non
     assert result["summary"]["validation"]["summary"]["errors"] == 0
     assert result["summary"]["detection_count"] == 2
     assert result["summary"]["unique_predicted_track_count"] == 1
+
+
+def test_tracking_pipeline_source_override_outputs_next_to_video(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FOOTBALL_TRACKING_ROOT", str(tmp_path))
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
+    _write_sequence(tmp_path)
+    source = _write_video(tmp_path / "videos" / "clip.mp4")
+    checkpoint = tmp_path / "model_best.pt"
+    checkpoint.write_bytes(b"weights")
+    deepsort_config = tmp_path / "deepsort.yaml"
+    _write_deepsort_config(deepsort_config)
+    config = _write_tracking_config(tmp_path, checkpoint, deepsort_config)
+
+    result = run_tracking(
+        config,
+        overrides={"source": source, "render": True, "overwrite": True, "max_frames": 2},
+        detector=FakeDetector(),
+        tracker_adapter_factory=lambda config: FakeAdapter(config),
+    )
+
+    sequence = result["summary"]["sequences"][0]
+    assert Path(sequence["output_video"]) == source.with_name("clip_tracked.mp4")
+    assert Path(sequence["output_mot"]) == source.with_name("clip_tracked.txt")
+    assert source.with_name("clip_tracked.mp4").is_file()
+    assert source.with_name("clip_tracked.txt").is_file()
+    assert source.with_name("clip_tracked.metadata.json").is_file()
+
+
+def test_tracking_pipeline_allows_custom_output_video_name(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FOOTBALL_TRACKING_ROOT", str(tmp_path))
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
+    _write_sequence(tmp_path)
+    source = _write_video(tmp_path / "videos" / "clip.mp4")
+    output_video = tmp_path / "videos" / "my_custom_tracking.mp4"
+    checkpoint = tmp_path / "model_best.pt"
+    checkpoint.write_bytes(b"weights")
+    deepsort_config = tmp_path / "deepsort.yaml"
+    _write_deepsort_config(deepsort_config)
+    config = _write_tracking_config(tmp_path, checkpoint, deepsort_config)
+
+    result = run_tracking(
+        config,
+        overrides={
+            "source": source,
+            "output_video": output_video,
+            "render": True,
+            "overwrite": True,
+            "max_frames": 2,
+        },
+        detector=FakeDetector(),
+        tracker_adapter_factory=lambda config: FakeAdapter(config),
+    )
+
+    sequence = result["summary"]["sequences"][0]
+    assert Path(sequence["output_video"]) == output_video
+    assert Path(sequence["output_mot"]) == output_video.with_suffix(".txt")
+    assert output_video.is_file()
+    assert output_video.with_suffix(".txt").is_file()
+    assert output_video.with_name("my_custom_tracking.metadata.json").is_file()
 
 
 def test_tracker_output_uses_project_bbox_model() -> None:

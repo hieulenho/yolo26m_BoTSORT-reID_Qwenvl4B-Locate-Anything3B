@@ -11,12 +11,14 @@ tracker:
   proximity_thresh: 0.50
   appearance_thresh: 0.25
   with_reid: false
-  model: auto
+  model: yolo26n-cls.pt
 
 output:
   confirmed_only: true
   require_recent_update: true
   max_time_since_update_for_output: 0
+  min_hits_for_output: 3
+  compact_ids: true
 
 runtime:
   log_level: INFO

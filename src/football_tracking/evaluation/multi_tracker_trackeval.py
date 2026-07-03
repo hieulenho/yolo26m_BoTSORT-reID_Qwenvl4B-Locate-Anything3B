@@ -110,7 +110,6 @@ def _run_official_trackeval(
     from trackeval.eval import Evaluator  # type: ignore[import-not-found]
     from trackeval.metrics import CLEAR, HOTA, Identity  # type: ignore[import-not-found]
 
-    gt_folder = gt_root / split if (gt_root / split).is_dir() else gt_root
     staged_root = output_root / "staged"
     raw_root = output_root / "raw"
     raw_root.mkdir(parents=True, exist_ok=True)
@@ -119,6 +118,7 @@ def _run_official_trackeval(
         if allow_partial_sequences
         else _read_seqmap(seqmap)
     )
+    gt_folder = _trackeval_gt_folder(gt_root, split, seq_names, output_root)
     results: dict[str, TrackEvalTrackerResult] = {}
     for tracker_name in tracker_names:
         _stage_tracker_files(tracker_name, trackers_root, staged_root, split, seq_names)
@@ -275,6 +275,38 @@ def _stage_tracker_files(
         if not source_path.is_file():
             raise FileNotFoundError(f"Tracker prediction file not found: {source_path}")
         shutil.copy2(source_path, data_dir / f"{seq_name}.txt")
+
+
+def _trackeval_gt_folder(
+    gt_root: Path,
+    split: str,
+    seq_names: list[str],
+    output_root: Path,
+) -> Path:
+    split_dir = gt_root / split
+    if split_dir.is_dir():
+        return split_dir
+    staged = output_root / "staged_gt" / split
+    for seq_name in seq_names:
+        source_dir = _find_gt_sequence_dir(gt_root, seq_name)
+        dest_dir = staged / seq_name
+        (dest_dir / "gt").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_dir / "gt" / "gt.txt", dest_dir / "gt" / "gt.txt")
+        shutil.copy2(source_dir / "seqinfo.ini", dest_dir / "seqinfo.ini")
+    return staged
+
+
+def _find_gt_sequence_dir(gt_root: Path, seq_name: str) -> Path:
+    candidates = [
+        gt_root / "train" / seq_name,
+        gt_root / "val" / seq_name,
+        gt_root / "test" / seq_name,
+        gt_root / seq_name,
+    ]
+    for candidate in candidates:
+        if (candidate / "gt" / "gt.txt").is_file() and (candidate / "seqinfo.ini").is_file():
+            return candidate
+    raise FileNotFoundError(f"Ground-truth sequence not found: {seq_name}")
 
 
 def _common_tracker_seq_names(

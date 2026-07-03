@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from football_tracking.evaluation.multi_tracker_trackeval import evaluate_trackers_with_trackeval
+from football_tracking.evaluation.multi_tracker_trackeval import (
+    _trackeval_gt_folder,
+    evaluate_trackers_with_trackeval,
+)
 
 
 def test_trackeval_missing_returns_null_metrics(tmp_path, monkeypatch) -> None:
@@ -22,3 +25,22 @@ def test_trackeval_missing_returns_null_metrics(tmp_path, monkeypatch) -> None:
     assert result["sort"].available is False
     assert result["sort"].metrics["HOTA"] is None
     assert "not installed" in result["sort"].reason
+
+
+def test_trackeval_gt_folder_stages_all_split_from_train_val_test(tmp_path) -> None:
+    for split, seq_name in (("train", "seq_train"), ("val", "seq_val"), ("test", "seq_test")):
+        seq_dir = tmp_path / "gt" / split / seq_name
+        (seq_dir / "gt").mkdir(parents=True)
+        (seq_dir / "gt" / "gt.txt").write_text("1,1,0,0,10,10,1,1,1\n", encoding="utf-8")
+        (seq_dir / "seqinfo.ini").write_text("[Sequence]\nseqLength=1\n", encoding="utf-8")
+
+    staged = _trackeval_gt_folder(
+        tmp_path / "gt",
+        "all",
+        ["seq_test", "seq_train", "seq_val"],
+        tmp_path / "metrics",
+    )
+
+    assert staged == tmp_path / "metrics" / "staged_gt" / "all"
+    assert (staged / "seq_test" / "gt" / "gt.txt").is_file()
+    assert (staged / "seq_train" / "seqinfo.ini").is_file()

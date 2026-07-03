@@ -147,18 +147,19 @@ class UltralyticsDetector:
         if not image_paths:
             return []
         model = self.load_model()
+        predict_kwargs: dict[str, Any] = {
+            "imgsz": imgsz,
+            "conf": conf,
+            "iou": iou,
+            "max_det": max_det,
+            "batch": batch,
+            "device": self.device,
+            "verbose": verbose,
+        }
+        if self.half:
+            predict_kwargs["quantize"] = 16
         try:
-            results = model(
-                [str(path) for path in image_paths],
-                imgsz=imgsz,
-                conf=conf,
-                iou=iou,
-                max_det=max_det,
-                batch=batch,
-                device=self.device,
-                half=self.half,
-                verbose=verbose,
-            )
+            results = model([str(path) for path in image_paths], **predict_kwargs)
         except Exception as exc:  # noqa: BLE001
             raise DetectorError(f"YOLO inference failed: {exc}") from exc
         return list(results) if isinstance(results, Sequence) else [results]
@@ -170,8 +171,10 @@ class UltralyticsDetector:
         model = self.load_model()
         predict_kwargs = dict(kwargs)
         predict_kwargs.setdefault("device", self.device)
-        predict_kwargs.setdefault("half", self.half)
         predict_kwargs.setdefault("verbose", False)
+        half = bool(predict_kwargs.pop("half", self.half))
+        if half:
+            predict_kwargs.setdefault("quantize", 16)
         try:
             raw = model(frame, **predict_kwargs)
         except Exception as exc:  # noqa: BLE001

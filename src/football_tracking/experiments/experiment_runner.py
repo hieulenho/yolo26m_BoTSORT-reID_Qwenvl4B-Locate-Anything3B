@@ -44,6 +44,7 @@ from football_tracking.tracking.validation import (
     validate_mot_prediction_file,
     write_track_validation_report,
 )
+from football_tracking.utils.progress import progress_iter
 from football_tracking.visualization.tracker_comparison import write_tracker_comparison_figures
 
 
@@ -244,7 +245,13 @@ def compare_trackers(
     results: list[ExperimentResult] = []
     definitions: list[ExperimentDefinition] = []
     validations: dict[str, TrackValidationReport] = {}
-    for spec in config.trackers:
+    for spec in progress_iter(
+        config.trackers,
+        total=len(config.trackers),
+        desc=f"trackers/{config.split}",
+        unit="tracker",
+        leave=True,
+    ):
         try:
             result, definition, validation = _run_tracker(config, spec, sources)
             results.append(result)
@@ -437,7 +444,13 @@ def _run_tracker(
         "mot_write_seconds": 0.0,
     }
     unique_tracks: set[tuple[str, int]] = set()
-    for source in sources:
+    for source in progress_iter(
+        sources,
+        total=len(sources),
+        desc=f"{spec.name}/{config.split}",
+        unit="seq",
+        leave=True,
+    ):
         summary, sequence_validation = _run_sequence_from_cache(config, spec, source, adapter)
         sequence_summaries.append(summary)
         validation.extend(sequence_validation)
@@ -519,7 +532,17 @@ def _run_sequence_from_cache(
     frame_read_seconds = 0.0
     cache_read_seconds = 0.0
     sequence_started = time.perf_counter()
-    iterator = iter_source_frames(source, max_frames=config.max_frames_per_sequence)
+    expected_frames = (
+        min(source.frame_count, config.max_frames_per_sequence)
+        if source.frame_count is not None and config.max_frames_per_sequence is not None
+        else source.frame_count
+    )
+    iterator = progress_iter(
+        iter_source_frames(source, max_frames=config.max_frames_per_sequence),
+        total=expected_frames,
+        desc=f"{spec.name}:{source.name}",
+        unit="frame",
+    )
     while True:
         frame_started = time.perf_counter()
         try:

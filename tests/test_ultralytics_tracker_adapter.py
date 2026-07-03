@@ -13,6 +13,8 @@ from football_tracking.tracking.ultralytics_adapter import (
 class FakeUltralyticsTracker:
     def __init__(self, _args) -> None:
         self.reset_count = 0
+        self.frame_id = 1
+        self.tracked_stracks = [FakeUltralyticsTrack()]
 
     def reset(self) -> None:
         self.reset_count += 1
@@ -20,6 +22,13 @@ class FakeUltralyticsTracker:
     def update(self, results, _frame):
         assert len(results) == 1
         return np.asarray([[1.0, 2.0, 11.0, 22.0, 7.0, 0.8, 3.0, 0.0]], dtype=np.float32)
+
+
+class FakeUltralyticsTrack:
+    track_id = 7
+    is_activated = True
+    frame_id = 1
+    tracklet_len = 4
 
 
 def _config() -> UltralyticsTrackerRuntimeConfig:
@@ -39,6 +48,8 @@ def _config() -> UltralyticsTrackerRuntimeConfig:
         output_confirmed_only=True,
         require_recent_update=True,
         max_time_since_update_for_output=0,
+        min_hits_for_output=1,
+        compact_ids=False,
     )
 
 
@@ -60,3 +71,29 @@ def test_ultralytics_tracker_adapter_converts_outputs() -> None:
     assert tracks[0].class_id == 3
     assert tracks[0].class_name == "vehicle"
     assert tracks[0].metadata["with_reid"] is True
+    assert tracks[0].metadata["raw_track_id"] == 7
+
+
+def test_ultralytics_tracker_adapter_filters_new_tracks_and_compacts_ids() -> None:
+    config = _config()
+    config = UltralyticsTrackerRuntimeConfig(
+        **{**config.to_dict(), "min_hits_for_output": 5, "compact_ids": True}
+    )
+    adapter = UltralyticsTrackerAdapter(config, tracker_factory=FakeUltralyticsTracker)
+    detection = TrackerDetection.from_xyxy(
+        frame_index=1,
+        sequence_name="seq",
+        bbox_xyxy=BoundingBoxXYXY(1, 2, 11, 22),
+        confidence=0.8,
+        class_id=3,
+        class_name="vehicle",
+    )
+
+    tracks = adapter.update(1, "seq", [detection], frame=None, image_width=100, image_height=80)
+
+    assert len(tracks) == 1
+    assert tracks[0].track_id == 1
+    assert tracks[0].metadata["raw_track_id"] == 7
+
+    adapter.tracker.tracked_stracks[0].tracklet_len = 3
+    assert adapter.update(2, "seq", [detection], frame=None, image_width=100, image_height=80) == []

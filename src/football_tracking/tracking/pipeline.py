@@ -111,7 +111,7 @@ def _resolve_path(
 ) -> Path | None:
     if value is None and not required:
         return None
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str | Path) or not str(value).strip():
         raise TrackingPipelineError(f"{section} must be a non-empty path string.")
     path = Path(value)
     return path.resolve() if path.is_absolute() else resolve_project_path(path, project_root)
@@ -243,8 +243,23 @@ def load_tracking_config(
 def _apply_overrides(config: TrackingConfig, overrides: dict[str, Any]) -> TrackingConfig:
     changes: dict[str, Any] = {}
     if overrides.get("source") is not None:
-        changes["source_path"] = _resolve_path(overrides["source"], config.project_root, "--source")
+        source_path = _resolve_path(overrides["source"], config.project_root, "--source")
+        changes["source_path"] = source_path
         changes["source_type"] = "video"
+        output_mot, output_metadata, output_video = _default_video_output_paths(source_path)
+        changes["output_mot"] = output_mot
+        changes["output_metadata"] = output_metadata
+        changes["output_video"] = output_video
+    if overrides.get("output_video") is not None:
+        output_video = _resolve_path(
+            overrides["output_video"],
+            config.project_root,
+            "--output-video",
+        )
+        output_mot, output_metadata, output_video = _video_sidecar_output_paths(output_video)
+        changes["output_mot"] = output_mot
+        changes["output_metadata"] = output_metadata
+        changes["output_video"] = output_video
     if overrides.get("checkpoint") is not None:
         model = dict(config.model)
         model["checkpoint"] = str(overrides["checkpoint"])
@@ -261,6 +276,19 @@ def _apply_overrides(config: TrackingConfig, overrides: dict[str, Any]) -> Track
     if overrides.get("save_mot") is not None:
         changes["save_mot"] = bool(overrides["save_mot"])
     return replace(config, **changes) if changes else config
+
+
+def _default_video_output_paths(source_path: Path) -> tuple[Path, Path, Path]:
+    output_stem = f"{source_path.stem}_tracked"
+    return _video_sidecar_output_paths(source_path.with_name(f"{output_stem}.mp4"))
+
+
+def _video_sidecar_output_paths(output_video: Path) -> tuple[Path, Path, Path]:
+    return (
+        output_video.with_suffix(".txt"),
+        output_video.with_name(f"{output_video.stem}.metadata.json"),
+        output_video,
+    )
 
 
 def _validate_tracking_config(config: TrackingConfig) -> None:
@@ -324,6 +352,12 @@ def _dry_run_plan(
                 "fps": source.fps,
                 "width": source.width,
                 "height": source.height,
+                "output_mot": str(_mot_output_paths(config, source)[0])
+                if _mot_output_paths(config, source)[0]
+                else None,
+                "output_video": str(_mot_output_paths(config, source)[2])
+                if _mot_output_paths(config, source)[2]
+                else None,
             }
             for source in sources
         ],
