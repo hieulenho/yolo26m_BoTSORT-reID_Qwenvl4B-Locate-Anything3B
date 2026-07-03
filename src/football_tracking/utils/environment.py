@@ -101,8 +101,7 @@ def validate_python_version(
             micro=micro,
             is_supported=True,
             message=(
-                f"Python version {version} is supported. "
-                f"Expected Python {EXPECTED_PYTHON_LABEL}."
+                f"Python version {version} is supported. Expected Python {EXPECTED_PYTHON_LABEL}."
             ),
             status="OK",
         )

@@ -4,7 +4,6 @@ import os
 
 import datasets
 
-
 _HOMEPAGE = "https://universe.roboflow.com/augmented-startups/football-player-detection-kucab"
 _LICENSE = "CC BY 4.0"
 _CITATION = """\
@@ -27,7 +26,7 @@ _URLS = {
     "test": "https://huggingface.co/datasets/keremberke/football-object-detection/resolve/main/data/test.zip",
 }
 
-_CATEGORIES = ['player', 'football']
+_CATEGORIES = ["player", "football"]
 _ANNOTATION_FILENAME = "_annotations.coco.json"
 
 
@@ -79,7 +78,7 @@ class FOOTBALLOBJECTDETECTION(datasets.GeneratorBasedBuilder):
                     "folder_dir": data_files["test"],
                 },
             ),
-]
+        ]
 
     def _generate_examples(self, folder_dir):
         def process_annot(annot, category_id_to_category):
@@ -92,11 +91,13 @@ class FOOTBALLOBJECTDETECTION(datasets.GeneratorBasedBuilder):
 
         image_id_to_image = {}
         idx = 0
-        
+
         annotation_filepath = os.path.join(folder_dir, _ANNOTATION_FILENAME)
-        with open(annotation_filepath, "r") as f:
+        with open(annotation_filepath) as f:
             annotations = json.load(f)
-        category_id_to_category = {category["id"]: category["name"] for category in annotations["categories"]}
+        category_id_to_category = {
+            category["id"]: category["name"] for category in annotations["categories"]
+        }
         image_id_to_annotations = collections.defaultdict(list)
         for annot in annotations["annotations"]:
             image_id_to_annotations[annot["image_id"]].append(annot)
@@ -107,15 +108,19 @@ class FOOTBALLOBJECTDETECTION(datasets.GeneratorBasedBuilder):
             if filename in image_id_to_image:
                 image = image_id_to_image[filename]
                 objects = [
-                    process_annot(annot, category_id_to_category) for annot in image_id_to_annotations[image["id"]]
+                    process_annot(annot, category_id_to_category)
+                    for annot in image_id_to_annotations[image["id"]]
                 ]
                 with open(filepath, "rb") as f:
                     image_bytes = f.read()
-                yield idx, {
-                    "image_id": image["id"],
-                    "image": {"path": filepath, "bytes": image_bytes},
-                    "width": image["width"],
-                    "height": image["height"],
-                    "objects": objects,
-                }
+                yield (
+                    idx,
+                    {
+                        "image_id": image["id"],
+                        "image": {"path": filepath, "bytes": image_bytes},
+                        "width": image["width"],
+                        "height": image["height"],
+                        "objects": objects,
+                    },
+                )
                 idx += 1

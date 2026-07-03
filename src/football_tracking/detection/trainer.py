@@ -177,9 +177,8 @@ def run_training_preflight(config: TrainingConfig) -> PreflightReport:
     report.metadata.update(_runtime_metadata(str(config.training.get("device", "auto"))))
     if not platform.python_version().startswith("3.12."):
         report.add("ERROR", "python_version", "Python 3.12.x is required.")
-    if (
-        config.training.get("device") not in {"auto", "cpu"}
-        and not report.metadata.get("cuda_available")
+    if config.training.get("device") not in {"auto", "cpu"} and not report.metadata.get(
+        "cuda_available"
     ):
         report.add(
             "ERROR",
@@ -203,9 +202,7 @@ def run_training_preflight(config: TrainingConfig) -> PreflightReport:
 
     names = dataset_yaml.get("names", {})
     class_count = (
-        len(names)
-        if isinstance(names, dict | list)
-        else int(dataset_yaml.get("nc", 0) or 0)
+        len(names) if isinstance(names, dict | list) else int(dataset_yaml.get("nc", 0) or 0)
     )
     if class_count != 1:
         report.add(

@@ -57,9 +57,7 @@ def _sequence_record(
     track_lengths = _track_lengths(sequence)
     annotated_frames = {frame_index for frame_index, _track_id in target_objects}
     ignored_count = sum(
-        annotation.is_ignored
-        for frame in sequence.annotations
-        for annotation in frame.objects
+        annotation.is_ignored for frame in sequence.annotations for annotation in frame.objects
     )
     unknown_count = sum(
         bool(annotation.metadata.get("unknown_class"))

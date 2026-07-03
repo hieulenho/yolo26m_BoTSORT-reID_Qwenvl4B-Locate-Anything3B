@@ -97,8 +97,7 @@ class SortKalmanFilter:
         measurement = xyxy_to_z(box)
         residual = measurement - (self.update_matrix @ self.state)
         residual_covariance = (
-            self.update_matrix @ self.covariance @ self.update_matrix.T
-            + self.measurement_noise
+            self.update_matrix @ self.covariance @ self.update_matrix.T + self.measurement_noise
         )
         gain = self.covariance @ self.update_matrix.T @ np.linalg.inv(residual_covariance)
         self.state = self.state + gain @ residual

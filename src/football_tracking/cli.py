@@ -631,8 +631,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 audit = (
                     audit_sportsmot(args.config)
                     if is_sportsmot
-                    else
-                    run_dataset_audit(args.config, max_sequences=args.max_sequences)
+                    else run_dataset_audit(args.config, max_sequences=args.max_sequences)
                     if _looks_like_audit_config(args.config)
                     else audit_data(args.config, max_sequences=args.max_sequences)
                 )

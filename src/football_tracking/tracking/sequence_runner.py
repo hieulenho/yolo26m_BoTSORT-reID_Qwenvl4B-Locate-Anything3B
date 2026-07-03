@@ -197,9 +197,11 @@ def discover_mot_sequences(
     split_dir = mot_root / split
     if not split_dir.is_dir():
         raise SequenceRunnerError(f"Missing MOT split directory: {split_dir}")
-    names = read_seqmap(seqmap) if seqmap is not None else [
-        item.name for item in sorted(split_dir.iterdir()) if item.is_dir()
-    ]
+    names = (
+        read_seqmap(seqmap)
+        if seqmap is not None
+        else [item.name for item in sorted(split_dir.iterdir()) if item.is_dir()]
+    )
     sources: list[SequenceSource] = []
     for name in names:
         source = mot_sequence_source(split_dir / name)

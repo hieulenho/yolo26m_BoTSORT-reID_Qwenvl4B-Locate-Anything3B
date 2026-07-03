@@ -135,11 +135,14 @@ def create_dataset_audit(sequences: list[SequenceInfo]) -> dict[str, Any]:
                 if annotation.is_ignored or annotation.target_class_id is None:
                     ignored_count += 1
                     continue
-                if clip_xyxy_to_image(
-                    annotation.bbox_xyxy,
-                    frame.width,
-                    frame.height,
-                ) != annotation.bbox_xyxy:
+                if (
+                    clip_xyxy_to_image(
+                        annotation.bbox_xyxy,
+                        frame.width,
+                        frame.height,
+                    )
+                    != annotation.bbox_xyxy
+                ):
                     clipped_count += 1
                 if not is_valid_bbox(annotation.bbox_xyxy):
                     invalid_count += 1

@@ -11,7 +11,6 @@ from typing import Any
 
 import yaml
 
-
 SPLITS = {"train": "train", "valid": "val", "test": "test"}
 PLAYER_CLASS_NAME = "player"
 
@@ -78,7 +77,9 @@ def _load_annotations(split_dir: Path) -> dict[str, Any]:
     return json.loads(annotation_path.read_text(encoding="utf-8"))
 
 
-def _convert_split(raw_root: Path, output_root: Path, source_split: str, target_split: str) -> dict[str, Any]:
+def _convert_split(
+    raw_root: Path, output_root: Path, source_split: str, target_split: str
+) -> dict[str, Any]:
     split_dir = raw_root / source_split
     annotations = _load_annotations(split_dir)
     category_by_id = {category["id"]: category["name"] for category in annotations["categories"]}

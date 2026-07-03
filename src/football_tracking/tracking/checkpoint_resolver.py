@@ -151,8 +151,7 @@ def resolve_detector_checkpoint(
         if checkpoint_type == "smoke" and not allow_smoke:
             continue
         warnings.append(
-            "Using alternative checkpoint because configured one is missing: "
-            f"{alternative_path}"
+            f"Using alternative checkpoint because configured one is missing: {alternative_path}"
         )
         return ResolvedCheckpoint(
             checkpoint=alternative_path,

@@ -82,11 +82,7 @@ def load_deepsort_config(config_path: str | Path, device: str = "auto") -> DeepS
         n_init=int(tracker.get("n_init", 3)),
         max_iou_distance=float(tracker.get("max_iou_distance", 0.7)),
         max_cosine_distance=float(tracker.get("max_cosine_distance", 0.3)),
-        nn_budget=(
-            None
-            if tracker.get("nn_budget") is None
-            else int(tracker.get("nn_budget"))
-        ),
+        nn_budget=(None if tracker.get("nn_budget") is None else int(tracker.get("nn_budget"))),
         embedder=str(tracker.get("embedder", "mobilenet")),
         half=half,
         bgr=bool(tracker.get("bgr", True)),

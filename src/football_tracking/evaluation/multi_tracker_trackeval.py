@@ -350,9 +350,7 @@ def _extract_metrics(
 
     overall = summarize("COMBINED_SEQ")
     per_sequence = {
-        seq_name: summarize(seq_name)
-        for seq_name in tracker_res
-        if seq_name != "COMBINED_SEQ"
+        seq_name: summarize(seq_name) for seq_name in tracker_res if seq_name != "COMBINED_SEQ"
     }
     return overall, per_sequence
 

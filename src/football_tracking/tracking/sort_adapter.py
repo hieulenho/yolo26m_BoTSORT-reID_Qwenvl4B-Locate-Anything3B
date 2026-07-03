@@ -180,20 +180,20 @@ class SortTrackerAdapter:
             self.next_track_id += 1
 
         self.tracks = [
-            track
-            for track in self.tracks
-            if track.time_since_update <= self.config.max_age
+            track for track in self.tracks if track.time_since_update <= self.config.max_age
         ]
         outputs = [
             output
             for track in self.tracks
-            if (output := self._to_track_output(
-                track,
-                frame_index,
-                sequence_name,
-                image_width,
-                image_height,
-            ))
+            if (
+                output := self._to_track_output(
+                    track,
+                    frame_index,
+                    sequence_name,
+                    image_width,
+                    image_height,
+                )
+            )
             is not None
         ]
         return sorted(outputs, key=lambda item: item.track_id)

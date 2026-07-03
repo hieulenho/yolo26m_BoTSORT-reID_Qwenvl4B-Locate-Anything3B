@@ -306,8 +306,7 @@ def _dry_run_plan(config: BaselineConfig) -> dict[str, Any]:
 def _metadata_for_images(images: list[DatasetImage]) -> tuple[list[ImageMetadata], float]:
     started = time.perf_counter()
     metadata = [
-        inspect_image(image.path, image.sequence_name, image.frame_index)
-        for image in images
+        inspect_image(image.path, image.sequence_name, image.frame_index) for image in images
     ]
     return metadata, time.perf_counter() - started
 

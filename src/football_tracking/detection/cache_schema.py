@@ -129,9 +129,8 @@ class CachedFrameDetections:
         for detection in self.detections:
             if detection.bbox_xyxy.x1 < 0.0 or detection.bbox_xyxy.y1 < 0.0:
                 raise DetectionCacheSchemaError("Detection bbox must stay inside the image.")
-            if (
-                detection.bbox_xyxy.x2 > float(self.image_width)
-                or detection.bbox_xyxy.y2 > float(self.image_height)
+            if detection.bbox_xyxy.x2 > float(self.image_width) or detection.bbox_xyxy.y2 > float(
+                self.image_height
             ):
                 raise DetectionCacheSchemaError("Detection bbox must stay inside the image.")
 
@@ -150,10 +149,7 @@ class CachedFrameDetections:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> CachedFrameDetections:
-        detections = [
-            CachedDetection.from_dict(item)
-            for item in payload.get("detections", [])
-        ]
+        detections = [CachedDetection.from_dict(item) for item in payload.get("detections", [])]
         return cls(
             sequence_name=str(payload.get("sequence_name")),
             frame_index=int(payload.get("frame_index")),

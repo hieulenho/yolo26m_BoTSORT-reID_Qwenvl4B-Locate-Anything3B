@@ -123,8 +123,7 @@ def load_compare_trackers_config(
             required=False,
         ),
         metrics=tuple(
-            str(value)
-            for value in evaluation.get("metrics", ["HOTA", "CLEAR", "Identity"])
+            str(value) for value in evaluation.get("metrics", ["HOTA", "CLEAR", "Identity"])
         ),
         allow_partial_sequences=bool(evaluation.get("allow_partial_sequences", False)),
         render_video=bool(benchmark.get("render_video", False)),

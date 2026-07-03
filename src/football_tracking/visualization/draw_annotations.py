@@ -101,8 +101,7 @@ def draw_annotation_samples(
                 y2 = int(round(annotation.bbox_xyxy.y2))
                 color = _track_color(annotation.track_id)
                 label = (
-                    f"{annotation.target_class or annotation.source_class} "
-                    f"#{annotation.track_id}"
+                    f"{annotation.target_class or annotation.source_class} #{annotation.track_id}"
                 )
                 cv2.rectangle(image, (x1, y1), (x2, y2), color, line_thickness)
                 cv2.putText(

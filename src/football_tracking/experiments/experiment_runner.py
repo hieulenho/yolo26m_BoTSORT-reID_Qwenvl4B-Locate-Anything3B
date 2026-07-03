@@ -342,9 +342,7 @@ def evaluate_tracking_outputs(
         return {
             "dry_run": False,
             "status": "validation_failed",
-            "validation": {
-                name: report.to_dict() for name, report in validation_reports.items()
-            },
+            "validation": {name: report.to_dict() for name, report in validation_reports.items()},
             "paths": {"validation": validation_paths},
         }
 
@@ -378,9 +376,7 @@ def evaluate_tracking_outputs(
         "split": config.split,
         "trackers": tracker_names,
         "sequence_count": len(sources),
-        "validation": {
-            name: report.to_dict() for name, report in validation_reports.items()
-        },
+        "validation": {name: report.to_dict() for name, report in validation_reports.items()},
         "trackeval": {name: value.to_dict() for name, value in trackeval.items()},
         "paths": {
             "overall_csv": str(overall_csv),
@@ -831,10 +827,7 @@ def _write_evaluation_per_sequence_csv(
                         "frame_count": frames,
                         "tracker_fps": frames / seconds if frames and seconds else None,
                         "mot_path": str(
-                            config.tracks_root
-                            / tracker_name
-                            / config.split
-                            / f"{source.name}.txt"
+                            config.tracks_root / tracker_name / config.split / f"{source.name}.txt"
                         ),
                         **{name: metrics.get(name) for name in TRACKING_METRIC_NAMES},
                     }

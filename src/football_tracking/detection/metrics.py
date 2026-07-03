@@ -68,9 +68,7 @@ def parse_ultralytics_metrics(result: Any) -> BaselineMetrics:
         else _finite_or_none(results_dict.get("metrics/precision(B)"))
     )
     recall = (
-        recall
-        if recall is not None
-        else _finite_or_none(results_dict.get("metrics/recall(B)"))
+        recall if recall is not None else _finite_or_none(results_dict.get("metrics/recall(B)"))
     )
     map50 = map50 if map50 is not None else _finite_or_none(results_dict.get("metrics/mAP50(B)"))
     map50_95 = (

@@ -175,8 +175,7 @@ def find_football_list(root: Path) -> Path:
             return candidate
     txt_files = sorted(str(path.relative_to(root)) for path in root.rglob("*.txt"))
     raise SportsMotError(
-        "Could not find official football.txt. Candidate .txt files near dataset root: "
-        f"{txt_files}"
+        f"Could not find official football.txt. Candidate .txt files near dataset root: {txt_files}"
     )
 
 
@@ -289,9 +288,7 @@ def validate_sequence(record: SequenceRecord) -> ValidationReport:
             _validate_gt_row(row, seqinfo, record.sequence_dir, gt_path, line_number)
             key = (row[0], row[1])
             if key in seen:
-                raise SportsMotError(
-                    f"{gt_path}:{line_number} duplicate frame-track pair: {key}"
-                )
+                raise SportsMotError(f"{gt_path}:{line_number} duplicate frame-track pair: {key}")
             seen.add(key)
     except Exception as exc:  # noqa: BLE001
         issues.append(
@@ -445,10 +442,7 @@ def _split_stats(sequences: list[SequenceInfo], split_manifest: SplitManifest) -
     for split_name, names in split_manifest.as_mapping().items():
         selected = [sequence for sequence in sequences if sequence.name in names]
         objects = [
-            obj
-            for sequence in selected
-            for frame in sequence.annotations
-            for obj in frame.objects
+            obj for sequence in selected for frame in sequence.annotations for obj in frame.objects
         ]
         tracks = {
             (sequence.name, obj.track_id)
