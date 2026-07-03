@@ -94,9 +94,14 @@ def postprocess_detections(
     target_class_id: int = 0,
     target_class_name: str = "player",
     keep_only_person: bool = True,
+    allowed_class_ids: Iterable[int] | None = None,
+    source_class_names: dict[int, str] | None = None,
+    preserve_source_class: bool = False,
     image_path: str | Path | None = None,
 ) -> list[Detection]:
     detections: list[Detection] = []
+    allowed_classes = set(allowed_class_ids) if allowed_class_ids is not None else None
+    class_names = source_class_names or {}
     for row in iter_prediction_rows(raw_prediction):
         try:
             source_class_id = int(float(row["class_id"]))
@@ -108,6 +113,8 @@ def postprocess_detections(
             continue
         if keep_only_person and source_class_id != coco_person_class_id:
             continue
+        if allowed_classes is not None and source_class_id not in allowed_classes:
+            continue
         if confidence < confidence_threshold:
             continue
         clipped = clip_xyxy_to_image(
@@ -117,6 +124,12 @@ def postprocess_detections(
         )
         if not is_valid_bbox(clipped):
             continue
+        source_class_name = class_names.get(
+            source_class_id,
+            "person" if source_class_id == coco_person_class_id else f"class_{source_class_id}",
+        )
+        emitted_class_id = source_class_id if preserve_source_class else target_class_id
+        emitted_class_name = source_class_name if preserve_source_class else target_class_name
         detections.append(
             Detection(
                 frame_index=frame_index,
@@ -124,11 +137,9 @@ def postprocess_detections(
                 bbox_xyxy=clipped,
                 confidence=confidence,
                 source_class_id=source_class_id,
-                source_class_name=(
-                    "person" if source_class_id == coco_person_class_id else "unknown"
-                ),
-                target_class_id=target_class_id,
-                target_class_name=target_class_name,
+                source_class_name=source_class_name,
+                target_class_id=emitted_class_id,
+                target_class_name=emitted_class_name,
                 image_width=image_width,
                 image_height=image_height,
                 metadata={"image_path": str(image_path)} if image_path is not None else {},

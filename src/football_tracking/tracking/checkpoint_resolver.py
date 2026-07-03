@@ -164,6 +164,8 @@ def resolve_detector_checkpoint(
         )
 
     standard_candidates = (
+        Path("models/detector/yolo26m_best.pt"),
+        Path("models/detector/yolo26m_sportsmot_best.pt"),
         Path("models/detector/yolov8m_players_best.pt"),
         Path("models/detector/yolov8m_sportsmot_best.pt"),
     )

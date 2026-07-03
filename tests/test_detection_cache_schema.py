@@ -30,6 +30,18 @@ def test_cached_frame_roundtrip_and_tracker_filtering() -> None:
     assert tracker_detections[0].metadata["detection_source"] == "cache"
 
 
-def test_cache_schema_rejects_non_player_class() -> None:
+def test_cache_schema_allows_generic_classes() -> None:
+    detection = CachedDetection(
+        BoundingBoxXYXY(1, 2, 11, 22),
+        0.9,
+        class_id=3,
+        class_name="vehicle",
+    )
+
+    assert detection.class_id == 3
+    assert detection.class_name == "vehicle"
+
+
+def test_cache_schema_rejects_invalid_class_name() -> None:
     with pytest.raises(DetectionCacheSchemaError):
-        CachedDetection(BoundingBoxXYXY(1, 2, 11, 22), 0.9, class_id=1)
+        CachedDetection(BoundingBoxXYXY(1, 2, 11, 22), 0.9, class_id=1, class_name="")

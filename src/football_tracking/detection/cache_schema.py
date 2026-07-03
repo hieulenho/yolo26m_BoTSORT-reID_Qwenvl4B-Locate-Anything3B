@@ -54,8 +54,10 @@ class CachedDetection:
         confidence = _finite(self.confidence, "confidence")
         if not 0.0 <= confidence <= 1.0:
             raise DetectionCacheSchemaError("confidence must be in [0, 1].")
-        if self.class_id != 0 or self.class_name != "player":
-            raise DetectionCacheSchemaError("Detection cache only supports class 0/player.")
+        if self.class_id < 0:
+            raise DetectionCacheSchemaError("class_id must be non-negative.")
+        if not self.class_name:
+            raise DetectionCacheSchemaError("class_name must not be empty.")
 
     def to_dict(self) -> dict[str, Any]:
         return {

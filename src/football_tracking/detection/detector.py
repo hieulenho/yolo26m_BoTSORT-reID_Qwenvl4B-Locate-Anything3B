@@ -1,4 +1,4 @@
-"""YOLOv8 detector wrapper for the pretrained baseline."""
+"""Ultralytics detector wrappers used by detection and tracking pipelines."""
 
 from __future__ import annotations
 
@@ -16,6 +16,27 @@ KNOWN_ULTRALYTICS_CHECKPOINTS = {
     "yolov8m.pt",
     "yolov8l.pt",
     "yolov8x.pt",
+    "yolo10n.pt",
+    "yolo10s.pt",
+    "yolo10m.pt",
+    "yolo10b.pt",
+    "yolo10l.pt",
+    "yolo10x.pt",
+    "yolo11n.pt",
+    "yolo11s.pt",
+    "yolo11m.pt",
+    "yolo11l.pt",
+    "yolo11x.pt",
+    "yolo12n.pt",
+    "yolo12s.pt",
+    "yolo12m.pt",
+    "yolo12l.pt",
+    "yolo12x.pt",
+    "yolo26n.pt",
+    "yolo26s.pt",
+    "yolo26m.pt",
+    "yolo26l.pt",
+    "yolo26x.pt",
 }
 
 
@@ -60,24 +81,42 @@ def validate_checkpoint(weights: str | Path) -> None:
     )
 
 
-class YOLOv8Detector:
+class UltralyticsDetector:
     def __init__(
         self,
         weights: str | Path = "yolov8m.pt",
         device: str = "auto",
         half: bool = False,
+        detector_name: str | None = None,
+        backend: str = "ultralytics",
         model_factory: Any | None = None,
     ) -> None:
         self.weights = weights
         self.requested_device = device
         self.device = resolve_device(device)
         self.half = bool(half and self.device != "cpu")
+        self.detector_name = detector_name or Path(str(weights)).stem
+        self.backend = backend
         self.model_factory = model_factory
         self.model: Any | None = None
 
     @property
     def model_name(self) -> str:
+        return self.detector_name
+
+    @property
+    def checkpoint_name(self) -> str:
         return Path(str(self.weights)).name
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "backend": self.backend,
+            "detector_name": self.detector_name,
+            "checkpoint": str(self.weights),
+            "checkpoint_name": self.checkpoint_name,
+            "device": self.device,
+            "half": self.half,
+        }
 
     def load_model(self) -> Any:
         if self.model is not None:
@@ -127,8 +166,42 @@ class YOLOv8Detector:
     def predict_image(self, image_path: Path, **kwargs: Any) -> Any:
         return self.predict_batch([image_path], **kwargs)[0]
 
+    def predict_frame(self, frame: Any, **kwargs: Any) -> Any:
+        model = self.load_model()
+        predict_kwargs = dict(kwargs)
+        predict_kwargs.setdefault("device", self.device)
+        predict_kwargs.setdefault("half", self.half)
+        predict_kwargs.setdefault("verbose", False)
+        try:
+            raw = model(frame, **predict_kwargs)
+        except Exception as exc:  # noqa: BLE001
+            raise DetectorError(f"YOLO frame inference failed: {exc}") from exc
+        if isinstance(raw, list | tuple):
+            return raw[0] if raw else None
+        return raw
+
     def predict_sequence(self, image_paths: Sequence[Path], **kwargs: Any) -> list[Any]:
         return self.predict_batch(image_paths, **kwargs)
 
     def predict_dataset_split(self, image_paths: Sequence[Path], **kwargs: Any) -> list[Any]:
         return self.predict_batch(image_paths, **kwargs)
+
+
+class YOLOv8Detector(UltralyticsDetector):
+    """Backward-compatible alias for the original YOLOv8 detector wrapper."""
+
+    def __init__(
+        self,
+        weights: str | Path = "yolov8m.pt",
+        device: str = "auto",
+        half: bool = False,
+        model_factory: Any | None = None,
+    ) -> None:
+        super().__init__(
+            weights=weights,
+            device=device,
+            half=half,
+            detector_name="YOLOv8m",
+            backend="ultralytics",
+            model_factory=model_factory,
+        )

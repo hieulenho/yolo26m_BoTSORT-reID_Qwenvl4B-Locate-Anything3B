@@ -312,7 +312,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     train_parser = subparsers.add_parser(
         "train-detector",
-        help="Fine-tune YOLOv8m detector.",
+        help="Fine-tune an Ultralytics detector.",
     )
     _add_training_common_options(train_parser)
 
@@ -343,31 +343,31 @@ def _build_parser() -> argparse.ArgumentParser:
 
     track_video_parser = subparsers.add_parser(
         "track-video",
-        help="Track players in a video with YOLOv8m and DeepSORT.",
+        help="Track objects in a video with the configured detector and tracker.",
     )
     _add_tracking_common_options(track_video_parser, Path("configs/track_video.yaml"))
 
     track_parser = subparsers.add_parser(
         "track",
-        help="Track the configured SportsMOT football split with YOLOv8m and DeepSORT.",
+        help="Track the configured SportsMOT football split.",
     )
     _add_tracking_common_options(track_parser, Path("configs/track_sportsmot.yaml"))
 
     track_sportsmot_parser = subparsers.add_parser(
         "track-sportsmot",
-        help="Track SportsMOT football sequences with YOLOv8m and DeepSORT.",
+        help="Track SportsMOT football sequences with the configured detector and tracker.",
     )
     _add_tracking_common_options(track_sportsmot_parser, Path("configs/track_sportsmot.yaml"))
 
     validate_tracks_parser = subparsers.add_parser(
         "validate-tracks",
-        help="Validate DeepSORT MOT prediction outputs.",
+        help="Validate MOT prediction outputs.",
     )
     _add_tracking_common_options(validate_tracks_parser, Path("configs/track_sportsmot_smoke.yaml"))
 
     cache_parser = subparsers.add_parser(
         "cache-detections",
-        help="Run YOLOv8m once and save shared detection cache.",
+        help="Run the configured detector once and save shared detection cache.",
     )
     _add_detection_cache_common_options(cache_parser)
 
@@ -403,7 +403,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     compare_trackers_parser = subparsers.add_parser(
         "compare-trackers",
-        help="Compare SORT and DeepSORT from shared cached detections.",
+        help="Compare configured trackers from shared cached detections.",
     )
     _add_experiment_common_options(compare_trackers_parser, Path("configs/compare_trackers.yaml"))
 

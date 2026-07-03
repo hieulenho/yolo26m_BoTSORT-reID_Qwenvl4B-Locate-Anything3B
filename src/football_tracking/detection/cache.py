@@ -22,7 +22,8 @@ from football_tracking.detection.cache_validation import (
     validate_detection_cache_sequence,
 )
 from football_tracking.detection.cache_writer import DetectionCacheWriter, sequence_cache_dir
-from football_tracking.detection.detector import YOLOv8Detector, resolve_device
+from football_tracking.detection.detector import resolve_device
+from football_tracking.detection.detector_factory import create_detector, detector_name_from_config
 from football_tracking.detection.postprocessing import postprocess_detections
 from football_tracking.detection.serialization import runtime_versions
 from football_tracking.paths import get_project_root, resolve_project_path
@@ -57,7 +58,11 @@ class DetectionCacheConfig:
     device: str
     half: bool
     batch: int
-    class_ids: tuple[int, ...]
+    class_ids: tuple[int, ...] | None
+    target_class_id: int
+    target_class_name: str
+    preserve_source_classes: bool
+    source_class_names: dict[int, str]
     cache_root: Path
     cache_format: str
     save_npz: bool
@@ -106,6 +111,8 @@ def load_detection_cache_config(
     inference = _mapping(root.get("inference"), "inference")
     cache = _mapping(root.get("cache"), "cache")
     runtime = _mapping(root.get("runtime", {}), "runtime")
+    class_values = inference.get("class_ids", [0])
+    class_ids = None if class_values is None else tuple(int(value) for value in class_values)
     config = DetectionCacheConfig(
         project_root=project_root,
         config_path=resolved,
@@ -121,7 +128,14 @@ def load_detection_cache_config(
         device=str(inference.get("device", "auto")),
         half=bool(inference.get("half", False)),
         batch=int(inference.get("batch", 1)),
-        class_ids=tuple(int(value) for value in inference.get("class_ids", [0])),
+        class_ids=class_ids,
+        target_class_id=int(inference.get("target_class_id", 0)),
+        target_class_name=str(inference.get("target_class_name", "player")),
+        preserve_source_classes=bool(inference.get("preserve_source_classes", False)),
+        source_class_names={
+            int(key): str(value)
+            for key, value in (inference.get("source_class_names", {}) or {}).items()
+        },
         cache_root=_resolve_path(cache.get("root"), project_root, "cache.root"),
         cache_format=str(cache.get("format", "jsonl")),
         save_npz=bool(cache.get("save_npz", False)),
@@ -267,17 +281,20 @@ def _to_cached_frame(
         image_height=image_height,
         confidence_threshold=config.conf_floor,
         coco_person_class_id=0,
-        target_class_id=0,
-        target_class_name="player",
+        target_class_id=config.target_class_id,
+        target_class_name=config.target_class_name,
         keep_only_person=keep_only_person,
+        allowed_class_ids=config.class_ids,
+        source_class_names=config.source_class_names,
+        preserve_source_class=config.preserve_source_classes,
         image_path=image_path,
     )
     cached = [
         CachedDetection(
             bbox_xyxy=detection.bbox_xyxy,
             confidence=detection.confidence,
-            class_id=0,
-            class_name="player",
+            class_id=detection.target_class_id,
+            class_name=detection.target_class_name,
             source_class_id=detection.source_class_id,
             source_class_name=detection.source_class_name,
             metadata=detection.metadata,
@@ -304,7 +321,8 @@ def _load_detector_once(
 ) -> Any:
     if detector is not None:
         return detector
-    return YOLOv8Detector(
+    return create_detector(
+        config.model,
         checkpoint.checkpoint,
         device=resolve_device(config.device),
         half=config.half,
@@ -410,12 +428,12 @@ def _create_sequence_cache(
         checkpoint=str(checkpoint.checkpoint),
         checkpoint_type=checkpoint.checkpoint_type,
         checkpoint_hash=checkpoint.checkpoint_hash,
-        detector_name="YOLOv8m",
+        detector_name=detector_name_from_config(config.model, checkpoint.checkpoint),
         image_size=config.imgsz,
         confidence_floor=config.conf_floor,
         nms_iou=config.iou,
         max_det=config.max_det,
-        class_filter=list(config.class_ids),
+        class_filter=list(config.class_ids) if config.class_ids is not None else [],
         device=config.device,
         python_version=runtime.get("python"),
         torch_version=runtime.get("torch"),

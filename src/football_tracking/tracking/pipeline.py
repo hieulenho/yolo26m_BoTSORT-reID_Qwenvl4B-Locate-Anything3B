@@ -1,4 +1,4 @@
-"""YOLOv8m plus DeepSORT tracking orchestration."""
+"""Detector plus multi-object tracker orchestration."""
 
 from __future__ import annotations
 
@@ -12,7 +12,8 @@ from typing import Any
 import yaml
 
 from football_tracking.data.schemas import BoundingBoxXYXY
-from football_tracking.detection.detector import YOLOv8Detector, resolve_device
+from football_tracking.detection.detector import resolve_device
+from football_tracking.detection.detector_factory import create_detector
 from football_tracking.detection.postprocessing import postprocess_detections
 from football_tracking.detection.serialization import runtime_versions
 from football_tracking.paths import get_project_root, resolve_project_path
@@ -20,11 +21,6 @@ from football_tracking.reporting.tracking_run_report import write_tracking_run_r
 from football_tracking.tracking.checkpoint_resolver import (
     ResolvedCheckpoint,
     resolve_detector_checkpoint,
-)
-from football_tracking.tracking.deepsort_adapter import (
-    DeepSortRuntimeConfig,
-    DeepSortTrackerAdapter,
-    load_deepsort_config,
 )
 from football_tracking.tracking.mot_writer import MotPredictionWriter
 from football_tracking.tracking.schemas import TrackerDetection, TrackingRunSummary
@@ -35,6 +31,10 @@ from football_tracking.tracking.sequence_runner import (
     video_source,
 )
 from football_tracking.tracking.timing import TrackingTiming, timed_section
+from football_tracking.tracking.tracker_factory import (
+    create_tracker,
+    load_tracker_config_object,
+)
 from football_tracking.tracking.trajectory import TrajectoryStore
 from football_tracking.tracking.validation import (
     TrackValidationReport,
@@ -54,6 +54,7 @@ class TrackingConfig:
     project_root: Path
     config_path: Path
     model: dict[str, Any]
+    tracker_name: str
     tracker_config: Path
     source_type: str
     source_path: Path | None
@@ -74,7 +75,11 @@ class TrackingConfig:
     max_det: int
     device: str
     half: bool
-    class_ids: tuple[int, ...]
+    class_ids: tuple[int, ...] | None
+    target_class_id: int
+    target_class_name: str
+    preserve_source_classes: bool
+    source_class_names: dict[int, str]
     show_confidence: bool
     show_class: bool
     show_track_id: bool
@@ -152,10 +157,13 @@ def load_tracking_config(
         raise TrackingPipelineError("Tracking config must define dataset or source.")
 
     render_video = bool(output.get("render_video", render.get("enabled", False)))
+    class_values = detector.get("class_ids", [0])
+    class_ids = None if class_values is None else tuple(int(value) for value in class_values)
     config = TrackingConfig(
         project_root=project_root,
         config_path=resolved_config,
         model=model,
+        tracker_name=str(tracker.get("name", "deepsort")),
         tracker_config=_resolve_path(tracker.get("config"), project_root, "tracker.config"),
         source_type=source_type,
         source_path=source_path,
@@ -198,7 +206,14 @@ def load_tracking_config(
         max_det=int(detector.get("max_det", 300)),
         device=str(detector.get("device", "auto")),
         half=bool(detector.get("half", False)),
-        class_ids=tuple(int(value) for value in detector.get("class_ids", [0])),
+        class_ids=class_ids,
+        target_class_id=int(detector.get("target_class_id", 0)),
+        target_class_name=str(detector.get("target_class_name", "player")),
+        preserve_source_classes=bool(detector.get("preserve_source_classes", False)),
+        source_class_names={
+            int(key): str(value)
+            for key, value in (detector.get("source_class_names", {}) or {}).items()
+        },
         show_confidence=bool(render.get("show_confidence", True)),
         show_class=bool(render.get("show_class", True)),
         show_track_id=bool(render.get("show_track_id", True)),
@@ -337,9 +352,12 @@ def _tracker_detections_from_raw(
         image_height=image_height,
         confidence_threshold=config.conf,
         coco_person_class_id=0,
-        target_class_id=0,
-        target_class_name="player",
+        target_class_id=config.target_class_id,
+        target_class_name=config.target_class_name,
         keep_only_person=keep_only_person,
+        allowed_class_ids=config.class_ids,
+        source_class_names=config.source_class_names,
+        preserve_source_class=config.preserve_source_classes,
         image_path=image_path,
     )
     return [
@@ -348,8 +366,8 @@ def _tracker_detections_from_raw(
             sequence_name=detection.sequence_name,
             bbox_xyxy=detection.bbox_xyxy,
             confidence=detection.confidence,
-            class_id=0,
-            class_name="player",
+            class_id=detection.target_class_id,
+            class_name=detection.target_class_name,
             metadata=detection.metadata,
         )
         for detection in detections
@@ -391,7 +409,12 @@ def _load_detector_once(
     if detector is not None:
         return detector
     resolved_device = resolve_device(config.device)
-    return YOLOv8Detector(checkpoint.checkpoint, device=resolved_device, half=config.half)
+    return create_detector(
+        config.model,
+        checkpoint.checkpoint,
+        device=resolved_device,
+        half=config.half,
+    )
 
 
 def run_tracking(
@@ -399,11 +422,7 @@ def run_tracking(
     overrides: dict[str, Any] | None = None,
     dry_run: bool = False,
     detector: Any | None = None,
-    tracker_adapter_factory: Callable[
-        [DeepSortRuntimeConfig],
-        DeepSortTrackerAdapter,
-    ]
-    | None = None,
+    tracker_adapter_factory: Callable[[Any], Any] | None = None,
 ) -> dict[str, Any]:
     config = load_tracking_config(config_path, overrides=overrides)
     config = replace(config, device=resolve_device(config.device))
@@ -414,7 +433,11 @@ def run_tracking(
 
     if not sources:
         raise TrackingPipelineError("No tracking sources were found.")
-    deepsort_config = load_deepsort_config(config.tracker_config, device=config.device)
+    tracker_runtime_config = load_tracker_config_object(
+        config.tracker_name,
+        config.tracker_config,
+        device=config.device,
+    )
     started_at = datetime.now(UTC).isoformat()
     global_timing = TrackingTiming()
     load_started = time.perf_counter()
@@ -433,7 +456,7 @@ def run_tracking(
                 config,
                 source,
                 checkpoint,
-                deepsort_config,
+                tracker_runtime_config,
                 detector,
                 tracker_adapter_factory,
             )
@@ -484,9 +507,10 @@ def run_tracking(
         "validation": validation_report.to_dict(),
     }
     report_paths = write_tracking_run_report(payload, config.metrics_dir)
+    tracker_slug = config.tracker_name.lower().replace("-", "_")
     validation_path = write_track_validation_report(
         validation_report,
-        config.metrics_dir / "deepsort_output_validation.json",
+        config.metrics_dir / f"{tracker_slug}_output_validation.json",
     )
     return {
         "dry_run": False,
@@ -503,9 +527,9 @@ def _run_sequence(
     config: TrackingConfig,
     source: SequenceSource,
     checkpoint: ResolvedCheckpoint,
-    deepsort_config: DeepSortRuntimeConfig,
+    tracker_runtime_config: Any,
     detector: Any,
-    tracker_adapter_factory: Callable[[DeepSortRuntimeConfig], DeepSortTrackerAdapter] | None,
+    tracker_adapter_factory: Callable[[Any], Any] | None,
 ) -> tuple[TrackingRunSummary, TrackValidationReport]:
     mot_path, metadata_path, video_path = _mot_output_paths(config, source)
     if config.save_mot and mot_path is not None and mot_path.exists() and not config.overwrite:
@@ -519,9 +543,9 @@ def _run_sequence(
         raise TrackingPipelineError(f"Video output exists and overwrite=false: {video_path}")
 
     adapter = (
-        tracker_adapter_factory(deepsort_config)
+        tracker_adapter_factory(tracker_runtime_config)
         if tracker_adapter_factory is not None
-        else DeepSortTrackerAdapter(deepsort_config)
+        else create_tracker(config.tracker_name, config.tracker_config, device=config.device)
     )
     adapter.reset()
     trajectory = TrajectoryStore(
@@ -638,9 +662,25 @@ def _run_sequence(
             "conf": config.conf,
             "iou": config.iou,
             "max_det": config.max_det,
-            "class_ids": list(config.class_ids),
+            "class_ids": list(config.class_ids) if config.class_ids is not None else None,
+            "target_class_id": config.target_class_id,
+            "target_class_name": config.target_class_name,
+            "preserve_source_classes": config.preserve_source_classes,
         },
-        "deepsort_config": deepsort_config.to_dict(),
+        "tracker": config.tracker_name,
+        "tracker_config": (
+            tracker_runtime_config.to_dict()
+            if hasattr(tracker_runtime_config, "to_dict")
+            else dict(tracker_runtime_config)
+            if isinstance(tracker_runtime_config, dict)
+            else str(tracker_runtime_config)
+        ),
+        "deepsort_config": (
+            tracker_runtime_config.to_dict()
+            if config.tracker_name.lower() == "deepsort"
+            and hasattr(tracker_runtime_config, "to_dict")
+            else None
+        ),
         "frame_count": frame_count,
         "detection_count": detection_count,
         "unique_track_count": len(unique_tracks),
@@ -696,7 +736,8 @@ def validate_tracking_outputs(
         report.extend(validate_mot_prediction_file(mot_path, source.seqinfo_path, metadata_path))
     path = write_track_validation_report(
         report,
-        config.metrics_dir / "deepsort_output_validation.json",
+        config.metrics_dir
+        / f"{config.tracker_name.lower().replace('-', '_')}_output_validation.json",
     )
     return {"report": report.to_dict(), "path": str(path)}
 
