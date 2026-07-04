@@ -1,0 +1,32 @@
+model:
+  weights: models/detector/football/yolo26m_best.pt
+
+dataset:
+  data_yaml: data/yolo/sportsmot_football/dataset.yaml
+  split: val
+
+evaluation:
+  imgsz: 960
+  batch: 2
+  conf: 0.001
+  iou: 0.70
+  max_det: 300
+  device: auto
+  half: false
+  plots: true
+  save_json: true
+  save_txt: false
+  save_conf: false
+  verbose: true
+
+output:
+  project: outputs/evaluation/football
+  run_name: yolo26m_val
+  metrics_dir: outputs/metrics/football/yolo26m
+  figures_dir: outputs/figures/football/yolo26m
+
+runtime:
+  overwrite: true
+  max_images: null
+  warmup_iterations: 3
+  log_level: INFO

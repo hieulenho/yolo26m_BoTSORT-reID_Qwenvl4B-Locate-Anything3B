@@ -1,0 +1,64 @@
+domain:
+  name: vehicle
+  namespace: vehicle
+  description: Generic vehicle tracking for COCO-style car, motorcycle, bus, and truck classes.
+
+model:
+  name: yolo26m
+  backend: ultralytics
+  checkpoint: models/detector/vehicle/yolo26m_best.pt
+  alternative_checkpoints:
+    - yolo26m.pt
+  fallback_checkpoint: yolo26m.pt
+  allow_pretrained_fallback: true
+  allow_smoke_checkpoint: false
+
+detector:
+  imgsz: 960
+  conf: 0.20
+  conf_floor: 0.001
+  iou: 0.70
+  max_det: 300
+  device: auto
+  half: false
+  batch: 1
+  class_ids:
+    - 2
+    - 3
+    - 5
+    - 7
+  target_class_id: 2
+  target_class_name: vehicle
+  preserve_source_classes: true
+  source_class_names:
+    2: car
+    3: motorcycle
+    5: bus
+    7: truck
+
+tracker:
+  default_name: botsort_reid
+  default_preset: balanced
+  default_config: configs/trackers/botsort_balanced.yaml
+  presets:
+    balanced: configs/trackers/botsort_balanced.yaml
+    high_recall: configs/trackers/botsort_high_recall.yaml
+    high_identity: configs/trackers/botsort_high_identity.yaml
+    fast: configs/trackers/bytetrack_fast.yaml
+
+render:
+  show_confidence: true
+  show_class: true
+  show_track_id: true
+  show_trajectory: true
+  trajectory_length: 25
+  line_thickness: 2
+  font_scale: 0.55
+  show_fps: true
+
+output:
+  runtime:
+    overwrite: false
+    fail_fast: true
+    smoke_only: false
+    log_level: INFO

@@ -46,6 +46,7 @@ from football_tracking.detection.training_config import (
     TrainingConfigError,
     load_training_config,
 )
+from football_tracking.domains.config_builder import DomainConfigError, build_domain_configs
 from football_tracking.experiments.ablation import AblationError, run_tracker_ablation
 from football_tracking.experiments.experiment_config import ExperimentConfigError
 from football_tracking.experiments.experiment_runner import (
@@ -55,6 +56,7 @@ from football_tracking.experiments.experiment_runner import (
     run_tracker_from_cache,
     summarize_experiments,
 )
+from football_tracking.experiments.tracker_grid import TrackerGridError, plan_tracker_grid
 from football_tracking.logging_utils import setup_logging
 from football_tracking.rendering.video_renderer import RenderVideoError, render_videos
 from football_tracking.reporting.detector_report import write_finetuned_report
@@ -190,7 +192,7 @@ def _add_experiment_common_options(
     default_config: Path,
 ) -> None:
     parser.add_argument("--config", type=Path, default=default_config)
-    parser.add_argument("--split", choices=("train", "val", "test"), default=None)
+    parser.add_argument("--split", choices=("train", "val", "test", "all"), default=None)
     parser.add_argument("--confidence", type=float, default=None)
     parser.add_argument("--max-sequences", type=int, default=None)
     parser.add_argument("--max-frames", type=int, default=None)
@@ -342,6 +344,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     compare_parser.add_argument("--debug", action="store_true")
 
+    domain_parser = subparsers.add_parser(
+        "build-domain-configs",
+        help="Generate reusable tracking/evaluation configs from a domain profile.",
+    )
+    domain_parser.add_argument("--domain", type=Path, default=Path("configs/domains/football.yaml"))
+    domain_parser.add_argument("--output-dir", type=Path, default=None)
+    domain_parser.add_argument("--preset", default=None)
+    domain_parser.add_argument("--split", choices=("train", "val", "test", "all"), default=None)
+    domain_parser.add_argument("--overwrite", action="store_true")
+    domain_parser.add_argument("--dry-run", action="store_true")
+    domain_parser.add_argument("--debug", action="store_true")
+
     track_video_parser = subparsers.add_parser(
         "track-video",
         help="Track objects in a video with the configured detector and tracker.",
@@ -387,7 +401,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     track_from_cache_parser.add_argument(
         "--tracker",
-        choices=("sort", "deepsort"),
+        choices=("sort", "deepsort", "botsort_reid", "bytetrack"),
         required=True,
     )
     track_from_cache_parser.add_argument(
@@ -395,7 +409,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/compare_trackers.yaml"),
     )
-    track_from_cache_parser.add_argument("--split", choices=("train", "val", "test"), default=None)
+    track_from_cache_parser.add_argument(
+        "--split",
+        choices=("train", "val", "test", "all"),
+        default=None,
+    )
     track_from_cache_parser.add_argument("--confidence", type=float, default=None)
     track_from_cache_parser.add_argument("--max-sequences", type=int, default=None)
     track_from_cache_parser.add_argument("--max-frames", type=int, default=None)
@@ -448,6 +466,20 @@ def _build_parser() -> argparse.ArgumentParser:
     ablation_parser.add_argument("--resume", action="store_true")
     ablation_parser.add_argument("--dry-run", action="store_true")
     ablation_parser.add_argument("--debug", action="store_true")
+
+    grid_parser = subparsers.add_parser(
+        "plan-tracker-grid",
+        help="Generate tracker grid-search configs and a PowerShell run script.",
+    )
+    grid_parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/tracker_grid_botsort_reid.yaml"),
+    )
+    grid_parser.add_argument("--max-experiments", type=int, default=None)
+    grid_parser.add_argument("--overwrite", action="store_true")
+    grid_parser.add_argument("--dry-run", action="store_true")
+    grid_parser.add_argument("--debug", action="store_true")
 
     summarize_parser = subparsers.add_parser(
         "summarize-experiments",
@@ -764,6 +796,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                 traceback.print_exc()
             return 2
 
+    if args.command == "build-domain-configs":
+        setup_logging("INFO")
+        try:
+            result = build_domain_configs(
+                args.domain,
+                output_dir=args.output_dir,
+                preset=args.preset,
+                split=args.split,
+                overwrite=args.overwrite,
+                dry_run=args.dry_run,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        except (DomainConfigError, FileNotFoundError, RuntimeError, ValueError) as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            if getattr(args, "debug", False):
+                traceback.print_exc()
+            return 2
+
     if args.command in {"cache-detections", "validate-detection-cache"}:
         setup_logging("INFO")
         try:
@@ -799,6 +851,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "compare-trackers",
         "evaluate-tracking",
         "run-tracker-ablation",
+        "plan-tracker-grid",
         "summarize-experiments",
     }:
         setup_logging("INFO")
@@ -828,6 +881,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     dry_run=args.dry_run,
                     max_experiments=args.max_experiments,
                 )
+            elif args.command == "plan-tracker-grid":
+                result = plan_tracker_grid(
+                    args.config,
+                    dry_run=args.dry_run,
+                    max_experiments=args.max_experiments,
+                    overwrite=args.overwrite,
+                )
             else:
                 result = summarize_experiments(args.root)
             sys.stdout.write(json.dumps(result, indent=2, default=str))
@@ -840,6 +900,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             DetectionCacheError,
             ExperimentConfigError,
             ExperimentRunnerError,
+            TrackerGridError,
             TrackerFactoryError,
             SortConfigError,
             DeepSortConfigError,

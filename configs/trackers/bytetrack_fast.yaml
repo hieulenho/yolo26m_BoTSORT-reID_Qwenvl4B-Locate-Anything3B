@@ -1,0 +1,24 @@
+tracker:
+  name: bytetrack
+  tracker_type: bytetrack
+  track_high_thresh: 0.35
+  track_low_thresh: 0.10
+  new_track_thresh: 0.45
+  track_buffer: 60
+  match_thresh: 0.80
+  fuse_score: true
+  gmc_method: none
+  proximity_thresh: 0.50
+  appearance_thresh: 0.25
+  with_reid: false
+  model: auto
+
+output:
+  confirmed_only: true
+  require_recent_update: true
+  max_time_since_update_for_output: 0
+  min_hits_for_output: 3
+  compact_ids: true
+
+runtime:
+  log_level: INFO
