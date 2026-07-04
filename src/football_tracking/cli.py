@@ -145,6 +145,8 @@ def _add_training_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--batch", type=_parse_batch, default=None)
     parser.add_argument("--imgsz", type=int, default=None)
     parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument("--fraction", type=float, default=None)
+    parser.add_argument("--no-val", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--split", choices=("train", "val", "test"), default=None)
@@ -549,6 +551,8 @@ def _training_overrides(args: argparse.Namespace) -> dict[str, object]:
         "batch": getattr(args, "batch", None),
         "imgsz": getattr(args, "imgsz", None),
         "workers": getattr(args, "workers", None),
+        "fraction": getattr(args, "fraction", None),
+        "val": False if getattr(args, "no_val", False) else None,
         "checkpoint": getattr(args, "checkpoint", None),
         "resume": getattr(args, "resume", None) or None,
         "overwrite": True if getattr(args, "overwrite", False) else None,

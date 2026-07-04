@@ -60,6 +60,8 @@ class TrainingConfig:
             if self.training.get("device") == "auto"
             else self.training.get("device"),
             "workers": self.training.get("workers"),
+            "fraction": self.training.get("fraction"),
+            "val": self.training.get("val"),
             "cache": self.training.get("cache"),
             "pretrained": self.training.get("pretrained"),
             "optimizer": self.training.get("optimizer"),
@@ -203,6 +205,15 @@ def _validate_device(device: Any) -> str:
     raise TrainingConfigError(f"Unsupported device value: {device}")
 
 
+def _validate_fraction(value: Any) -> float:
+    if isinstance(value, bool):
+        raise TrainingConfigError("training.fraction must be numeric.")
+    fraction = float(value)
+    if not 0.0 < fraction <= 1.0:
+        raise TrainingConfigError("training.fraction must be in (0, 1].")
+    return fraction
+
+
 def _validate_training_values(training: dict[str, Any]) -> dict[str, Any]:
     cleaned = dict(training)
     epochs = int(cleaned.get("epochs", 100))
@@ -223,6 +234,10 @@ def _validate_training_values(training: dict[str, Any]) -> dict[str, Any]:
     cleaned["patience"] = patience
     cleaned["workers"] = workers
     cleaned["device"] = _validate_device(cleaned.get("device", "auto"))
+    if cleaned.get("fraction") is not None:
+        cleaned["fraction"] = _validate_fraction(cleaned["fraction"])
+    if cleaned.get("val") is not None:
+        cleaned["val"] = bool(cleaned["val"])
     return cleaned
 
 
@@ -324,6 +339,10 @@ def apply_training_overrides(config: TrainingConfig, overrides: dict[str, Any]) 
         training["imgsz"] = int(overrides["imgsz"])
     if overrides.get("workers") is not None:
         training["workers"] = int(overrides["workers"])
+    if overrides.get("fraction") is not None:
+        training["fraction"] = _validate_fraction(overrides["fraction"])
+    if overrides.get("val") is not None:
+        training["val"] = bool(overrides["val"])
     config = replace(config, training=_validate_training_values(training))
     if overrides.get("overwrite"):
         config = replace(config, overwrite=True)

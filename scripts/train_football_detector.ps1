@@ -5,6 +5,9 @@ param(
     [int]$Epochs = 0,
     [double]$Batch = 0,
     [int]$ImgSz = 0,
+    [int]$Workers = -1,
+    [double]$Fraction = 0,
+    [switch]$NoVal,
     [switch]$Overwrite,
     [switch]$SkipEval,
     [switch]$DryRun
@@ -15,6 +18,18 @@ $ErrorActionPreference = "Stop"
 $python = Join-Path $PSScriptRoot "..\.venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $python)) {
     throw "Python virtualenv was not found: $python"
+}
+
+function Invoke-PythonCli {
+    param(
+        [string[]]$CommandArgs,
+        [string]$StepName
+    )
+
+    & $python @CommandArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "$StepName failed with exit code $LASTEXITCODE"
+    }
 }
 
 function Add-OptionalArgs {
@@ -34,6 +49,15 @@ function Add-OptionalArgs {
     if ($ImgSz -gt 0) {
         $commandArgs += @("--imgsz", "$ImgSz")
     }
+    if ($Workers -ge 0) {
+        $commandArgs += @("--workers", "$Workers")
+    }
+    if ($Fraction -gt 0) {
+        $commandArgs += @("--fraction", "$Fraction")
+    }
+    if ($NoVal) {
+        $commandArgs += "--no-val"
+    }
     if ($Overwrite) {
         $commandArgs += "--overwrite"
     }
@@ -46,7 +70,7 @@ $preflightArgs = Add-OptionalArgs -BaseArgs @(
     "preflight-training",
     "--config", $Config
 )
-& $python @preflightArgs
+Invoke-PythonCli -CommandArgs $preflightArgs -StepName "Preflight detector training"
 
 Write-Host "==> Training detector"
 $trainArgs = Add-OptionalArgs -BaseArgs @(
@@ -57,7 +81,7 @@ $trainArgs = Add-OptionalArgs -BaseArgs @(
 if ($DryRun) {
     $trainArgs += "--dry-run"
 }
-& $python @trainArgs
+Invoke-PythonCli -CommandArgs $trainArgs -StepName "Training detector"
 
 if (-not $SkipEval) {
     Write-Host "==> Evaluating detector"
@@ -79,5 +103,5 @@ if (-not $SkipEval) {
     if ($DryRun) {
         $evalArgs += "--dry-run"
     }
-    & $python @evalArgs
+    Invoke-PythonCli -CommandArgs $evalArgs -StepName "Evaluating detector"
 }

@@ -84,12 +84,26 @@ def test_training_config_accepts_fractional_batch(tmp_path: Path) -> None:
     assert config.training["batch"] == 0.7
 
 
+def test_training_config_passes_fast_training_options(tmp_path: Path) -> None:
+    config = load_training_config(
+        _config(tmp_path),
+        overrides={"fraction": 0.25, "val": False, "workers": 1},
+    )
+
+    args = config.sanitized_train_args()
+
+    assert args["fraction"] == 0.25
+    assert args["val"] is False
+    assert args["workers"] == 1
+
+
 @pytest.mark.parametrize(
     ("updates", "message"),
     [
         ({"training__epochs": 0}, "epochs"),
         ({"training__imgsz": 0}, "imgsz"),
         ({"training__batch": 0}, "batch"),
+        ({"training__fraction": 0}, "fraction"),
         ({"dataset__validation_split": "dev"}, "split"),
     ],
 )

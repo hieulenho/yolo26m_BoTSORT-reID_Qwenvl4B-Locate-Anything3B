@@ -1,0 +1,66 @@
+experiment:
+  name: yolo26m_sportsmot_football_full
+  seed: 42
+  deterministic: true
+
+model:
+  weights: models/detector/football/yolo26m_fast_best.pt
+  task: detect
+
+dataset:
+  data_yaml: data/yolo/sportsmot_football/dataset.yaml
+  train_split: train
+  validation_split: val
+  test_split: test
+
+training:
+  epochs: 10
+  imgsz: 640
+  batch: 8
+  patience: 10
+  device: auto
+  workers: 1
+  cache: false
+  pretrained: true
+  optimizer: auto
+  lr0: null
+  lrf: null
+  weight_decay: null
+  warmup_epochs: null
+  close_mosaic: 5
+  amp: true
+  resume: false
+  save: true
+  save_period: -1
+  plots: true
+  verbose: true
+
+augmentation:
+  hsv_h: 0.015
+  hsv_s: 0.4
+  hsv_v: 0.3
+  degrees: 0.0
+  translate: 0.10
+  scale: 0.50
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.0
+  fliplr: 0.5
+  mosaic: 0.75
+  mixup: 0.0
+  copy_paste: 0.0
+
+output:
+  project: outputs/training/football
+  run_name: yolo26m_full
+  models_dir: models/detector/football
+  metrics_dir: outputs/metrics/football/yolo26m_full
+  figures_dir: outputs/figures/football/yolo26m_full
+
+runtime:
+  overwrite: false
+  dry_run: false
+  smoke_test: false
+  max_train_images: null
+  max_val_images: null
+  log_level: INFO
