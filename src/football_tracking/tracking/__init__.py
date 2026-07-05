@@ -1,4 +1,4 @@
-"""DeepSORT tracking pipeline."""
+"""Tracking pipeline adapters and schemas."""
 
 from football_tracking.tracking.schemas import (
     TrackerDetection,

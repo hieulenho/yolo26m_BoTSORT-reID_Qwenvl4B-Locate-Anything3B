@@ -1,4 +1,4 @@
-"""Run SORT and DeepSORT from a shared detection cache."""
+"""Run configured trackers from a shared detection cache."""
 
 from __future__ import annotations
 
@@ -50,6 +50,24 @@ from football_tracking.visualization.tracker_comparison import write_tracker_com
 
 class ExperimentRunnerError(RuntimeError):
     """Raised when an experiment cannot run safely."""
+
+
+TRACKER_SUMMARY_STEM = "tracker_summary"
+TRACKER_SEQUENCE_METRICS_FILENAME = "tracker_sequence_metrics.csv"
+TRACKER_COMPARISON_DELTA_FILENAME = "tracker_comparison_delta.json"
+BEST_TRACKER_RESULT_FILENAME = "best_tracker_result.json"
+TRACKER_COMPARISON_FIGURES_DIRNAME = "tracker_comparison"
+TRACKING_EVALUATION_SUMMARY_STEM = "tracking_evaluation_summary"
+TRACKING_EVALUATION_BEST_FILENAME = "tracking_evaluation_best_tracker.json"
+BEST_TRACKER_SELECTION_CRITERIA = (
+    {"metric": "HOTA", "direction": "max"},
+    {"metric": "IDF1", "direction": "max"},
+    {"metric": "AssA", "direction": "max"},
+    {"metric": "IDSW", "direction": "min"},
+    {"metric": "Frag", "direction": "min"},
+    {"metric": "MOTA", "direction": "max"},
+    {"metric": "tracker_fps", "direction": "max"},
+)
 
 
 def _discover_sources(config: CompareTrackersConfig) -> list[SequenceSource]:
@@ -367,10 +385,12 @@ def evaluate_tracking_outputs(
         _evaluation_overall_row(config, tracker_name, sources, trackeval[tracker_name])
         for tracker_name in tracker_names
     ]
-    overall_csv = config.metrics_root / "tracking_evaluation_overall.csv"
-    overall_json = config.metrics_root / "tracking_evaluation_overall.json"
-    write_overall_metrics(overall_rows, overall_csv, overall_json)
-    per_sequence_csv = config.metrics_root / "tracking_evaluation_per_sequence.csv"
+    summary_csv = config.metrics_root / f"{TRACKING_EVALUATION_SUMMARY_STEM}.csv"
+    summary_json = config.metrics_root / f"{TRACKING_EVALUATION_SUMMARY_STEM}.json"
+    write_overall_metrics(overall_rows, summary_csv, summary_json)
+    best_tracker_json = config.metrics_root / TRACKING_EVALUATION_BEST_FILENAME
+    _write_best_tracker_result(config, overall_rows, best_tracker_json)
+    per_sequence_csv = config.metrics_root / "tracking_evaluation_sequence_metrics.csv"
     _write_evaluation_per_sequence_csv(config, sources, trackeval, per_sequence_csv)
     figures = write_tracker_comparison_figures(
         overall_rows,
@@ -386,8 +406,9 @@ def evaluate_tracking_outputs(
         "validation": {name: report.to_dict() for name, report in validation_reports.items()},
         "trackeval": {name: value.to_dict() for name, value in trackeval.items()},
         "paths": {
-            "overall_csv": str(overall_csv),
-            "overall_json": str(overall_json),
+            "tracker_summary_csv": str(summary_csv),
+            "tracker_summary_json": str(summary_json),
+            "best_tracker_result": str(best_tracker_json),
             "per_sequence_csv": str(per_sequence_csv),
             "summary": str(summary_path),
             "validation": validation_paths,
@@ -643,34 +664,97 @@ def _write_comparison_outputs(
             validations.get(result.tracker_name, TrackValidationReport()),
         )
     overall_rows = [_overall_row(config, result) for result in results]
-    overall_csv = config.metrics_root / "sort_vs_deepsort_overall.csv"
-    overall_json = config.metrics_root / "sort_vs_deepsort_overall.json"
-    write_overall_metrics(overall_rows, overall_csv, overall_json)
-    per_sequence_csv = config.metrics_root / "sort_vs_deepsort_per_sequence.csv"
+    summary_csv = config.metrics_root / f"{TRACKER_SUMMARY_STEM}.csv"
+    summary_json = config.metrics_root / f"{TRACKER_SUMMARY_STEM}.json"
+    write_overall_metrics(overall_rows, summary_csv, summary_json)
+    best_tracker_json = config.metrics_root / BEST_TRACKER_RESULT_FILENAME
+    _write_best_tracker_result(config, overall_rows, best_tracker_json)
+    per_sequence_csv = config.metrics_root / TRACKER_SEQUENCE_METRICS_FILENAME
     _write_per_sequence_csv(results, per_sequence_csv)
-    delta_json = config.metrics_root / "sort_vs_deepsort_delta.json"
-    delta_json.write_text(
-        json.dumps(_comparison_delta(results), indent=2, default=str),
-        encoding="utf-8",
-    )
-    figures_dir = config.figures_root / "sort_vs_deepsort"
+    delta = _comparison_delta(results)
+    delta_json = config.metrics_root / TRACKER_COMPARISON_DELTA_FILENAME
+    delta_json.write_text(json.dumps(delta, indent=2, default=str), encoding="utf-8")
+    figures_dir = config.figures_root / TRACKER_COMPARISON_FIGURES_DIRNAME
     figure_paths = write_tracker_comparison_figures(overall_rows, figures_dir)
     report_path = write_tracker_comparison_report(
         config=config,
         results=results,
         overall_rows=overall_rows,
-        delta=_comparison_delta(results),
+        delta=delta,
         trackeval={name: value.to_dict() for name, value in trackeval.items()},
         figures=figure_paths,
     )
     return {
-        "overall_csv": str(overall_csv),
-        "overall_json": str(overall_json),
+        "tracker_summary_csv": str(summary_csv),
+        "tracker_summary_json": str(summary_json),
+        "best_tracker_result": str(best_tracker_json),
         "per_sequence_csv": str(per_sequence_csv),
         "delta_json": str(delta_json),
         "report": str(report_path),
         "figures_dir": str(figures_dir),
     }
+
+
+def _write_best_tracker_result(
+    config: CompareTrackersConfig,
+    rows: list[dict[str, Any]],
+    path: Path,
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(_best_tracker_payload(config, rows), indent=2, default=str),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _best_tracker_payload(
+    config: CompareTrackersConfig,
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    best = _select_best_tracker(rows)
+    return {
+        "experiment": config.experiment_name,
+        "split": config.split,
+        "generated_at_utc": datetime.now(UTC).isoformat(),
+        "selection_criteria": BEST_TRACKER_SELECTION_CRITERIA,
+        "tracker_count": len(rows),
+        "selected_tracker": best.get("tracker") if best else None,
+        "metrics": best,
+    }
+
+
+def _select_best_tracker(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not rows:
+        return None
+    best = max(rows, key=_best_tracker_key)
+    return dict(best)
+
+
+def _best_tracker_key(row: dict[str, Any]) -> tuple[float, ...]:
+    scores: list[float] = []
+    for criterion in BEST_TRACKER_SELECTION_CRITERIA:
+        metric = str(criterion["metric"])
+        direction = criterion["direction"]
+        value = _numeric_metric(row.get(metric))
+        if value is None:
+            scores.append(float("-inf"))
+        elif direction == "min":
+            scores.append(-value)
+        else:
+            scores.append(value)
+    return tuple(scores)
+
+
+def _numeric_metric(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _overall_row(config: CompareTrackersConfig, result: ExperimentResult) -> dict[str, Any]:
@@ -858,25 +942,31 @@ def _write_evaluation_per_sequence_csv(
 
 
 def _comparison_delta(results: list[ExperimentResult]) -> dict[str, Any]:
-    by_name = {result.tracker_name: result for result in results}
-    sort = by_name.get("sort")
-    deepsort = by_name.get("deepsort")
-    if sort is None or deepsort is None:
-        return {"available": False, "reason": "Both sort and deepsort results are required."}
+    if len(results) < 2:
+        return {
+            "available": False,
+            "reason": "At least two tracker results are required to compute pairwise deltas.",
+        }
+
+    candidate = max(results, key=_best_result_key)
+    reference = next(result for result in results if result is not candidate)
 
     def metric_delta(name: str) -> float | int | None:
-        left = sort.metrics.get(name)
-        right = deepsort.metrics.get(name)
+        left = reference.metrics.get(name)
+        right = candidate.metrics.get(name)
         if left is None or right is None:
             return None
         return right - left
 
     fps_delta = None
-    if sort.tracker_fps is not None and deepsort.tracker_fps is not None:
-        fps_delta = deepsort.tracker_fps - sort.tracker_fps
+    if reference.tracker_fps is not None and candidate.tracker_fps is not None:
+        fps_delta = candidate.tracker_fps - reference.tracker_fps
     return {
         "available": True,
-        "deep_sort_minus_sort": {
+        "reference_tracker": reference.tracker_name,
+        "candidate_tracker": candidate.tracker_name,
+        "direction": "candidate_minus_reference",
+        "metrics": {
             "HOTA": metric_delta("HOTA"),
             "IDF1": metric_delta("IDF1"),
             "AssA": metric_delta("AssA"),
@@ -884,6 +974,15 @@ def _comparison_delta(results: list[ExperimentResult]) -> dict[str, Any]:
             "tracker_fps": fps_delta,
         },
     }
+
+
+def _best_result_key(result: ExperimentResult) -> tuple[float, ...]:
+    row = {
+        "tracker": result.tracker_name,
+        "tracker_fps": result.tracker_fps,
+        **result.metrics,
+    }
+    return _best_tracker_key(row)
 
 
 def summarize_experiments(root: str | Path) -> dict[str, Any]:

@@ -148,7 +148,7 @@ def collect_torch_info(torch_module: Any | None = None) -> tuple[list[CheckResul
     if torch_module is None:
         try:
             torch_module = importlib.import_module("torch")
-        except Exception as exc:  # noqa: BLE001 - torch is optional for Milestone 1 doctor.
+        except Exception as exc:  # noqa: BLE001 - torch is optional for doctor.
             return (
                 [CheckResult("WARNING", "PyTorch", f"PyTorch is not importable: {exc}")],
                 {

@@ -1,4 +1,4 @@
-"""Markdown report for SORT vs DeepSORT comparisons."""
+"""Markdown report for shared-cache tracker comparisons."""
 
 from __future__ import annotations
 
@@ -25,13 +25,15 @@ def write_tracker_comparison_report(
     trackeval: dict[str, Any],
     figures: list[str],
 ) -> Path:
-    path = config.metrics_root / "sort_vs_deepsort_report.md"
+    path = config.metrics_root / "tracker_comparison_report.md"
     path.parent.mkdir(parents=True, exist_ok=True)
+    tracker_names = [row.get("tracker") for row in overall_rows]
+    title = " vs ".join(str(name) for name in tracker_names) if tracker_names else "Trackers"
     lines = [
-        "# SORT vs DeepSORT Tracker Comparison",
+        f"# {title} Tracker Comparison",
         "",
         "## Goal",
-        "Compare SORT and DeepSORT using the same cached YOLOv8m detections.",
+        "Compare all configured trackers using the same cached detector outputs.",
         "",
         "## Dataset",
         f"- MOT root: `{config.mot_root}`",
@@ -43,7 +45,7 @@ def write_tracker_comparison_report(
         "## Fair Comparison Protocol",
         f"- Detection cache root: `{config.detection_cache_root}`",
         f"- Confidence threshold: `{config.confidence_threshold}`",
-        "- SORT and DeepSORT read the same per-frame cache files.",
+        "- Every tracker reads the same per-frame cache files.",
         "- The detector is not run separately per tracker during comparison.",
         "- Ground truth and cached detections are not modified by the runner.",
         "",
@@ -71,7 +73,7 @@ def write_tracker_comparison_report(
         [
             "",
             "## Delta",
-            f"`DeepSORT - SORT`: `{delta}`",
+            f"`delta`: `{delta}`",
             "",
             "## TrackEval",
         ]
@@ -91,7 +93,7 @@ def write_tracker_comparison_report(
             "- DetA mainly reflects detector quality and output policy when both trackers "
             "share detections.",
             "- AssA, IDF1, and IDSW are more directly tied to association behavior.",
-            "- DeepSORT trades speed for appearance information.",
+            "- Appearance-based trackers usually trade speed for stronger identity association.",
             "- Smoke results are plumbing checks, not official project results.",
             "",
             "## Figures",

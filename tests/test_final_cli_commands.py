@@ -25,6 +25,7 @@ def test_final_milestone_commands_are_registered() -> None:
         "evaluate-tracking",
         "plan-tracker-grid",
         "render-video",
+        "analyze-tracking-vlm",
         "benchmark",
         "generate-report",
         "summarize-experiments",

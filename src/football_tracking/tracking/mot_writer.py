@@ -1,4 +1,4 @@
-"""MOTChallenge prediction writer for DeepSORT outputs."""
+"""MOTChallenge prediction writer for tracker outputs."""
 
 from __future__ import annotations
 

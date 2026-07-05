@@ -88,9 +88,11 @@ $env:FOOTBALL_TRACKING_PROGRESS="1"
 Main outputs:
 
 ```text
-outputs/metrics/experiments/football_botsort_reid/sort_vs_deepsort_overall.csv
-outputs/metrics/experiments/football_botsort_reid/sort_vs_deepsort_overall.json
-outputs/metrics/experiments/football_botsort_reid/sort_vs_deepsort_per_sequence.csv
+outputs/metrics/experiments/football_botsort_reid/best_tracker_result.json
+outputs/metrics/experiments/football_botsort_reid/tracker_summary.csv
+outputs/metrics/experiments/football_botsort_reid/tracker_summary.json
+outputs/metrics/experiments/football_botsort_reid/tracker_sequence_metrics.csv
 ```
 
-The filename keeps the old report naming, but the rows reflect the configured tracker list.
+Open `best_tracker_result.json` for the selected best tracker and
+`tracker_summary.json` for the full configured tracker table.

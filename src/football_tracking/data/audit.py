@@ -1,4 +1,4 @@
-"""Dataset audit statistics and Milestone 3 quality assurance outputs."""
+"""Dataset audit statistics and quality assurance outputs."""
 
 from __future__ import annotations
 
@@ -338,7 +338,7 @@ def write_extended_dataset_audit(
 
 
 def run_dataset_audit(config_path: str | Path, max_sequences: int | None = None) -> dict[str, Any]:
-    """Run the Milestone 3 dataset audit from an audit config."""
+    """Run the dataset audit from an audit config."""
 
     from football_tracking.data.class_mapping import load_class_mapping
     from football_tracking.data.prepare import _load_sequences, load_data_config

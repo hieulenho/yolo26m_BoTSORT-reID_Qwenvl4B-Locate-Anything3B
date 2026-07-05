@@ -1,2 +1,0 @@
-[console_scripts]
-football-tracking = football_tracking.cli:main

@@ -3,7 +3,7 @@ report:
 
 inputs:
   detector_metrics: outputs/metrics/yolov8m_finetuned_val.json
-  tracker_overall: outputs/metrics/experiments/sort_vs_deepsort_overall.json
+  tracker_overall: outputs/metrics/experiments/tracker_summary.json
   benchmark_markdown: outputs/metrics/benchmark/benchmark.md
   dataset_audit: outputs/metrics/sportsmot_football_audit.json
   figures_root: outputs/figures/benchmark

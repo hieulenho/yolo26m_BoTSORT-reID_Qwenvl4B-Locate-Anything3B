@@ -153,11 +153,14 @@ def _render_markdown(config: FinalReportConfig) -> str:
     command_lines = [
         f"{cli} doctor",
         f"{cli} prepare-dataset --config configs/sportsmot_data.yaml --overwrite",
-        f"{cli} train-detector --config configs/yolov8m_sportsmot_train.yaml --device 0",
-        f"{cli} evaluate-detector --config configs/yolov8m_sportsmot_eval.yaml",
-        f"{cli} cache-detections --config configs/detection_cache.yaml --overwrite",
-        f"{cli} compare-trackers --config configs/compare_trackers.yaml --overwrite",
+        f"{cli} train-detector --config configs/yolo26m_sportsmot_football_train.yaml --device 0",
+        f"{cli} evaluate-detector --config configs/yolo26m_sportsmot_football_eval.yaml",
+        f"{cli} cache-detections --config configs/detection_cache_yolo26m_all.yaml --overwrite",
+        f"{cli} compare-trackers --config "
+        "configs/compare_trackers_yolo26m_botsort_identity_stable_all.yaml --overwrite",
         f"{cli} render-video --config configs/render_video.yaml --overwrite",
+        f"{cli} analyze-tracking-vlm --config configs/vlm_qwen4b_tracking.yaml "
+        "--run-model --overwrite",
         f"{cli} benchmark --config configs/benchmark.yaml",
         f"{cli} generate-report --config configs/report.yaml",
     ]
@@ -165,8 +168,8 @@ def _render_markdown(config: FinalReportConfig) -> str:
         f"# {config.title}",
         "",
         "## Overview",
-        "This report summarizes the YOLOv8m detector, shared-cache tracker comparison, "
-        "TrackEval metrics, runtime benchmark, and generated visual artifacts.",
+        "This report summarizes the fine-tuned YOLO detector, shared-cache tracker comparison, "
+        "TrackEval metrics, Qwen VLM analysis artifacts, runtime benchmark, and generated videos.",
         "",
         "## Dataset",
         _dataset_summary(audit),
@@ -189,8 +192,9 @@ def _render_markdown(config: FinalReportConfig) -> str:
         "```",
         "",
         "## Notes",
-        "- SORT and DeepSORT are compared from the same cached detector outputs.",
+        "- All configured trackers are compared from the same cached detector outputs.",
         "- TrackEval is the source of truth for HOTA, MOTA, IDF1, IDSW, FP, and FN.",
+        "- Qwen VLM consumes keyframes, crops, prompts, and tracking metadata after tracking.",
         "- Test split results should only be reported after final validation decisions are frozen.",
         "",
     ]

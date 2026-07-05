@@ -1,0 +1,37 @@
+input:
+  source_video: data/samples/match.mp4
+  tracked_video: outputs/videos/tracked_match.mp4
+  tracks: outputs/tracks/botsort_reid/tracked_match.txt
+  metadata: outputs/tracks/botsort_reid/tracked_match.metadata.json
+
+output:
+  dir: outputs/vlm/qwen4b/tracked_match
+  keyframes_dir: keyframes
+  crops_dir: crops
+
+sampling:
+  keyframe_interval_seconds: 1.0
+  max_keyframes: 12
+  max_tracks: 40
+  max_crops_per_track: 3
+  crop_padding: 0.12
+
+model:
+  provider: qwen
+  model_id: Qwen/Qwen3-VL-4B-Instruct
+  device: auto
+  torch_dtype: auto
+  max_new_tokens: 1024
+  temperature: 0.1
+  do_sample: false
+  run_model: false
+
+prompt:
+  task: >
+    Phan tich video da duoc detect va tracking. Hay dua ra tom tat ngan gon,
+    cac track_id dang chu y, hanh vi/chuyen dong noi bat, va cac diem can kiem
+    tra neu ID co dau hieu bi nhay hoac bi mat. Uu tien nhan xet dua tren ID
+    da ve truc tiep tren keyframe va metadata tracking kem theo.
+
+runtime:
+  overwrite: false

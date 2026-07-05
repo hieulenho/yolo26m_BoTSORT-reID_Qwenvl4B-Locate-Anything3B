@@ -82,8 +82,9 @@ def write_baseline_report(
         "",
         COCO_PERSON_LIMITATIONS,
         "",
-        "No fine-tuned model comparison has been run in this milestone. "
-        "DeepSORT is not implemented.",
+        "This baseline is kept for historical comparison. Current recommended runs use the "
+        "fine-tuned YOLO26m football checkpoint and compare SORT, DeepSORT, and BoT-SORT ReID "
+        "with TrackEval.",
     ]
     markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"json": json_path, "csv": csv_path, "markdown": markdown_path}

@@ -6,6 +6,8 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+*.egg-info/
+src/*.egg-info/
 
 outputs/**
 !outputs/

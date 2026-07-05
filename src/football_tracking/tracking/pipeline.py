@@ -688,6 +688,9 @@ def _run_sequence(
     metadata = {
         "sequence": source.name,
         "source_type": source.source_type,
+        "source_path": str(source.source_path),
+        "output_mot": str(mot_path) if mot_path is not None else None,
+        "output_video": str(video_path) if video_path is not None else None,
         "detector_checkpoint": str(checkpoint.checkpoint),
         "checkpoint_hash": checkpoint.checkpoint_hash,
         "checkpoint_type": checkpoint.checkpoint_type,

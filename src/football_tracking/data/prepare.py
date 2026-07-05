@@ -1,4 +1,4 @@
-"""Orchestrate Milestone 2 data preparation."""
+"""Orchestrate data preparation."""
 
 from __future__ import annotations
 

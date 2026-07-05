@@ -1,7 +1,7 @@
 inputs:
   detector_metrics: outputs/metrics/yolov8m_finetuned_val.json
-  tracker_overall: outputs/metrics/experiments/sort_vs_deepsort_overall.json
-  tracker_per_sequence: outputs/metrics/experiments/sort_vs_deepsort_per_sequence.csv
+  tracker_overall: outputs/metrics/experiments/tracker_summary.json
+  tracker_per_sequence: outputs/metrics/experiments/tracker_sequence_metrics.csv
 
 output:
   root: outputs/metrics/benchmark

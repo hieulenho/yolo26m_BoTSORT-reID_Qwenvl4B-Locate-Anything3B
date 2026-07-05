@@ -40,9 +40,10 @@ def write_finetuned_report(
 ) -> Path:
     metrics_dir.mkdir(parents=True, exist_ok=True)
     payload = payload or {}
-    path = metrics_dir / "yolov8m_finetuned_report.md"
+    model_name = str(payload.get("model", "fine-tuned YOLO detector"))
+    path = metrics_dir / "detector_finetuned_report.md"
     lines = [
-        "# YOLOv8m Fine-Tuned Detector Report",
+        f"# {model_name} Report",
         "",
         "## Status",
         "",
@@ -65,7 +66,8 @@ def write_finetuned_report(
         "",
         "## Limitations",
         "",
-        "DeepSORT is not implemented in Milestone 4. Tracking starts in a later milestone.",
+        "Detector metrics do not measure identity consistency. Use TrackEval tracker reports "
+        "for HOTA, AssA, IDF1, IDSW, FP, and FN.",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path

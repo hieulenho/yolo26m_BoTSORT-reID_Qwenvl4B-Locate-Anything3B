@@ -72,6 +72,8 @@ from football_tracking.tracking.sequence_runner import SequenceRunnerError
 from football_tracking.tracking.sort_adapter import SortConfigError
 from football_tracking.tracking.tracker_factory import TrackerFactoryError
 from football_tracking.utils.environment import format_doctor_report, run_doctor
+from football_tracking.vlm import VlmAnalysisError, run_vlm_analysis
+from football_tracking.vlm.config import VlmConfigError
 
 
 def _add_data_common_options(parser: argparse.ArgumentParser) -> None:
@@ -225,6 +227,31 @@ def _add_benchmark_options(parser: argparse.ArgumentParser) -> None:
 def _add_report_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", type=Path, default=Path("configs/report.yaml"))
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_vlm_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--config", type=Path, default=Path("configs/vlm_qwen4b_tracking.yaml"))
+    parser.add_argument("--source-video", type=Path, default=None)
+    parser.add_argument("--tracked-video", type=Path, default=None)
+    parser.add_argument("--tracks", type=Path, default=None)
+    parser.add_argument("--metadata", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--task-prompt", default=None)
+    parser.add_argument("--model-id", default=None)
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--torch-dtype", default=None)
+    parser.add_argument("--max-new-tokens", type=int, default=None)
+    parser.add_argument("--temperature", type=float, default=None)
+    parser.add_argument("--keyframe-interval", type=float, default=None)
+    parser.add_argument("--max-keyframes", type=int, default=None)
+    parser.add_argument("--max-tracks", type=int, default=None)
+    parser.add_argument("--max-crops-per-track", type=int, default=None)
+    parser.add_argument("--crop-padding", type=float, default=None)
+    parser.add_argument("--run-model", action="store_true")
+    parser.add_argument("--do-sample", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--debug", action="store_true")
 
@@ -443,6 +470,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_render_video_options(render_video_parser)
 
+    vlm_parser = subparsers.add_parser(
+        "analyze-tracking-vlm",
+        help="Prepare tracking context and optionally run Qwen VLM analysis.",
+    )
+    _add_vlm_options(vlm_parser)
+
     benchmark_parser = subparsers.add_parser(
         "benchmark",
         help="Generate benchmark CSV, JSON, Markdown, and figures.",
@@ -612,6 +645,30 @@ def _render_video_overrides(args: argparse.Namespace) -> dict[str, object]:
 
 def _benchmark_overrides(args: argparse.Namespace) -> dict[str, object]:
     return {"overwrite": True if getattr(args, "overwrite", False) else None}
+
+
+def _vlm_overrides(args: argparse.Namespace) -> dict[str, object]:
+    return {
+        "source_video": getattr(args, "source_video", None),
+        "tracked_video": getattr(args, "tracked_video", None),
+        "tracks": getattr(args, "tracks", None),
+        "metadata": getattr(args, "metadata", None),
+        "output_dir": getattr(args, "output_dir", None),
+        "task_prompt": getattr(args, "task_prompt", None),
+        "model_id": getattr(args, "model_id", None),
+        "device": getattr(args, "device", None),
+        "torch_dtype": getattr(args, "torch_dtype", None),
+        "max_new_tokens": getattr(args, "max_new_tokens", None),
+        "temperature": getattr(args, "temperature", None),
+        "keyframe_interval_seconds": getattr(args, "keyframe_interval", None),
+        "max_keyframes": getattr(args, "max_keyframes", None),
+        "max_tracks": getattr(args, "max_tracks", None),
+        "max_crops_per_track": getattr(args, "max_crops_per_track", None),
+        "crop_padding": getattr(args, "crop_padding", None),
+        "run_model": True if getattr(args, "run_model", False) else None,
+        "do_sample": True if getattr(args, "do_sample", False) else None,
+        "overwrite": True if getattr(args, "overwrite", False) else None,
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -930,6 +987,30 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write("\n")
             return 0
         except (RenderVideoError, FileNotFoundError, RuntimeError, ValueError) as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            if getattr(args, "debug", False):
+                traceback.print_exc()
+            return 2
+
+    if args.command == "analyze-tracking-vlm":
+        setup_logging("INFO")
+        try:
+            result = run_vlm_analysis(
+                args.config,
+                overrides=_vlm_overrides(args),
+                dry_run=args.dry_run,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            model_result = result.get("model_result", {})
+            return 1 if model_result.get("status") == "failed" else 0
+        except (
+            VlmAnalysisError,
+            VlmConfigError,
+            FileNotFoundError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
             sys.stderr.write(f"Error: {exc}\n")
             if getattr(args, "debug", False):
                 traceback.print_exc()
