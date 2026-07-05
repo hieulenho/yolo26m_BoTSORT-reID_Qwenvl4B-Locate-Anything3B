@@ -92,14 +92,24 @@ def run_vlm_analysis(
 
     rows_by_frame = _group_rows_by_frame(rows)
     keyframes = _write_keyframes(config, rows_by_frame, video_info)
-    track_summaries = _summarize_tracks(rows, video_info, config.max_tracks)
+    all_track_summaries = _summarize_tracks(rows, video_info)
+    track_summaries = all_track_summaries[: config.max_tracks]
     crops = _write_track_crops(
         config,
         rows,
         video_info,
         allowed_track_ids={int(row["track_id"]) for row in track_summaries},
     )
-    context = _build_context(config, rows, video_info, metadata, track_summaries, keyframes, crops)
+    context = _build_context(
+        config,
+        rows,
+        video_info,
+        metadata,
+        all_track_summaries,
+        track_summaries,
+        keyframes,
+        crops,
+    )
     context_path = config.output_dir / "vlm_context.json"
     prompt_path = config.output_dir / "prompt.md"
     context_path.write_text(json.dumps(context, indent=2, default=str), encoding="utf-8")
@@ -129,8 +139,13 @@ def run_vlm_analysis(
             "reason": "Set model.run_model=true or pass --run-model to execute Qwen.",
         }
 
+    run_status = (
+        "model_failed"
+        if config.run_model and model_result.get("status") == "failed"
+        else "ok"
+    )
     return {
-        "status": "ok",
+        "status": run_status,
         "model": {
             "provider": "qwen",
             "model_id": config.model_id,
@@ -193,42 +208,110 @@ def read_mot_tracks(path: Path) -> list[MotTrackRow]:
 
 
 def build_prompt(config: VlmTrackingConfig, context: dict[str, Any]) -> str:
-    compact_context = {
-        "video": context["video"],
-        "tracking_summary": context["tracking_summary"],
-        "tracks": context["tracks"],
-        "keyframes": [
-            {
-                "frame_index": row["frame_index"],
-                "time_seconds": row["time_seconds"],
-                "visible_track_ids": row["visible_track_ids"],
-            }
-            for row in context["keyframes"]
-        ],
-    }
-    context_json = json.dumps(compact_context, ensure_ascii=False, indent=2)
+    context_json = json.dumps(
+        _compact_prompt_context(context),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     return "\n".join(
         [
             "# Tracking VLM Analysis Task",
             "",
             config.task_prompt,
             "",
-            "Use the provided keyframe images. Each image is annotated with tracking IDs.",
-            "Cross-check the visual evidence with this tracking metadata:",
+            "Primary goal: audit the tracking quality. Keep match commentary short.",
+            "Use only track IDs that appear in the metadata below.",
+            "If an issue is not visible or not supported by metadata, "
+            "say that it is not confirmed.",
+            "Each provided keyframe image is annotated with tracking IDs.",
+            "Cross-check the visual evidence with this tracking metadata and diagnostics:",
             "",
             "```json",
             context_json,
             "```",
             "",
-            "Return your answer in Vietnamese with these sections:",
-            "1. Tom tat canh",
-            "2. Track ID dang chu y",
-            "3. Hanh vi/chuyen dong noi bat",
-            "4. Dau hieu tracking loi neu co",
-            "5. Goi y kiem tra tiep theo",
+            "Return your answer in Vietnamese using exactly these sections:",
+            "1. Tom tat tracking trong 2 cau",
+            "2. Track on dinh nhat kem bang chung",
+            "3. Track can kiem tra lai kem bang chung",
+            "4. Chuyen dong noi bat theo track_id",
+            "5. Ket luan va buoc kiem tra tiep theo",
+            "For every track claim, include evidence fields such as obs, dur_s, "
+            "disp_px, conf, gaps, max_gap, or visible keyframe IDs.",
             "",
         ]
     )
+
+
+def _compact_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
+    video = context["video"]
+    summary = context["tracking_summary"]
+    diagnostics = context["tracking_diagnostics"]
+    return {
+        "video": {
+            "frames": video.get("frame_count"),
+            "fps": _rounded(video.get("fps"), 2),
+            "duration_s": _rounded(video.get("duration_seconds"), 2),
+        },
+        "summary": {
+            "track_count": summary.get("track_count"),
+            "observations": summary.get("track_observation_count"),
+            "frames_with_tracks": summary.get("frames_with_tracks"),
+            "mean_tracks_per_frame": _rounded(summary.get("mean_tracks_per_frame"), 2),
+        },
+        "tracking_diagnostics": {
+            "stable": _prompt_tracks(diagnostics.get("stable_long_tracks", []), limit=3),
+            "large_motion": _prompt_tracks(
+                diagnostics.get("largest_displacement_tracks", []),
+                limit=3,
+            ),
+            "fragmented": _prompt_tracks(diagnostics.get("fragmented_tracks", []), limit=3),
+            "low_conf": _prompt_tracks(diagnostics.get("low_confidence_tracks", []), limit=3),
+            "short": _prompt_tracks(diagnostics.get("short_tracks", []), limit=3),
+            "visible_selected_ids": diagnostics.get("selected_track_ids_visible_in_keyframes", []),
+            "not_visible_selected_ids": diagnostics.get(
+                "selected_track_ids_not_visible_in_keyframes",
+                [],
+            ),
+        },
+        "selected_tracks": _prompt_tracks(context["tracks"], limit=6),
+        "keyframes": [
+            {
+                "frame": row.get("frame_index"),
+                "time_s": _rounded(row.get("time_seconds"), 2),
+                "track_count": row.get("track_count"),
+                "visible_ids": row.get("visible_track_ids", []),
+            }
+            for row in context["keyframes"]
+        ],
+    }
+
+
+def _prompt_tracks(rows: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    return [_prompt_track(row) for row in rows[:limit]]
+
+
+def _prompt_track(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("track_id"),
+        "obs": row.get("observation_count"),
+        "dur_s": _rounded(row.get("duration_seconds"), 2),
+        "conf": _rounded(row.get("mean_confidence"), 3),
+        "cover": _rounded(row.get("coverage_ratio"), 3),
+        "disp_px": _rounded(row.get("displacement_pixels"), 1),
+        "gaps": row.get("gap_count"),
+        "max_gap": row.get("max_gap_frames"),
+        "t0": _rounded(row.get("time_start_seconds"), 2),
+        "t1": _rounded(row.get("time_end_seconds"), 2),
+    }
+
+
+def _rounded(value: Any, digits: int) -> Any:
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return round(float(value), digits)
+    return value
 
 
 def _dry_run_plan(config: VlmTrackingConfig) -> dict[str, Any]:
@@ -320,7 +403,6 @@ def _group_rows_by_track(rows: list[MotTrackRow]) -> dict[int, list[MotTrackRow]
 def _summarize_tracks(
     rows: list[MotTrackRow],
     video_info: VideoInfo,
-    max_tracks: int,
 ) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     for track_id, track_rows in _group_rows_by_track(rows).items():
@@ -329,6 +411,16 @@ def _summarize_tracks(
         last = ordered[-1]
         first_center = first.center
         last_center = last.center
+        frame_span = last.frame_index - first.frame_index + 1
+        duration_seconds = frame_span / video_info.fps if video_info.fps > 0 else None
+        frame_gaps = [
+            right.frame_index - left.frame_index - 1
+            for left, right in zip(ordered, ordered[1:], strict=False)
+            if right.frame_index - left.frame_index > 1
+        ]
+        delta_x = last_center[0] - first_center[0]
+        delta_y = last_center[1] - first_center[1]
+        displacement = math.hypot(delta_x, delta_y)
         confidences = [row.confidence for row in ordered if row.confidence is not None]
         summaries.append(
             {
@@ -337,18 +429,108 @@ def _summarize_tracks(
                 "frame_end": last.frame_index,
                 "time_start_seconds": video_info.time_seconds(first.frame_index),
                 "time_end_seconds": video_info.time_seconds(last.frame_index),
+                "duration_seconds": duration_seconds,
                 "observation_count": len(ordered),
+                "span_frame_count": frame_span,
+                "coverage_ratio": round(len(ordered) / frame_span, 4) if frame_span else None,
                 "mean_confidence": sum(confidences) / len(confidences) if confidences else None,
                 "first_center": [round(first_center[0], 2), round(first_center[1], 2)],
                 "last_center": [round(last_center[0], 2), round(last_center[1], 2)],
-                "delta_xy": [
-                    round(last_center[0] - first_center[0], 2),
-                    round(last_center[1] - first_center[1], 2),
-                ],
+                "delta_xy": [round(delta_x, 2), round(delta_y, 2)],
+                "displacement_pixels": round(displacement, 2),
+                "gap_count": len(frame_gaps),
+                "max_gap_frames": max(frame_gaps) if frame_gaps else 0,
             }
         )
     summaries.sort(key=lambda item: (-int(item["observation_count"]), int(item["track_id"])))
-    return summaries[:max_tracks]
+    return summaries
+
+
+def _track_diagnostics(
+    all_track_summaries: list[dict[str, Any]],
+    selected_track_summaries: list[dict[str, Any]],
+    keyframes: list[dict[str, Any]],
+    *,
+    limit: int = 5,
+) -> dict[str, Any]:
+    selected_ids = {int(row["track_id"]) for row in selected_track_summaries}
+    visible_keyframe_ids = {
+        int(track_id)
+        for keyframe in keyframes
+        for track_id in keyframe.get("visible_track_ids", [])
+    }
+    visible_selected_ids = sorted(selected_ids & visible_keyframe_ids)
+    return {
+        "note": (
+            "Heuristic diagnostics from MOT metadata. Use keyframes to confirm visual claims."
+        ),
+        "stable_long_tracks": _top_tracks(
+            selected_track_summaries,
+            key=lambda row: (
+                int(row.get("observation_count") or 0),
+                float(row.get("coverage_ratio") or 0.0),
+                float(row.get("mean_confidence") or 0.0),
+            ),
+            limit=limit,
+        ),
+        "largest_displacement_tracks": _top_tracks(
+            selected_track_summaries,
+            key=lambda row: float(row.get("displacement_pixels") or 0.0),
+            limit=limit,
+        ),
+        "fragmented_tracks": _top_tracks(
+            all_track_summaries,
+            key=lambda row: (
+                int(row.get("gap_count") or 0),
+                int(row.get("max_gap_frames") or 0),
+            ),
+            limit=limit,
+            require_positive="gap_count",
+        ),
+        "low_confidence_tracks": _top_tracks(
+            all_track_summaries,
+            key=lambda row: -(float(row.get("mean_confidence") or 1.0)),
+            limit=limit,
+        ),
+        "short_tracks": _top_tracks(
+            all_track_summaries,
+            key=lambda row: -(int(row.get("observation_count") or 0)),
+            limit=limit,
+        ),
+        "selected_track_ids_visible_in_keyframes": visible_selected_ids,
+        "selected_track_ids_not_visible_in_keyframes": sorted(selected_ids - visible_keyframe_ids),
+    }
+
+
+def _top_tracks(
+    rows: list[dict[str, Any]],
+    *,
+    key: Any,
+    limit: int,
+    require_positive: str | None = None,
+) -> list[dict[str, Any]]:
+    filtered = [
+        row
+        for row in rows
+        if require_positive is None or float(row.get(require_positive) or 0) > 0
+    ]
+    return [_compact_track(row) for row in sorted(filtered, key=key, reverse=True)[:limit]]
+
+
+def _compact_track(row: dict[str, Any]) -> dict[str, Any]:
+    fields = (
+        "track_id",
+        "observation_count",
+        "duration_seconds",
+        "mean_confidence",
+        "coverage_ratio",
+        "displacement_pixels",
+        "gap_count",
+        "max_gap_frames",
+        "time_start_seconds",
+        "time_end_seconds",
+    )
+    return {field: row.get(field) for field in fields if field in row}
 
 
 def _select_keyframe_indices(
@@ -518,6 +700,7 @@ def _build_context(
     rows: list[MotTrackRow],
     video_info: VideoInfo,
     metadata: dict[str, Any] | None,
+    all_track_summaries: list[dict[str, Any]],
     track_summaries: list[dict[str, Any]],
     keyframes: list[dict[str, Any]],
     crops: list[dict[str, Any]],
@@ -539,6 +722,11 @@ def _build_context(
             "frames_with_tracks": len(rows_by_frame),
             "mean_tracks_per_frame": sum(frame_counts) / len(frame_counts) if frame_counts else 0.0,
         },
+        "tracking_diagnostics": _track_diagnostics(
+            all_track_summaries,
+            track_summaries,
+            keyframes,
+        ),
         "tracks": track_summaries,
         "keyframes": keyframes,
         "crops": crops,

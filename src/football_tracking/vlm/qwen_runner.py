@@ -37,7 +37,7 @@ def run_qwen_vlm(
         model = _from_pretrained_with_local_cache(
             model_class,
             config.model_id,
-            torch_dtype=_torch_dtype(torch, config.torch_dtype),
+            dtype=_torch_dtype(torch, config.torch_dtype),
             device_map=_device_map(config.device),
             trust_remote_code=True,
         )

@@ -209,12 +209,30 @@ F:\videos\1_vlm\
 
 - `keyframes/`: full-frame images with tracking IDs drawn on top.
 - `crops/`: cropped object images grouped by `track_id`.
-- `vlm_context.json`: structured tracking metadata for downstream reasoning.
+- `vlm_context.json`: structured tracking metadata and `tracking_diagnostics` for downstream reasoning.
 - `prompt.md`: the prompt sent to Qwen.
 - `vlm_answer.md/json`: Qwen output, only present after `-RunModel`.
 
 The Qwen runner prefers the local Hugging Face cache first. If the cache is incomplete, it may need
 network access to download missing files.
+
+On the local RTX 4060 Laptop 8GB setup, use 2 keyframes before trying anything larger:
+
+```powershell
+.\scripts\analyze_tracking_vlm.ps1 `
+  -SourceVideo F:\videos\1.mp4 `
+  -TrackedVideo F:\videos\1_Tracking_qwen.mp4 `
+  -Tracks F:\videos\1_Tracking_qwen.txt `
+  -Metadata F:\videos\1_Tracking_qwen.metadata.json `
+  -OutputDir F:\videos\1_vlm_tracking_report `
+  -RunModel `
+  -TorchDtype float16 `
+  -MaxKeyframes 2 `
+  -MaxTracks 10 `
+  -MaxCropsPerTrack 1 `
+  -MaxNewTokens 768 `
+  -Overwrite
+```
 
 Smoke check Qwen without touching your video-side VLM folder:
 

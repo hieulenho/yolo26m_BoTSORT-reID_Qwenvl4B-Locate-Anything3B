@@ -127,9 +127,19 @@ def test_run_vlm_analysis_writes_context_keyframes_and_crops(tmp_path, monkeypat
     assert result["summary"]["crop_count"] == 2
     assert context["tracking_summary"]["track_observation_count"] == 5
     assert context["tracking_metadata"]["tracker"] == "botsort_reid"
+    assert context["tracks"][0]["duration_seconds"] == 0.6
+    assert context["tracks"][1]["gap_count"] == 1
+    assert context["tracking_diagnostics"]["fragmented_tracks"][0]["track_id"] == 2
+    assert context["tracking_diagnostics"]["stable_long_tracks"][0]["track_id"] == 1
     assert context_path.is_file()
     assert prompt_path.is_file()
-    assert "Tracking VLM Analysis Task" in prompt_path.read_text(encoding="utf-8")
+    prompt_text = prompt_path.read_text(encoding="utf-8")
+    assert "Tracking VLM Analysis Task" in prompt_text
+    assert "tracking_diagnostics" in prompt_text
+    assert "Primary goal: audit the tracking quality" in prompt_text
+    assert '"obs"' in prompt_text
+    assert '"dur_s"' in prompt_text
+    assert len(prompt_text) < 5000
     assert list((tmp_path / "outputs" / "vlm" / "keyframes").glob("*.jpg"))
     assert list((tmp_path / "outputs" / "vlm" / "crops").glob("track_*/*.jpg"))
 

@@ -28,10 +28,10 @@ model:
 
 prompt:
   task: >
-    Phan tich video da duoc detect va tracking. Hay dua ra tom tat ngan gon,
-    cac track_id dang chu y, hanh vi/chuyen dong noi bat, va cac diem can kiem
-    tra neu ID co dau hieu bi nhay hoac bi mat. Uu tien nhan xet dua tren ID
-    da ve truc tiep tren keyframe va metadata tracking kem theo.
+    Ban la bo kiem tra chat luong multi-object tracking. Uu tien audit track_id,
+    do on dinh ID, track bi dut quang, track di chuyen bat thuong, confidence,
+    va bang chung tu metadata. Chi tom tat tran dau that ngan. Khong ket luan
+    loi tracking neu khong co bang chung tu keyframe hoac metadata.
 
 runtime:
   overwrite: false

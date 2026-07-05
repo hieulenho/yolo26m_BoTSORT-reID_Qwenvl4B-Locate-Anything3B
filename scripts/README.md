@@ -28,6 +28,24 @@ Run Qwen after tracking:
 .\scripts\track_video_qwen_vlm.ps1 -Source F:\videos\1.mp4 -OutputVideo F:\videos\1_Tracking.mp4 -RunModel -Overwrite
 ```
 
+Low-VRAM Qwen tracking report from existing tracking outputs:
+
+```powershell
+.\scripts\analyze_tracking_vlm.ps1 `
+  -SourceVideo F:\videos\1.mp4 `
+  -TrackedVideo F:\videos\1_Tracking_qwen.mp4 `
+  -Tracks F:\videos\1_Tracking_qwen.txt `
+  -Metadata F:\videos\1_Tracking_qwen.metadata.json `
+  -OutputDir F:\videos\1_vlm_tracking_report `
+  -RunModel `
+  -TorchDtype float16 `
+  -MaxKeyframes 2 `
+  -MaxTracks 10 `
+  -MaxCropsPerTrack 1 `
+  -MaxNewTokens 768 `
+  -Overwrite
+```
+
 Analyze existing tracking outputs without rerunning tracking:
 
 ```powershell
