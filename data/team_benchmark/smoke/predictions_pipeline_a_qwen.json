@@ -1,0 +1,65 @@
+{
+  "variant_id": "pipeline_a_qwen",
+  "variant_name": "Pipeline A - YOLO + BoT-SORT ReID + Qwen4B",
+  "benchmark_name": "team_language_smoke",
+  "pipeline_type": "qwen_team_labeling",
+  "track_predictions": [
+    {
+      "sequence_name": "video_1",
+      "track_id": 19,
+      "status": "resolved",
+      "team_label": "goalkeeper_green",
+      "role_label": "goalkeeper",
+      "confidence": 0.91,
+      "evidence_frames": [40, 160, 240]
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 3,
+      "status": "resolved",
+      "team_label": "team_blue",
+      "role_label": "player",
+      "confidence": 0.83,
+      "evidence_frames": [80, 160]
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 7,
+      "status": "resolved",
+      "team_label": "team_white",
+      "role_label": "player",
+      "confidence": 0.78,
+      "evidence_frames": [80, 240]
+    }
+  ],
+  "query_predictions": [
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_goalkeeper_green",
+      "status": "resolved",
+      "selected_track_ids": [19],
+      "team_label": "goalkeeper_green",
+      "confidence": 0.86,
+      "support_ratio": 0.75,
+      "grounding_call_count": 0,
+      "runtime_seconds": 8.0,
+      "metadata": {
+        "selector": "qwen_track_context"
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_blue_player",
+      "status": "resolved",
+      "selected_track_ids": [3],
+      "team_label": "team_blue",
+      "confidence": 0.80,
+      "support_ratio": 0.5,
+      "grounding_call_count": 0,
+      "runtime_seconds": 8.0,
+      "metadata": {
+        "selector": "qwen_track_context"
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+tracker:
+  name: botsort
+  tracker_type: botsort
+  track_high_thresh: 0.40
+  track_low_thresh: 0.10
+  new_track_thresh: 0.60
+  track_buffer: 90
+  match_thresh: 0.80
+  fuse_score: true
+  gmc_method: sparseOptFlow
+  proximity_thresh: 0.50
+  appearance_thresh: 0.35
+  with_reid: false
+  model: auto
+
+output:
+  confirmed_only: true
+  require_recent_update: true
+  max_time_since_update_for_output: 0
+  min_hits_for_output: 5
+  compact_ids: true
+
+runtime:
+  log_level: INFO

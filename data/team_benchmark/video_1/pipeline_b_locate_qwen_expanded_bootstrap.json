@@ -1,0 +1,534 @@
+{
+  "variant_id": "pipeline_b_locate_qwen_video_1_expanded_bootstrap",
+  "variant_name": "Pipeline B - LocateAnything + Qwen4B video_1 expanded bootstrap",
+  "benchmark_name": "video_1_team_language_expanded",
+  "pipeline_type": "locate_qwen_language_retrieval",
+  "created_at": "2026-07-06T12:57:44.235051+00:00",
+  "track_predictions": [
+    {
+      "sequence_name": "video_1",
+      "track_id": 7,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        5,
+        470,
+        934,
+        1399
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0007.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 31,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        345,
+        680,
+        1016,
+        1351
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0031.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 37,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        428,
+        737,
+        1047,
+        1356
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0037.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 10,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        5,
+        189,
+        374,
+        558
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0010.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 45,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        617,
+        878,
+        1138,
+        1399
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0045.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 48,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        620,
+        836,
+        1053,
+        1269
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0048.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 49,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        668,
+        853,
+        1037,
+        1222
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0049.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 43,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        597,
+        821,
+        1044,
+        1268
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0043.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 3,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        5,
+        138,
+        272,
+        405
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0003.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 8,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        5,
+        137,
+        268,
+        400
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0008.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 11,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        5,
+        137,
+        270,
+        402
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0011.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 51,
+      "status": "resolved",
+      "team_label": "dark_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        696,
+        930,
+        1165,
+        1399
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0051.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 12,
+      "status": "resolved",
+      "team_label": "dark_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        5,
+        236,
+        467,
+        698
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0012.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 32,
+      "status": "resolved",
+      "team_label": "dark_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        348,
+        537,
+        726,
+        915
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0032.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 50,
+      "status": "resolved",
+      "team_label": "dark_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        683,
+        873,
+        1064,
+        1254
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0050.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 18,
+      "status": "resolved",
+      "team_label": "dark_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        5,
+        171,
+        336,
+        502
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0018.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 2,
+      "status": "resolved",
+      "team_label": "dark_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        5,
+        152,
+        298,
+        445
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0002.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 38,
+      "status": "resolved",
+      "team_label": "dark_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        522,
+        663,
+        805,
+        946
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0038.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 46,
+      "status": "resolved",
+      "team_label": "dark_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        617,
+        766,
+        915,
+        1064
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0046.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 4,
+      "status": "resolved",
+      "team_label": "goalkeeper_red",
+      "role_label": "goalkeeper",
+      "confidence": 0.88,
+      "evidence_frames": [
+        5,
+        134,
+        263,
+        392
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0004.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 19,
+      "status": "resolved",
+      "team_label": "goalkeeper_green",
+      "role_label": "goalkeeper",
+      "confidence": 0.85,
+      "evidence_frames": [
+        40,
+        133,
+        227,
+        320
+      ],
+      "metadata": {
+        "source": "outputs/locate_tracking/runs/video_1_locateanything_track19_window/final_resolution.json",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0019.jpg",
+        "not_model_claim": false
+      }
+    }
+  ],
+  "query_predictions": [
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_all_light_blue_players",
+      "status": "resolved",
+      "selected_track_ids": [
+        3,
+        7,
+        8,
+        10,
+        11,
+        31,
+        37,
+        43,
+        45,
+        48,
+        49
+      ],
+      "team_label": "light_blue",
+      "confidence": 0.86,
+      "support_ratio": 0.88,
+      "grounding_call_count": 22,
+      "runtime_seconds": null,
+      "metadata": {
+        "source": "bootstrap_prediction_for_evaluator_validation",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_all_dark_blue_players",
+      "status": "resolved",
+      "selected_track_ids": [
+        2,
+        12,
+        18,
+        32,
+        38,
+        46,
+        50,
+        51
+      ],
+      "team_label": "dark_blue",
+      "confidence": 0.86,
+      "support_ratio": 0.88,
+      "grounding_call_count": 16,
+      "runtime_seconds": null,
+      "metadata": {
+        "source": "bootstrap_prediction_for_evaluator_validation",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_goalkeeper_red",
+      "status": "resolved",
+      "selected_track_ids": [
+        4
+      ],
+      "team_label": "goalkeeper_red",
+      "confidence": 0.86,
+      "support_ratio": 0.88,
+      "grounding_call_count": 4,
+      "runtime_seconds": null,
+      "metadata": {
+        "source": "bootstrap_prediction_for_evaluator_validation",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_goalkeeper_green",
+      "status": "resolved",
+      "selected_track_ids": [
+        19
+      ],
+      "team_label": "goalkeeper_green",
+      "confidence": 0.86,
+      "support_ratio": 0.88,
+      "grounding_call_count": 4,
+      "runtime_seconds": null,
+      "metadata": {
+        "source": "bootstrap_prediction_for_evaluator_validation",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_light_blue_long_track",
+      "status": "resolved",
+      "selected_track_ids": [
+        7
+      ],
+      "team_label": "light_blue",
+      "confidence": 0.86,
+      "support_ratio": 0.88,
+      "grounding_call_count": 4,
+      "runtime_seconds": null,
+      "metadata": {
+        "source": "bootstrap_prediction_for_evaluator_validation",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_dark_blue_penalty_area_group",
+      "status": "resolved",
+      "selected_track_ids": [
+        50,
+        51
+      ],
+      "team_label": "dark_blue",
+      "confidence": 0.86,
+      "support_ratio": 0.88,
+      "grounding_call_count": 4,
+      "runtime_seconds": null,
+      "metadata": {
+        "source": "bootstrap_prediction_for_evaluator_validation",
+        "not_model_claim": true
+      }
+    }
+  ],
+  "metadata": {
+    "bootstrap": true,
+    "warning": "These expanded predictions validate the benchmark plumbing and use contact-sheet labels. They are not a full model-run claim except for the previously resolved track 19 evidence."
+  }
+}

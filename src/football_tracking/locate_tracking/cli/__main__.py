@@ -104,6 +104,17 @@ from football_tracking.locate_tracking.visualization.appearance_summary import (
 from football_tracking.locate_tracking.visualization.semantic_summary import (
     write_semantic_summary,
 )
+from football_tracking.team_benchmark.comparison import (
+    TeamBenchmarkComparisonError,
+    compare_team_benchmark_evaluations,
+)
+from football_tracking.team_benchmark.evaluator import (
+    TeamBenchmarkEvaluationError,
+    evaluate_team_benchmark,
+)
+from football_tracking.team_benchmark.validation import (
+    validate_team_benchmark_manifest,
+)
 
 
 def _add_locate_image(parser: argparse.ArgumentParser) -> None:
@@ -418,6 +429,34 @@ def _add_build_language_demo(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--debug", action="store_true")
 
 
+def _add_validate_team_benchmark(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_run_team_benchmark(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--predictions", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_compare_team_benchmarks(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--evaluation",
+        type=Path,
+        action="append",
+        dest="evaluations",
+        required=True,
+        help="Evaluation directory or aggregate_metrics.json. Repeat for each pipeline.",
+    )
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
 def _add_create_language_benchmark_template(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--sequence-name", required=True)
@@ -576,6 +615,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Build a lightweight demo manifest from language benchmark metrics.",
     )
     _add_build_language_demo(demo)
+    validate_team = subparsers.add_parser(
+        "validate-team-benchmark",
+        help="Validate a team attribution and language-target benchmark manifest.",
+    )
+    _add_validate_team_benchmark(validate_team)
+    run_team = subparsers.add_parser(
+        "run-team-benchmark",
+        help="Evaluate team attribution and language-target predictions.",
+    )
+    _add_run_team_benchmark(run_team)
+    compare_team = subparsers.add_parser(
+        "compare-team-benchmarks",
+        help="Compare evaluated team benchmark variants.",
+    )
+    _add_compare_team_benchmarks(compare_team)
     return parser
 
 
@@ -991,6 +1045,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write(json.dumps(result, indent=2, default=str))
             sys.stdout.write("\n")
             return 0
+        if args.command == "validate-team-benchmark":
+            result = validate_team_benchmark_manifest(args.manifest)
+            if args.output is not None:
+                result.write_json(args.output)
+            sys.stdout.write(json.dumps(result.to_dict(), indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "run-team-benchmark":
+            result = evaluate_team_benchmark(
+                manifest_path=args.manifest,
+                prediction_manifest_path=args.predictions,
+                output_dir=args.output_dir,
+                overwrite=args.overwrite,
+            )
+            sys.stdout.write(json.dumps(result.to_dict(), indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "compare-team-benchmarks":
+            result = compare_team_benchmark_evaluations(
+                evaluations=tuple(args.evaluations),
+                output_dir=args.output_dir,
+                overwrite=args.overwrite,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
         service = _build_query_service(args)
         result = service.query_track_frame(
             source_video=args.source_video,
@@ -1018,6 +1098,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         ReacquisitionServiceError,
         FileNotFoundError,
         RuntimeError,
+        TeamBenchmarkComparisonError,
+        TeamBenchmarkEvaluationError,
         ValueError,
     ) as exc:
         sys.stderr.write(f"Error: {exc}\n")

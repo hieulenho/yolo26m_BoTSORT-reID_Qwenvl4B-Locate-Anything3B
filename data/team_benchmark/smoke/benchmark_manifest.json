@@ -1,0 +1,68 @@
+{
+  "benchmark_name": "team_language_smoke",
+  "benchmark_version": "0.1.0",
+  "dataset_name": "sportsmot_derived_manual_team_subset",
+  "split": "dev",
+  "annotation_policy": "Manual team labels are required because SportsMOT MOT ground truth does not include team identity.",
+  "sequences": [
+    {
+      "sequence_name": "video_1",
+      "split": "dev",
+      "source_video": "data/language_tracking/smoke/source_stub.txt",
+      "tracks_path": "data/language_tracking/smoke/pred_full.txt",
+      "mot_ground_truth_path": "data/language_tracking/smoke/gt.txt",
+      "frame_count": 320,
+      "track_annotations": [
+        {
+          "track_id": 19,
+          "team_label": "goalkeeper_green",
+          "role_label": "goalkeeper",
+          "start_frame": 40,
+          "end_frame": 320,
+          "notes": "Target resolved by LocateAnything track19 window run."
+        },
+        {
+          "track_id": 3,
+          "team_label": "team_blue",
+          "role_label": "player",
+          "start_frame": 40,
+          "end_frame": 320
+        },
+        {
+          "track_id": 7,
+          "team_label": "team_white",
+          "role_label": "player",
+          "start_frame": 40,
+          "end_frame": 320
+        }
+      ],
+      "query_annotations": [
+        {
+          "query_id": "q_goalkeeper_green",
+          "query_text": "the goalkeeper wearing green",
+          "expected_track_ids": [19],
+          "expected_team_label": "goalkeeper_green",
+          "start_frame": 40,
+          "end_frame": 320,
+          "difficulty": "easy"
+        },
+        {
+          "query_id": "q_blue_player",
+          "query_text": "a player wearing blue",
+          "expected_track_ids": [3],
+          "expected_team_label": "team_blue",
+          "start_frame": 40,
+          "end_frame": 320,
+          "difficulty": "medium"
+        }
+      ],
+      "metadata": {
+        "source": "Synthetic smoke manifest shaped like the real video_1 workflow."
+      }
+    }
+  ],
+  "metadata": {
+    "benchmark_1": "Full tracking + team label per annotated track.",
+    "benchmark_2": "Language target retrieval + team label per query."
+  }
+}

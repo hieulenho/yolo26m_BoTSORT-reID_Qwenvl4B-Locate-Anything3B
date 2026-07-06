@@ -1,0 +1,39 @@
+{
+  "variant_id": "pipeline_b_locate_qwen_video_1_draft",
+  "variant_name": "Pipeline B - LocateAnything + Qwen4B video_1 draft",
+  "benchmark_name": "video_1_team_language_draft",
+  "pipeline_type": "locate_qwen_language_retrieval",
+  "track_predictions": [
+    {
+      "sequence_name": "video_1",
+      "track_id": 19,
+      "status": "resolved",
+      "team_label": "goalkeeper_green",
+      "role_label": "goalkeeper",
+      "confidence": 0.85,
+      "evidence_frames": [40, 80, 120, 160, 200, 240, 280, 320],
+      "metadata": {
+        "source": "outputs/locate_tracking/runs/video_1_locateanything_track19_window/final_resolution.json",
+        "aggregate_score": 0.8489582841404659,
+        "support_count": 7,
+        "support_ratio": 0.875
+      }
+    }
+  ],
+  "query_predictions": [
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_goalkeeper_green",
+      "status": "resolved",
+      "selected_track_ids": [19],
+      "team_label": "goalkeeper_green",
+      "confidence": 0.85,
+      "support_ratio": 0.875,
+      "grounding_call_count": 8,
+      "runtime_seconds": null,
+      "metadata": {
+        "semantic_summary": "outputs/locate_tracking/runs/video_1_locateanything_track19_window/semantic_summary.md"
+      }
+    }
+  ]
+}

@@ -604,6 +604,49 @@ Generate the language report:
 .\scripts\generate_language_report.ps1 -Overwrite
 ```
 
+## Team And Language Pipeline Benchmark
+
+SportsMOT MOT ground truth contains bounding boxes and track IDs, but it does not contain
+team identity labels. Team attribution therefore uses a small extra manual annotation manifest
+on top of SportsMOT-style tracks.
+
+This benchmark compares two parallel structures with the same output schema:
+
+```text
+Pipeline A: YOLO + BoT-SORT ReID + Qwen4B
+  -> track_id + team_label + confidence
+  -> optional query_id + selected_track_id + team_label
+
+Pipeline B: YOLO + BoT-SORT ReID + LocateAnything + Qwen4B
+  -> query_id + selected_track_id + team_label + confidence
+  -> optional track_id + team_label
+```
+
+It reports:
+
+```text
+Benchmark 1: full tracking + team label
+  track_team_accuracy, macro_team_f1, track_unknown_rate, wrong_team_rate
+
+Benchmark 2: language target retrieval + team label
+  query_resolved_rate, query_selected_track_exact_accuracy, query_team_accuracy,
+  correct_id_correct_team_rate, support_ratio, grounding_calls_per_query
+```
+
+Run the smoke comparison:
+
+```powershell
+.\scripts\run_team_benchmark_smoke.ps1 -Overwrite
+```
+
+Outputs:
+
+```text
+outputs/team_benchmark/smoke/pipeline_a_qwen/team_benchmark_summary.md
+outputs/team_benchmark/smoke/pipeline_b_locate_qwen/team_benchmark_summary.md
+outputs/team_benchmark/smoke/comparison/team_benchmark_comparison.md
+```
+
 Important artifacts:
 
 ```text

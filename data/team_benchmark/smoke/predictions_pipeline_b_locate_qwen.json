@@ -1,0 +1,56 @@
+{
+  "variant_id": "pipeline_b_locate_qwen",
+  "variant_name": "Pipeline B - YOLO + BoT-SORT ReID + LocateAnything + Qwen4B",
+  "benchmark_name": "team_language_smoke",
+  "pipeline_type": "locate_qwen_language_retrieval",
+  "track_predictions": [
+    {
+      "sequence_name": "video_1",
+      "track_id": 19,
+      "status": "resolved",
+      "team_label": "goalkeeper_green",
+      "role_label": "goalkeeper",
+      "confidence": 0.93,
+      "evidence_frames": [40, 80, 160, 240, 320],
+      "metadata": {
+        "source": "LocateAnything resolved q_goalkeeper_green, Qwen confirmed team."
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 3,
+      "status": "unknown",
+      "team_label": null,
+      "role_label": null,
+      "confidence": null,
+      "evidence_frames": []
+    }
+  ],
+  "query_predictions": [
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_goalkeeper_green",
+      "status": "resolved",
+      "selected_track_ids": [19],
+      "team_label": "goalkeeper_green",
+      "confidence": 0.85,
+      "support_ratio": 0.875,
+      "grounding_call_count": 8,
+      "runtime_seconds": 65.0,
+      "metadata": {
+        "semantic_memory": "outputs/locate_tracking/runs/video_1_locateanything_track19_window/final_resolution.json"
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_blue_player",
+      "status": "ambiguous",
+      "selected_track_ids": [],
+      "team_label": null,
+      "confidence": 0.42,
+      "support_ratio": 0.2,
+      "grounding_call_count": 8,
+      "runtime_seconds": 64.0
+    }
+  ]
+}

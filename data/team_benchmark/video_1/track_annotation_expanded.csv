@@ -1,0 +1,22 @@
+sequence_name,track_id,start_frame,end_frame,team_label,role_label,notes,contact_sheet
+video_1,7,5,1399,light_blue,player,Contact sheet verified; stable light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0007.jpg
+video_1,31,345,1351,light_blue,player,Contact sheet verified; light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0031.jpg
+video_1,37,428,1356,light_blue,player,Contact sheet verified; light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0037.jpg
+video_1,10,5,558,light_blue,player,Contact sheet verified in earlier stable window; late sample partially occluded.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0010.jpg
+video_1,45,617,1399,light_blue,player,Contact sheet verified; stable light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0045.jpg
+video_1,48,620,1269,light_blue,player,Contact sheet verified; light-blue player with crowded late frame.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0048.jpg
+video_1,49,668,1222,light_blue,player,Contact sheet verified; light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0049.jpg
+video_1,43,597,1268,light_blue,player,Contact sheet verified; light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0043.jpg
+video_1,3,5,405,light_blue,player,Contact sheet verified; light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0003.jpg
+video_1,8,5,400,light_blue,player,Contact sheet verified; light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0008.jpg
+video_1,11,5,402,light_blue,player,Contact sheet verified; light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0011.jpg
+video_1,51,696,1399,dark_blue,player,Contact sheet verified; stable dark-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0051.jpg
+video_1,12,5,698,dark_blue,player,Contact sheet verified; dark-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0012.jpg
+video_1,32,348,915,dark_blue,player,Contact sheet verified; dark-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0032.jpg
+video_1,50,683,1254,dark_blue,player,Contact sheet verified; dark-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0050.jpg
+video_1,18,5,502,dark_blue,player,Contact sheet verified; dark-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0018.jpg
+video_1,2,5,445,dark_blue,player,Contact sheet verified; dark-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0002.jpg
+video_1,38,522,946,dark_blue,player,Contact sheet verified; dark-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0038.jpg
+video_1,46,617,1064,dark_blue,player,Contact sheet verified; dark-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0046.jpg
+video_1,4,5,392,goalkeeper_red,goalkeeper,Contact sheet verified; red goalkeeper. Later frame is crowded/occluded.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0004.jpg
+video_1,19,40,320,goalkeeper_green,goalkeeper,Verified by LocateAnything track19 window and contact-sheet review.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0019.jpg

@@ -1,0 +1,23 @@
+sequence_name,track_id,start_frame,end_frame,team_label,role_label,notes,contact_sheet
+video_2,6,5,855,dark_kit,player,Contact sheet verified; stable dark-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0006.jpg
+video_2,1,5,854,dark_kit,player,"Contact sheet verified; dark-kit player, late crowded frame.",outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0001.jpg
+video_2,15,5,852,dark_kit,player,Contact sheet verified; dark-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0015.jpg
+video_2,14,5,855,dark_kit,player,Contact sheet verified; dark-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0014.jpg
+video_2,4,5,855,dark_kit,player,Contact sheet verified; dark-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0004.jpg
+video_2,5,5,855,dark_kit,player,Contact sheet verified; dark-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0005.jpg
+video_2,12,5,637,dark_kit,player,"Contact sheet verified; dark-kit player, later crowded frame excluded.",outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0012.jpg
+video_2,22,15,620,dark_kit,player,Contact sheet verified; dark-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0022.jpg
+video_2,16,5,554,dark_kit,player,Contact sheet verified; dark-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0016.jpg
+video_2,13,5,855,yellow_kit,player,Contact sheet verified; stable yellow-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0013.jpg
+video_2,7,5,855,yellow_kit,player,Contact sheet verified; yellow-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0007.jpg
+video_2,20,5,855,yellow_kit,player,Contact sheet verified; yellow-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0020.jpg
+video_2,3,5,855,yellow_kit,player,Contact sheet verified; yellow-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0003.jpg
+video_2,19,5,662,yellow_kit,player,Contact sheet verified; yellow-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0019.jpg
+video_2,18,5,819,yellow_kit,player,Contact sheet verified; yellow-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0018.jpg
+video_2,10,5,613,yellow_kit,player,Contact sheet verified; yellow-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0010.jpg
+video_2,21,10,811,yellow_kit,player,Contact sheet verified; yellow-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0021.jpg
+video_2,28,263,679,yellow_kit,player,Contact sheet verified; yellow-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0028.jpg
+video_2,11,5,352,yellow_kit,player,Contact sheet verified; yellow-kit player.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0011.jpg
+video_2,17,5,297,yellow_kit,player,"Contact sheet verified; yellow-kit player, moderate crowding.",outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0017.jpg
+video_2,31,326,813,yellow_kit,player,"Contact sheet verified; yellow-kit player, moderate crowding.",outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0031.jpg
+video_2,8,215,855,goalkeeper_orange,goalkeeper,Contact sheet verified; orange goalkeeper.,outputs/team_benchmark/video_2_annotation/contact_sheets_large/track_0008.jpg
