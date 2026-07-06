@@ -1,0 +1,43 @@
+model:
+  weights: yolov8m.pt
+  task: detect
+
+dataset:
+  data_yaml: data/yolo/sportsmot_football/dataset.yaml
+  split: val
+
+inference:
+  imgsz: 640
+  conf: 0.001
+  iou: 0.70
+  max_det: 300
+  device: auto
+  half: false
+  batch: 8
+  workers: 4
+  verbose: false
+
+classes:
+  coco_person_class_id: 0
+  target_class_id: 0
+  target_class_name: player
+  keep_only_person: true
+
+evaluation:
+  use_ultralytics_validator: false
+  save_predictions: true
+  save_visualizations: false
+  save_error_samples: false
+  max_visualization_samples: 0
+
+runtime:
+  max_images: null
+  max_sequences: null
+  warmup_iterations: 3
+  log_level: INFO
+  overwrite: false
+
+output:
+  root: outputs/detections/detector_timing/yolov8m_pretrained_sportsmot_val
+  metrics_dir: outputs/metrics/detector_timing/yolov8m_pretrained_sportsmot_val
+  figures_dir: outputs/figures/detector_timing/yolov8m_pretrained_sportsmot_val

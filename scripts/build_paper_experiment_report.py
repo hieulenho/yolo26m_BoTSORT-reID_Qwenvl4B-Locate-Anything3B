@@ -56,7 +56,6 @@ def detector_metrics_from_baseline(path: Path) -> dict[str, Any] | None:
         "map50": metric(metrics.get("map50")),
         "map50_95": metric(metrics.get("map50_95")),
         "map75": metric(metrics.get("map75")),
-        "fps": None,
     }
 
 
@@ -72,7 +71,19 @@ def detector_metrics_from_finetuned(path: Path) -> dict[str, Any] | None:
         "map50": metric(payload.get("map50")),
         "map50_95": metric(payload.get("map50_95")),
         "map75": metric(payload.get("map75")),
-        "fps": None,
+    }
+
+
+def detector_timing(path: Path) -> dict[str, Any]:
+    payload = load_json(path)
+    if not isinstance(payload, dict):
+        return {"fps": None, "end_to_end_fps": None, "timing_image_count": None}
+    timing = payload.get("timing", {})
+    counts = payload.get("counts", {})
+    return {
+        "fps": metric(timing.get("detector_fps"), 3),
+        "end_to_end_fps": metric(timing.get("end_to_end_fps"), 3),
+        "timing_image_count": counts.get("image_count"),
     }
 
 
@@ -88,6 +99,12 @@ def build_detector_rows() -> list[dict[str, Any]]:
             / "detector_baselines"
             / "yolov8m_pretrained_sportsmot_val"
             / "yolov8m_pretrained_baseline.json",
+            ROOT
+            / "outputs"
+            / "metrics"
+            / "detector_timing"
+            / "yolov8m_pretrained_sportsmot_val"
+            / "yolov8m_pretrained_baseline.json",
             detector_metrics_from_baseline,
         ),
         (
@@ -98,6 +115,12 @@ def build_detector_rows() -> list[dict[str, Any]]:
             / "outputs"
             / "metrics"
             / "detector_baselines"
+            / "yolo26n_pretrained_sportsmot_val"
+            / "yolov8m_pretrained_baseline.json",
+            ROOT
+            / "outputs"
+            / "metrics"
+            / "detector_timing"
             / "yolo26n_pretrained_sportsmot_val"
             / "yolov8m_pretrained_baseline.json",
             detector_metrics_from_baseline,
@@ -112,6 +135,12 @@ def build_detector_rows() -> list[dict[str, Any]]:
             / "detector_baselines"
             / "yolo26m_pretrained_sportsmot_val"
             / "yolov8m_pretrained_baseline.json",
+            ROOT
+            / "outputs"
+            / "metrics"
+            / "detector_timing"
+            / "yolo26m_pretrained_sportsmot_val"
+            / "yolov8m_pretrained_baseline.json",
             detector_metrics_from_baseline,
         ),
         (
@@ -119,11 +148,17 @@ def build_detector_rows() -> list[dict[str, Any]]:
             "SportsMOT train",
             "method",
             ROOT / "outputs" / "metrics" / "football" / "yolo26m" / "yolo26m_val.json",
+            ROOT
+            / "outputs"
+            / "metrics"
+            / "detector_timing"
+            / "yolo26m_finetuned_sportsmot_val"
+            / "yolov8m_pretrained_baseline.json",
             detector_metrics_from_finetuned,
         ),
     ]
     rows: list[dict[str, Any]] = []
-    for detector, train_data, note, path, reader in specs:
+    for detector, train_data, note, path, timing_path, reader in specs:
         metrics = reader(path)
         row = {
             "detector": detector,
@@ -132,9 +167,11 @@ def build_detector_rows() -> list[dict[str, Any]]:
             "metric_path": str(path.relative_to(ROOT)),
             "note": note,
             "status": "ok" if metrics else "missing",
+            "timing_path": str(timing_path.relative_to(ROOT)),
         }
         if metrics:
             row.update(metrics)
+        row.update(detector_timing(timing_path))
         rows.append(row)
     return rows
 
@@ -357,13 +394,23 @@ def write_report(
     lines = [
         "# Paper Experiment Matrix",
         "",
-        "Generated from saved artifacts in this repository. Detector FPS is not recorded by the current evaluator, so those cells are intentionally empty until a dedicated detector timing benchmark is run.",
+        "Generated from saved artifacts in this repository. Detector FPS is measured by the dedicated detector timing runs on SportsMOT football val at image size 640.",
         "",
         "## Detector Baselines",
         "",
         markdown_table(
             detector_rows,
-            ["detector", "train_data", "map50", "map50_95", "recall", "precision", "fps", "note"],
+            [
+                "detector",
+                "train_data",
+                "map50",
+                "map50_95",
+                "recall",
+                "precision",
+                "fps",
+                "end_to_end_fps",
+                "note",
+            ],
         ),
         "",
         "## Tracking Baselines",
@@ -430,9 +477,12 @@ def main() -> None:
             "map50_95",
             "map75",
             "fps",
+            "end_to_end_fps",
+            "timing_image_count",
             "note",
             "status",
             "metric_path",
+            "timing_path",
         ],
     )
     write_json(OUT_DIR / "tracking_baselines.json", tracking_rows)
