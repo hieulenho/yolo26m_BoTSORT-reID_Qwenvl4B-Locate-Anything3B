@@ -26,11 +26,26 @@ from football_tracking.locate_tracking.association.service import (
     FrameTrackQueryService,
     FrameTrackQueryServiceError,
 )
+from football_tracking.locate_tracking.cli.analyze_language_failures import (
+    run_analyze_language_failures,
+)
 from football_tracking.locate_tracking.cli.analyze_target_uncertainty import (
     run_analyze_target_uncertainty,
 )
+from football_tracking.locate_tracking.cli.build_language_demo import (
+    run_build_language_demo,
+)
+from football_tracking.locate_tracking.cli.confirm_reacquisition import (
+    run_confirm_reacquisition,
+)
 from football_tracking.locate_tracking.cli.execute_grounding_plan import (
     run_execute_grounding_plan,
+)
+from football_tracking.locate_tracking.cli.generate_language_report import (
+    run_generate_language_report,
+)
+from football_tracking.locate_tracking.cli.init_semantic_target import (
+    run_init_semantic_target,
 )
 from football_tracking.locate_tracking.cli.locate_image import (
     LocateImageError,
@@ -41,10 +56,30 @@ from football_tracking.locate_tracking.cli.locate_image import (
 from football_tracking.locate_tracking.cli.plan_event_grounding import (
     run_plan_event_grounding,
 )
+from football_tracking.locate_tracking.cli.reacquire_language_target import (
+    run_reacquire_language_target,
+)
+from football_tracking.locate_tracking.cli.render_semantic_target import (
+    run_render_semantic_target,
+)
+from football_tracking.locate_tracking.cli.run_language_ablation import (
+    run_language_ablation_cli,
+)
+from football_tracking.locate_tracking.cli.run_language_benchmark import (
+    run_language_benchmark,
+)
+from football_tracking.locate_tracking.cli.search_reacquisition_candidates import (
+    run_search_reacquisition_candidates,
+)
+from football_tracking.locate_tracking.cli.validate_language_benchmark import (
+    run_validate_language_benchmark,
+)
 from football_tracking.locate_tracking.grounding.cache import GroundingCache
 from football_tracking.locate_tracking.grounding.service import GroundingService
 from football_tracking.locate_tracking.monitoring.config import UncertaintyConfigError
 from football_tracking.locate_tracking.monitoring.service import UncertaintyMonitoringServiceError
+from football_tracking.locate_tracking.reacquisition.config import ReacquisitionConfigError
+from football_tracking.locate_tracking.reacquisition.service import ReacquisitionServiceError
 from football_tracking.locate_tracking.sampling.explicit_selector import (
     parse_explicit_frames,
 )
@@ -270,6 +305,113 @@ def _add_execute_grounding_plan(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--debug", action="store_true")
 
 
+def _add_init_semantic_target(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--query", required=True)
+    parser.add_argument("--raw-track-id", type=int, required=True)
+    parser.add_argument("--start-frame", type=int, required=True)
+    parser.add_argument("--end-frame", type=int, default=None)
+    parser.add_argument("--last-confirmed-frame", type=int, default=None)
+    parser.add_argument("--semantic-memory", type=Path, default=None)
+    parser.add_argument("--appearance-reference", type=Path, default=None)
+    parser.add_argument("--semantic-target-id", default=None)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_reacquisition_common(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/locate_tracking/reacquisition.yaml"),
+    )
+    parser.add_argument("--semantic-target", type=Path, required=True)
+    parser.add_argument("--tracks", type=Path, required=True)
+    parser.add_argument("--events", type=Path, required=True)
+    parser.add_argument("--grounding-plan", type=Path, default=None)
+    parser.add_argument("--grounding-manifest", type=Path, default=None)
+    parser.add_argument("--appearance-result", type=Path, default=None)
+    parser.add_argument("--event-id", default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_confirm_reacquisition(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/locate_tracking/reacquisition.yaml"),
+    )
+    parser.add_argument("--semantic-target", type=Path, required=True)
+    parser.add_argument("--tracks", type=Path, required=True)
+    parser.add_argument("--decision", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_render_semantic_target(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--source-video", type=Path, required=True)
+    parser.add_argument("--tracks", type=Path, required=True)
+    parser.add_argument("--semantic-target", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--hide-raw-id", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_validate_language_benchmark(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_run_language_benchmark(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--predictions", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--iou-threshold", type=float, default=0.5)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_run_language_ablation(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/locate_tracking/experiments/ablation_manifest.yaml"),
+    )
+    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_analyze_language_failures(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--evaluation", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_generate_language_report(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--evaluation", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--ablation", type=Path, default=None)
+    parser.add_argument("--failures", type=Path, default=None)
+    parser.add_argument("--mot-metrics", type=Path, default=None)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
+def _add_build_language_demo(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--evaluation", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--max-cases", type=int, default=5)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m football_tracking.locate_tracking.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -320,6 +462,62 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Execute a grounding plan with the standalone grounding service.",
     )
     _add_execute_grounding_plan(execute_grounding)
+    init_target = subparsers.add_parser(
+        "init-semantic-target",
+        help="Create a stable semantic target artifact from an initial raw track.",
+    )
+    _add_init_semantic_target(init_target)
+    search_reacq = subparsers.add_parser(
+        "search-reacquisition-candidates",
+        help="Search and rank raw-track candidates for a semantic target.",
+    )
+    _add_reacquisition_common(search_reacq)
+    reacquire = subparsers.add_parser(
+        "reacquire-language-target",
+        help="Run semantic target reacquisition, optionally committing a probation segment.",
+    )
+    _add_reacquisition_common(reacquire)
+    reacquire.add_argument("--commit", action="store_true")
+    confirm = subparsers.add_parser(
+        "confirm-reacquisition",
+        help="Confirm a probationary semantic target reacquisition.",
+    )
+    _add_confirm_reacquisition(confirm)
+    render_target = subparsers.add_parser(
+        "render-semantic-target",
+        help="Render a semantic target overlay while preserving raw MOT IDs.",
+    )
+    _add_render_semantic_target(render_target)
+    validate_language = subparsers.add_parser(
+        "validate-language-benchmark",
+        help="Validate a language tracking benchmark manifest.",
+    )
+    _add_validate_language_benchmark(validate_language)
+    run_language = subparsers.add_parser(
+        "run-language-benchmark",
+        help="Evaluate saved language tracking predictions against a benchmark manifest.",
+    )
+    _add_run_language_benchmark(run_language)
+    ablation = subparsers.add_parser(
+        "run-language-ablation",
+        help="Evaluate configured language tracking ablation variants.",
+    )
+    _add_run_language_ablation(ablation)
+    failures = subparsers.add_parser(
+        "analyze-language-failures",
+        help="Classify language benchmark failure cases from per-query metrics.",
+    )
+    _add_analyze_language_failures(failures)
+    language_report = subparsers.add_parser(
+        "generate-language-report",
+        help="Generate a language tracking Markdown report from saved artifacts.",
+    )
+    _add_generate_language_report(language_report)
+    demo = subparsers.add_parser(
+        "build-language-demo",
+        help="Build a lightweight demo manifest from language benchmark metrics.",
+    )
+    _add_build_language_demo(demo)
     return parser
 
 
@@ -562,6 +760,138 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write(json.dumps(result, indent=2, default=str))
             sys.stdout.write("\n")
             return 0
+        if args.command == "init-semantic-target":
+            result = run_init_semantic_target(
+                query=args.query,
+                raw_track_id=args.raw_track_id,
+                start_frame=args.start_frame,
+                end_frame=args.end_frame,
+                last_confirmed_frame=args.last_confirmed_frame,
+                semantic_memory=args.semantic_memory,
+                appearance_reference=args.appearance_reference,
+                semantic_target_id=args.semantic_target_id,
+                output=args.output,
+                overwrite=args.overwrite,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "search-reacquisition-candidates":
+            result = run_search_reacquisition_candidates(
+                config_path=args.config,
+                semantic_target=args.semantic_target,
+                tracks=args.tracks,
+                events=args.events,
+                output_dir=args.output_dir,
+                grounding_plan=args.grounding_plan,
+                grounding_manifest=args.grounding_manifest,
+                appearance_result=args.appearance_result,
+                event_id=args.event_id,
+                overwrite=args.overwrite,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "reacquire-language-target":
+            result = run_reacquire_language_target(
+                config_path=args.config,
+                semantic_target=args.semantic_target,
+                tracks=args.tracks,
+                events=args.events,
+                output_dir=args.output_dir,
+                grounding_plan=args.grounding_plan,
+                grounding_manifest=args.grounding_manifest,
+                appearance_result=args.appearance_result,
+                event_id=args.event_id,
+                commit=args.commit,
+                overwrite=args.overwrite,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "confirm-reacquisition":
+            result = run_confirm_reacquisition(
+                config_path=args.config,
+                semantic_target=args.semantic_target,
+                tracks=args.tracks,
+                decision=args.decision,
+                output_dir=args.output_dir,
+                overwrite=args.overwrite,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "render-semantic-target":
+            result = run_render_semantic_target(
+                source_video=args.source_video,
+                tracks=args.tracks,
+                semantic_target=args.semantic_target,
+                output=args.output,
+                debug_raw_id=not args.hide_raw_id,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "validate-language-benchmark":
+            result = run_validate_language_benchmark(
+                manifest=args.manifest,
+                output=args.output,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "run-language-benchmark":
+            result = run_language_benchmark(
+                manifest=args.manifest,
+                predictions=args.predictions,
+                output_dir=args.output_dir,
+                iou_threshold=args.iou_threshold,
+                overwrite=args.overwrite,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "run-language-ablation":
+            result = run_language_ablation_cli(
+                config=args.config,
+                output_dir=args.output_dir,
+                overwrite=args.overwrite,
+                dry_run=args.dry_run,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "analyze-language-failures":
+            result = run_analyze_language_failures(
+                evaluation=args.evaluation,
+                output_dir=args.output_dir,
+                overwrite=args.overwrite,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "generate-language-report":
+            result = run_generate_language_report(
+                evaluation=args.evaluation,
+                output=args.output,
+                ablation=args.ablation,
+                failures=args.failures,
+                mot_metrics=args.mot_metrics,
+                overwrite=args.overwrite,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "build-language-demo":
+            result = run_build_language_demo(
+                evaluation=args.evaluation,
+                output_dir=args.output_dir,
+                max_cases=args.max_cases,
+                overwrite=args.overwrite,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
         service = _build_query_service(args)
         result = service.query_track_frame(
             source_video=args.source_video,
@@ -584,6 +914,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         SemanticMemoryServiceError,
         UncertaintyConfigError,
         UncertaintyMonitoringServiceError,
+        ReacquisitionConfigError,
+        ReacquisitionServiceError,
         FileNotFoundError,
         RuntimeError,
         ValueError,

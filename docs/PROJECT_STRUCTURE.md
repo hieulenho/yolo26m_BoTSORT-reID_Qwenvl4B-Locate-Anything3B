@@ -17,6 +17,20 @@ src/football_tracking/
   reporting/                Markdown/CSV/JSON report generation
   domains/                  reusable domain profile config builder
   vlm/                      Qwen VLM context creation and optional local inference
+  locate_tracking/          optional language-guided semantic tracking subsystem
+    grounding/              M1 LocateAnything/mock grounding artifacts
+    association/            M2 frame-level grounding-to-track association
+    semantic_memory/        M3 multi-frame semantic memory
+    appearance/             M4 appearance verification
+    monitoring/             M5 uncertainty monitoring
+    events/                 M5 uncertainty event schemas/store
+    grounding_scheduler/    M5 event-triggered grounding plans
+    identity/               M6 stable semantic target identity
+    reacquisition/          M6 semantic target reacquisition
+    benchmark/              M7 language benchmark schemas/metrics/evaluator
+    experiments/            M7 language ablation runner and artifact reuse checks
+    failure_analysis/       M7 deterministic failure categorization
+    reporting/              M7 language reports, charts, and demo manifests
 ```
 
 ## Human-Edited Project Files
@@ -46,6 +60,8 @@ outputs/metrics/            JSON/CSV/Markdown metrics
 outputs/figures/            generated figures
 outputs/training/           Ultralytics training runs
 runs/                       Ultralytics default run directory
+data/language_tracking/     language benchmark manifests and lightweight smoke fixtures
+outputs/locate_tracking/    optional language-guided tracking artifacts and reports
 ```
 
 ## Naming Conventions

@@ -37,13 +37,15 @@ def write_uncertainty_summary(
         "",
     ]
     if events:
-        for event in events:
+        for event in events[:50]:
             lines.append(
                 "- "
                 f"`{event.event_type}` `{event.severity}` "
                 f"frames `{event.frame_start}-{event.frame_end}` "
                 f"track `{event.raw_track_id}`"
             )
+        if len(events) > 50:
+            lines.append(f"- ... {len(events) - 50} more events in `uncertainty_events.jsonl`.")
     else:
         lines.append("- No triggered uncertainty events.")
     lines.extend(["", "## Planned Grounding", ""])

@@ -1,0 +1,7 @@
+variant_id: a2_appearance_verification
+description: Semantic memory plus appearance verification variant.
+enabled_layers:
+  semantic_memory: true
+  appearance_verification: true
+  event_grounding: false
+  reacquisition: false

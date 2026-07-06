@@ -47,7 +47,7 @@ Result:
 
 ```text
 ruff: all checks passed
-pytest: 159 passed
+pytest: 338 passed
 ```
 
 ## Latest Reference Metrics
@@ -544,6 +544,64 @@ codepages. Prefer reading `vlm_answer.md` or use:
 ```powershell
 chcp 65001
 ```
+
+## Language-Guided Semantic Tracking
+
+`locate_tracking` is an optional parallel subsystem. Normal YOLO + BoT-SORT tracking works
+without LocateAnything, Qwen, or the language benchmark.
+
+The language pipeline is artifact-based:
+
+```text
+saved video frames + MOT TXT + language query
+  -> LocateAnything grounding
+  -> frame-to-track association
+  -> multi-frame semantic memory
+  -> appearance verification
+  -> uncertainty monitoring
+  -> event-triggered grounding
+  -> semantic reacquisition
+  -> stable semantic target identity
+  -> language benchmark/report
+```
+
+Smoke benchmark:
+
+```powershell
+.\scripts\run_language_benchmark_smoke.ps1 -Overwrite
+```
+
+Ablation smoke:
+
+```powershell
+.\scripts\run_language_ablation.ps1 -Overwrite
+```
+
+Generate the language report:
+
+```powershell
+.\scripts\generate_language_report.ps1 -Overwrite
+```
+
+Important artifacts:
+
+```text
+data/language_tracking/benchmark_manifest.json
+configs/locate_tracking/experiments/ablation_manifest.yaml
+outputs/locate_tracking/benchmark/
+outputs/locate_tracking/reports/
+```
+
+Documentation:
+
+- [Locate tracking system overview](docs/locate_tracking/system_overview.md)
+- [Language benchmark annotation guide](docs/locate_tracking/language_benchmark_annotation_guide.md)
+- [Windows benchmark runbook](docs/locate_tracking/benchmark_runbook_windows.md)
+- [Technical report template](docs/locate_tracking/technical_report.md)
+
+Current limitation: the checked-in benchmark is a tiny synthetic smoke fixture. Real
+research claims require manually annotated real sequences, frozen thresholds, and a
+separate final evaluation split.
 
 ## License
 

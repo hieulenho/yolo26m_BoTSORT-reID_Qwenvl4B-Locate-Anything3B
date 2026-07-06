@@ -1,0 +1,64 @@
+{
+  "benchmark_name": "language_tracking_smoke",
+  "benchmark_version": "0.1.0",
+  "dataset_name": "synthetic_smoke",
+  "split": "dev",
+  "annotation_policy": "Synthetic fixture for plumbing validation only.",
+  "sequences": [
+    {
+      "sequence_name": "smoke_sequence_001",
+      "split": "dev",
+      "source_video": "data/language_tracking/smoke/source_stub.txt",
+      "mot_ground_truth_path": "data/language_tracking/smoke/gt.txt",
+      "frame_count": 10,
+      "fps": 25.0,
+      "queries": [
+        {
+          "query_id": "q_goalkeeper_green",
+          "query_text": "the goalkeeper wearing green",
+          "query_mode": "single_target",
+          "query_category": "role",
+          "difficulty": "easy",
+          "evaluation_start_frame": 1,
+          "evaluation_end_frame": 10,
+          "target_gt_track_ids": [
+            3
+          ],
+          "identity_segments": [
+            {
+              "gt_track_id": 3,
+              "start_frame": 1,
+              "end_frame": 10,
+              "visibility_notes": "synthetic visible target"
+            }
+          ],
+          "loss_events": [
+            {
+              "event_id": "loss_001",
+              "frame_start": 5,
+              "frame_end": 5,
+              "reason": "synthetic raw-id fragmentation"
+            }
+          ],
+          "reacquisition_events": [
+            {
+              "event_id": "reaq_001",
+              "loss_event_id": "loss_001",
+              "target_lost_frame": 5,
+              "candidate_search_start": 6,
+              "candidate_search_end": 10,
+              "gt_reappearance_frame": 6,
+              "evaluation_start_frame": 6,
+              "evaluation_end_frame": 10,
+              "notes": "synthetic raw id 7 to raw id 42"
+            }
+          ],
+          "notes": "Tiny smoke query; not a real research benchmark."
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "fixture": true
+  }
+}

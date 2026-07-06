@@ -52,4 +52,17 @@ def run_execute_grounding_plan(
         grounding_service=service,
         overwrite=config.overwrite,
     )
-    return {"manifest": manifest.to_dict()}
+    frame_count = sum(
+        len(request.get("frames", ())) for request in manifest.executed_requests
+    )
+    return {
+        "status": "ok",
+        "executed_request_count": len(manifest.executed_requests),
+        "executed_frame_count": frame_count,
+        "skipped_request_count": len(manifest.skipped_requests),
+        "paths": {
+            "manifest_json": str(manifest.output_dir / "grounding_execution_manifest.json"),
+            "output_dir": str(manifest.output_dir),
+        },
+        "note": "grounding results are saved only; no track reacquisition is performed",
+    }

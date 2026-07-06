@@ -1,0 +1,12 @@
+{
+  "sequence_name": "smoke_sequence_001",
+  "queries": [
+    {
+      "query_id": "q_goalkeeper_green",
+      "query_text": "the goalkeeper wearing green",
+      "query_mode": "single_target",
+      "query_category": "role",
+      "difficulty": "easy"
+    }
+  ]
+}

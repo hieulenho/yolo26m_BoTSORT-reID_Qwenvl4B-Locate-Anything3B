@@ -1,0 +1,30 @@
+{
+  "semantic_target_id": "target_smoke_goalkeeper_green",
+  "query": "the goalkeeper wearing green",
+  "query_mode": "single_target",
+  "state": "ACTIVE",
+  "current_raw_track_id": 7,
+  "segments": [
+    {
+      "segment_id": "segment_smoke_raw7_only",
+      "semantic_target_id": "target_smoke_goalkeeper_green",
+      "raw_track_id": 7,
+      "start_frame": 1,
+      "end_frame": 5,
+      "source": "single_frame_geometry_baseline",
+      "confidence": 0.8,
+      "status": "confirmed",
+      "evidence_summary": {
+        "fixture": "smoke"
+      },
+      "transition_id": null
+    }
+  ],
+  "reference_semantic_memory": null,
+  "reference_appearance_prototype": null,
+  "last_confirmed_frame": 5,
+  "last_update_frame": 5,
+  "metadata": {
+    "fixture": "smoke_baseline"
+  }
+}

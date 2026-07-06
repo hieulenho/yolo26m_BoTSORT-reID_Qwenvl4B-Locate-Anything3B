@@ -1,0 +1,37 @@
+{
+  "semantic_target_id": "target_smoke_goalkeeper_green",
+  "search_window": {
+    "start_frame": 6,
+    "end_frame": 10,
+    "last_confirmed_frame": 5,
+    "event_start_frame": 5,
+    "event_end_frame": 5,
+    "pre_event_context_frames": 0,
+    "post_event_context_frames": 5,
+    "source_event_ids": [
+      "loss_001"
+    ]
+  },
+  "decision": {
+    "decision_id": "decision_smoke_reacquired",
+    "status": "confirmed",
+    "semantic_target_id": "target_smoke_goalkeeper_green",
+    "previous_raw_track_id": 7,
+    "selected_raw_track_id": 42,
+    "selected_start_frame": 6,
+    "final_score": 0.95,
+    "score_margin": 0.4,
+    "reason": "smoke fixture confirmed reacquisition",
+    "event_ids": [
+      "loss_001"
+    ],
+    "candidate_count": 1,
+    "ranked_candidates": [],
+    "metadata": {
+      "fixture": "smoke"
+    }
+  },
+  "candidates": [],
+  "paths": {},
+  "input_hashes": {}
+}

@@ -41,4 +41,33 @@ def run_analyze_target_uncertainty(
         end_frame=end_frame,
         overwrite=config.overwrite,
     )
-    return run.to_dict()
+    return {
+        "status": "ok",
+        "query": run.assessment.timeline.query,
+        "current_raw_track_id": run.assessment.timeline.current_raw_track_id,
+        "frame_range": {
+            "start": run.assessment.timeline.start_frame,
+            "end": run.assessment.timeline.end_frame,
+        },
+        "aggregate": {
+            "severity": run.assessment.aggregate_severity,
+            "score": run.assessment.aggregate_score,
+            "triggered_signal_count": run.assessment.triggered_signal_count,
+            "event_count": len(run.events),
+            "planned_grounding_request_count": len(run.grounding_plan.items),
+        },
+        "events": [
+            {
+                "event_id": event.event_id,
+                "event_type": event.event_type,
+                "severity": event.severity,
+                "frame_start": event.frame_start,
+                "frame_end": event.frame_end,
+                "trigger_frame": event.trigger_frame,
+                "raw_track_id": event.raw_track_id,
+            }
+            for event in run.events[:20]
+        ],
+        "truncated_events": max(0, len(run.events) - 20),
+        "paths": {key: str(value) for key, value in run.paths.items()},
+    }

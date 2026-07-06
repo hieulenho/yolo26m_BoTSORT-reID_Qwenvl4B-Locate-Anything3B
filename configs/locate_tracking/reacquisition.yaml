@@ -1,0 +1,32 @@
+reacquisition:
+  pre_event_context_frames: 20
+  post_event_context_frames: 50
+
+  gates:
+    min_observations: 2
+    duplicate_overlap_tolerance_frames: 2
+    max_motion_distance_normalized: 0.20
+    min_grounding_score: 0.10
+    require_grounding_support: true
+
+  ranking:
+    min_final_score: 0.45
+    ambiguity_margin: 0.08
+    missing_evidence_policy: ignore
+    weights:
+      grounding: 0.35
+      appearance: 0.20
+      motion: 0.20
+      temporal: 0.15
+      history: 0.10
+
+  probation:
+    window_frames: 20
+    min_observations: 3
+    auto_confirm: false
+
+output:
+  directory: outputs/locate_tracking/reacquisition
+
+runtime:
+  overwrite: false

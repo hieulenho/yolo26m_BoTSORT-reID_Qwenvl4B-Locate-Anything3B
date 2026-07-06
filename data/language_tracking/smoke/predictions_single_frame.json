@@ -1,0 +1,23 @@
+{
+  "variant_id": "a0_single_frame_geometry",
+  "variant_name": "A0 Single-frame geometry baseline",
+  "benchmark_name": "language_tracking_smoke",
+  "predictions": [
+    {
+      "sequence_name": "smoke_sequence_001",
+      "query_id": "q_goalkeeper_green",
+      "status": "resolved",
+      "semantic_target_path": "data/language_tracking/smoke/pred_baseline_semantic_target.json",
+      "tracks_path": "data/language_tracking/smoke/pred_baseline.txt",
+      "reacquisition_result_path": null,
+      "grounding_call_count": 1,
+      "runtime_seconds": 0.4,
+      "metadata": {
+        "fixture": "smoke"
+      }
+    }
+  ],
+  "metadata": {
+    "uses_same_raw_mot_base": true
+  }
+}

@@ -1,0 +1,46 @@
+benchmark:
+  manifest: data/language_tracking/benchmark_manifest.json
+  iou_threshold: 0.5
+
+variants:
+  - variant_id: a0_single_frame_geometry
+    name: A0 single-frame geometry
+    description: Uses one raw ID segment and no semantic reacquisition.
+    prediction_manifest: data/language_tracking/smoke/predictions_single_frame.json
+    config_path: configs/locate_tracking/experiments/a0_single_frame_geometry.yaml
+
+  - variant_id: a1_semantic_memory
+    name: A1 semantic memory
+    description: Placeholder variant config; smoke prediction reuses A0 until real artifacts exist.
+    prediction_manifest: data/language_tracking/smoke/predictions_single_frame.json
+    config_path: configs/locate_tracking/experiments/a1_semantic_memory.yaml
+
+  - variant_id: a2_appearance_verification
+    name: A2 appearance verification
+    description: Placeholder variant config; smoke prediction reuses A0 until real artifacts exist.
+    prediction_manifest: data/language_tracking/smoke/predictions_single_frame.json
+    config_path: configs/locate_tracking/experiments/a2_appearance_verification.yaml
+
+  - variant_id: a3_periodic_grounding
+    name: A3 periodic grounding
+    description: Placeholder periodic grounding baseline for future real artifacts.
+    prediction_manifest: data/language_tracking/smoke/predictions_single_frame.json
+    config_path: configs/locate_tracking/experiments/a3_periodic_grounding.yaml
+
+  - variant_id: a4_event_grounding_no_reacquisition
+    name: A4 event grounding without reacquisition
+    description: Placeholder event-triggered variant without M6 commit.
+    prediction_manifest: data/language_tracking/smoke/predictions_single_frame.json
+    config_path: configs/locate_tracking/experiments/a4_event_grounding_no_reacquisition.yaml
+
+  - variant_id: a5_full_system
+    name: A5 full system
+    description: Full semantic continuity fixture with raw ID transition repaired.
+    prediction_manifest: data/language_tracking/smoke/predictions_full_system.json
+    config_path: configs/locate_tracking/experiments/a5_full_system.yaml
+
+output:
+  directory: outputs/locate_tracking/benchmark/ablation
+
+metadata:
+  note: Smoke variants are artifact fixtures; real variants should point to real prediction manifests.

@@ -1,0 +1,24 @@
+{
+  "variant_id": "a5_full_system",
+  "variant_name": "A5 Full semantic identity continuity",
+  "benchmark_name": "language_tracking_smoke",
+  "predictions": [
+    {
+      "sequence_name": "smoke_sequence_001",
+      "query_id": "q_goalkeeper_green",
+      "status": "resolved",
+      "semantic_target_path": "data/language_tracking/smoke/pred_full_semantic_target.json",
+      "tracks_path": "data/language_tracking/smoke/pred_full.txt",
+      "reacquisition_result_path": "data/language_tracking/smoke/pred_full_reacquisition_result.json",
+      "grounding_call_count": 3,
+      "runtime_seconds": 1.2,
+      "metadata": {
+        "reacquisition_confirmed": true,
+        "fixture": "smoke"
+      }
+    }
+  ],
+  "metadata": {
+    "uses_same_raw_mot_base": true
+  }
+}

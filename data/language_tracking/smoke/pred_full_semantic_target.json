@@ -1,0 +1,44 @@
+{
+  "semantic_target_id": "target_smoke_goalkeeper_green",
+  "query": "the goalkeeper wearing green",
+  "query_mode": "single_target",
+  "state": "ACTIVE",
+  "current_raw_track_id": 42,
+  "segments": [
+    {
+      "segment_id": "segment_smoke_raw7",
+      "semantic_target_id": "target_smoke_goalkeeper_green",
+      "raw_track_id": 7,
+      "start_frame": 1,
+      "end_frame": 5,
+      "source": "initial_semantic_resolution",
+      "confidence": 1.0,
+      "status": "confirmed",
+      "evidence_summary": {
+        "fixture": "smoke"
+      },
+      "transition_id": null
+    },
+    {
+      "segment_id": "segment_smoke_raw42",
+      "semantic_target_id": "target_smoke_goalkeeper_green",
+      "raw_track_id": 42,
+      "start_frame": 6,
+      "end_frame": null,
+      "source": "semantic_reacquisition",
+      "confidence": 0.95,
+      "status": "confirmed",
+      "evidence_summary": {
+        "fixture": "smoke"
+      },
+      "transition_id": "transition_smoke_reacquired"
+    }
+  ],
+  "reference_semantic_memory": null,
+  "reference_appearance_prototype": null,
+  "last_confirmed_frame": 10,
+  "last_update_frame": 10,
+  "metadata": {
+    "fixture": "smoke_full_system"
+  }
+}
