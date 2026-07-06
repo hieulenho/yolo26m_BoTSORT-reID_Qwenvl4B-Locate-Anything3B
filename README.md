@@ -571,6 +571,21 @@ Smoke benchmark:
 .\scripts\run_language_benchmark_smoke.ps1 -Overwrite
 ```
 
+Create a real-video subset template:
+
+```powershell
+.\scripts\create_language_subset_template.ps1 `
+  -SourceVideo F:\videos\1.mp4 `
+  -Tracks F:\videos\1_Tracking.txt `
+  -GroundTruth data\mot\sportsmot_football\val\YOUR_SEQUENCE\gt\gt.txt `
+  -FrameCount 1200 `
+  -Query "the goalkeeper wearing green" `
+  -TargetGtTrackId 3 `
+  -RawTrackId 7 `
+  -OutputDir data\language_tracking\subset\video_1 `
+  -Overwrite
+```
+
 Ablation smoke:
 
 ```powershell

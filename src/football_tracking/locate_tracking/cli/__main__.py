@@ -38,6 +38,12 @@ from football_tracking.locate_tracking.cli.build_language_demo import (
 from football_tracking.locate_tracking.cli.confirm_reacquisition import (
     run_confirm_reacquisition,
 )
+from football_tracking.locate_tracking.cli.create_language_benchmark_template import (
+    LanguageBenchmarkTemplateError,
+)
+from football_tracking.locate_tracking.cli.create_language_benchmark_template_cli import (
+    run_create_language_benchmark_template,
+)
 from football_tracking.locate_tracking.cli.execute_grounding_plan import (
     run_execute_grounding_plan,
 )
@@ -412,6 +418,53 @@ def _add_build_language_demo(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--debug", action="store_true")
 
 
+def _add_create_language_benchmark_template(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--sequence-name", required=True)
+    parser.add_argument("--source-video", type=Path, required=True)
+    parser.add_argument("--tracks", type=Path, required=True)
+    parser.add_argument("--ground-truth", type=Path, required=True)
+    parser.add_argument("--frame-count", type=int, required=True)
+    parser.add_argument("--fps", type=float, default=None)
+    parser.add_argument("--query-id", required=True)
+    parser.add_argument("--query", required=True)
+    parser.add_argument("--target-gt-track-id", type=int, required=True)
+    parser.add_argument("--evaluation-start-frame", type=int, required=True)
+    parser.add_argument("--evaluation-end-frame", type=int, required=True)
+    parser.add_argument("--benchmark-name", default="language_tracking_subset")
+    parser.add_argument("--benchmark-version", default="0.1.0")
+    parser.add_argument("--dataset-name", default="custom_video")
+    parser.add_argument("--split", default="dev")
+    parser.add_argument(
+        "--query-mode",
+        choices=("single_target", "multi_target"),
+        default="single_target",
+    )
+    parser.add_argument(
+        "--query-category",
+        choices=("appearance", "role", "team_or_group", "spatial", "compound"),
+        default="role",
+    )
+    parser.add_argument("--difficulty", choices=("easy", "medium", "hard"), default="medium")
+    parser.add_argument("--variant-id", default="a5_full_system")
+    parser.add_argument("--variant-name", default="A5 full system")
+    parser.add_argument("--semantic-target", type=Path, default=None)
+    parser.add_argument("--semantic-target-id", default=None)
+    parser.add_argument("--raw-track-id", type=int, default=None)
+    parser.add_argument("--raw-start-frame", type=int, default=None)
+    parser.add_argument("--raw-end-frame", type=int, default=None)
+    parser.add_argument("--last-confirmed-frame", type=int, default=None)
+    parser.add_argument("--reacquisition-result", type=Path, default=None)
+    parser.add_argument("--loss-frame", type=int, default=None)
+    parser.add_argument("--reacquisition-start-frame", type=int, default=None)
+    parser.add_argument("--reacquisition-end-frame", type=int, default=None)
+    parser.add_argument("--gt-reappearance-frame", type=int, default=None)
+    parser.add_argument("--grounding-call-count", type=int, default=0)
+    parser.add_argument("--runtime-seconds", type=float, default=None)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m football_tracking.locate_tracking.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -488,6 +541,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Render a semantic target overlay while preserving raw MOT IDs.",
     )
     _add_render_semantic_target(render_target)
+    create_language_template = subparsers.add_parser(
+        "create-language-benchmark-template",
+        help="Scaffold editable real-video language benchmark and prediction manifests.",
+    )
+    _add_create_language_benchmark_template(create_language_template)
     validate_language = subparsers.add_parser(
         "validate-language-benchmark",
         help="Validate a language tracking benchmark manifest.",
@@ -832,6 +890,47 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write(json.dumps(result, indent=2, default=str))
             sys.stdout.write("\n")
             return 0
+        if args.command == "create-language-benchmark-template":
+            result = run_create_language_benchmark_template(
+                output_dir=args.output_dir,
+                sequence_name=args.sequence_name,
+                source_video=args.source_video,
+                tracks=args.tracks,
+                ground_truth=args.ground_truth,
+                frame_count=args.frame_count,
+                fps=args.fps,
+                query_id=args.query_id,
+                query=args.query,
+                target_gt_track_id=args.target_gt_track_id,
+                evaluation_start_frame=args.evaluation_start_frame,
+                evaluation_end_frame=args.evaluation_end_frame,
+                benchmark_name=args.benchmark_name,
+                benchmark_version=args.benchmark_version,
+                dataset_name=args.dataset_name,
+                split=args.split,
+                query_mode=args.query_mode,
+                query_category=args.query_category,
+                difficulty=args.difficulty,
+                variant_id=args.variant_id,
+                variant_name=args.variant_name,
+                semantic_target=args.semantic_target,
+                semantic_target_id=args.semantic_target_id,
+                raw_track_id=args.raw_track_id,
+                raw_start_frame=args.raw_start_frame,
+                raw_end_frame=args.raw_end_frame,
+                last_confirmed_frame=args.last_confirmed_frame,
+                reacquisition_result=args.reacquisition_result,
+                loss_frame=args.loss_frame,
+                reacquisition_start_frame=args.reacquisition_start_frame,
+                reacquisition_end_frame=args.reacquisition_end_frame,
+                gt_reappearance_frame=args.gt_reappearance_frame,
+                grounding_call_count=args.grounding_call_count,
+                runtime_seconds=args.runtime_seconds,
+                overwrite=args.overwrite,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            return 0
         if args.command == "validate-language-benchmark":
             result = run_validate_language_benchmark(
                 manifest=args.manifest,
@@ -909,6 +1008,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         AppearanceConfigError,
         AppearanceVerificationServiceError,
         FrameTrackQueryServiceError,
+        LanguageBenchmarkTemplateError,
         LocateImageError,
         SemanticMemoryConfigError,
         SemanticMemoryServiceError,

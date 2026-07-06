@@ -20,12 +20,44 @@ Smoke benchmark:
 .\scripts\run_language_benchmark_smoke.ps1 -Overwrite
 ```
 
+Create a real-video subset template:
+
+```powershell
+.\scripts\create_language_subset_template.ps1 `
+  -SourceVideo F:\videos\1.mp4 `
+  -Tracks F:\videos\1_Tracking.txt `
+  -GroundTruth data\mot\sportsmot_football\val\YOUR_SEQUENCE\gt\gt.txt `
+  -FrameCount 1200 `
+  -Query "the goalkeeper wearing green" `
+  -TargetGtTrackId 3 `
+  -RawTrackId 7 `
+  -EvaluationStartFrame 1 `
+  -EvaluationEndFrame 1200 `
+  -SequenceName video_1 `
+  -QueryId q_goalkeeper_green `
+  -OutputDir data\language_tracking\subset\video_1 `
+  -Overwrite
+```
+
+This writes:
+
+```text
+data\language_tracking\subset\video_1\benchmark_manifest.json
+data\language_tracking\subset\video_1\predictions_a5_full_system.json
+data\language_tracking\subset\video_1\artifacts\semantic_target.json
+```
+
+Review the generated benchmark manifest before using the numbers. In particular,
+`target_gt_track_ids` must be GT IDs from the annotation file, while `RawTrackId`
+is the predicted tracker ID used by the semantic target artifact.
+
 Subset/full benchmark:
 
 ```powershell
 .\scripts\run_language_benchmark.ps1 `
   -Mode subset `
-  -Predictions data\language_tracking\predictions_subset.json `
+  -Manifest data\language_tracking\subset\video_1\benchmark_manifest.json `
+  -Predictions data\language_tracking\subset\video_1\predictions_a5_full_system.json `
   -OutputDir outputs\locate_tracking\benchmark\subset\a5_full_system `
   -Overwrite
 

@@ -147,3 +147,70 @@ def test_language_benchmark_cli_smoke(tmp_path: Path) -> None:
         )
         == 0
     )
+
+
+def test_create_language_benchmark_template_cli(tmp_path: Path) -> None:
+    source = tmp_path / "source_stub.txt"
+    gt = tmp_path / "gt.txt"
+    tracks = tmp_path / "tracks.txt"
+    source.write_text("stub", encoding="utf-8")
+    gt.write_text(
+        "\n".join(
+            f"{frame},3,10,20,30,40,1,-1,-1,-1"
+            for frame in range(1, 6)
+        ),
+        encoding="utf-8",
+    )
+    tracks.write_text(
+        "\n".join(
+            f"{frame},7,10,20,30,40,0.9,-1,-1,-1"
+            for frame in range(1, 6)
+        ),
+        encoding="utf-8",
+    )
+
+    out = tmp_path / "template"
+    assert (
+        locate_cli_main(
+            [
+                "create-language-benchmark-template",
+                "--output-dir",
+                str(out),
+                "--sequence-name",
+                "video_1",
+                "--source-video",
+                str(source),
+                "--tracks",
+                str(tracks),
+                "--ground-truth",
+                str(gt),
+                "--frame-count",
+                "5",
+                "--query-id",
+                "q_green_goalkeeper",
+                "--query",
+                "the goalkeeper wearing green",
+                "--target-gt-track-id",
+                "3",
+                "--evaluation-start-frame",
+                "1",
+                "--evaluation-end-frame",
+                "5",
+                "--raw-track-id",
+                "7",
+                "--overwrite",
+            ]
+        )
+        == 0
+    )
+
+    manifest = out / "benchmark_manifest.json"
+    predictions = out / "predictions_a5_full_system.json"
+    assert validate_benchmark_manifest(manifest).error_count == 0
+    evaluation = evaluate_language_benchmark(
+        manifest_path=manifest,
+        prediction_manifest_path=predictions,
+        output_dir=tmp_path / "eval",
+        overwrite=True,
+    )
+    assert evaluation.aggregate["micro_target_f1"] == 1.0
