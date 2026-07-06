@@ -1,0 +1,27 @@
+association:
+  min_iou: 0.10
+  min_track_coverage: 0.50
+
+  score:
+    iou_weight: 0.70
+    track_coverage_weight: 0.20
+    center_similarity_weight: 0.10
+
+  decision:
+    min_score: 0.20
+    ambiguity_margin: 0.05
+    top_k: 5
+
+geometry:
+  clip_tracks_to_frame: true
+  reject_fully_outside_tracks: true
+
+output:
+  directory: outputs/locate_tracking/queries
+  save_candidates: true
+  save_overlay: true
+
+runtime:
+  overwrite: false
+  log_level: INFO
+

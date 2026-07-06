@@ -1,0 +1,37 @@
+sampling:
+  mode: uniform
+  max_frames: 5
+  start_frame: 1
+  end_frame:
+  explicit_frames:
+
+semantic_memory:
+  query_mode: single_target
+
+  aggregation:
+    strategy: weighted
+    quality_score_mode: top_k_mean
+    top_k_quality: 3
+    weights:
+      support_weight: 0.50
+      quality_weight: 0.30
+      consistency_weight: 0.20
+
+  evidence_weights:
+    resolved_selected_weight: 1.0
+    ambiguous_candidate_weight: 0.25
+    weak_candidate_weight: 0.10
+
+  decision:
+    min_usable_frames: 2
+    min_support_frames: 2
+    min_support_ratio: 0.40
+    min_aggregate_score: 0.35
+    winner_margin: 0.08
+
+output:
+  directory: outputs/locate_tracking/semantic_memory
+
+runtime:
+  overwrite: false
+  log_level: INFO
