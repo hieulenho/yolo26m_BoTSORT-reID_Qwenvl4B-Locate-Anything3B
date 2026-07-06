@@ -1,0 +1,53 @@
+monitoring:
+  thresholds:
+    presence_warning_absent_frames: 5
+    presence_critical_absent_frames: 20
+    confidence_low_threshold: 0.25
+    confidence_consecutive_frames: 3
+    motion_jump_threshold: 0.08
+    motion_jump_ratio_threshold: 4.0
+    motion_baseline_window: 10
+    semantic_margin_threshold: 0.08
+    appearance_drift_threshold: 0.35
+    neighbor_distance_threshold: 0.045
+    neighbor_iou_threshold: 0.05
+    neighbor_count_threshold: 1
+    gap_warning_frames: 5
+    gap_critical_frames: 20
+    staleness_warning_frames: 120
+  signal_weights:
+    TARGET_PRESENCE: 1.4
+    TRACK_CONFIDENCE: 0.7
+    MOTION_JUMP: 1.0
+    SEMANTIC_MARGIN: 1.1
+    APPEARANCE_DRIFT: 1.1
+    NEIGHBOR_AMBIGUITY: 0.8
+    TRACK_GAP: 1.2
+    GROUNDING_STALENESS: 0.4
+
+scheduler:
+  min_severity: warning
+  cooldown:
+    frames: 50
+    critical_overrides_cooldown: true
+  budget:
+    max_requests_per_session: 20
+    max_frames_per_request: 3
+  frame_selection:
+    strategy: window_representative
+  priority:
+    event_type_order:
+      - target_absent
+      - track_gap
+      - appearance_drift
+      - semantic_ambiguous
+      - motion_jump
+      - neighborhood_ambiguous
+      - confidence_low
+      - grounding_stale
+
+output:
+  directory: outputs/locate_tracking/uncertainty
+
+runtime:
+  overwrite: false

@@ -1,0 +1,48 @@
+appearance:
+  backend: mock
+  model_id: yolo26n-cls.pt
+  device: cuda
+  batch_size: 8
+  normalize: true
+
+cache:
+  enabled: true
+  directory: outputs/locate_tracking/cache/appearance
+
+crop_quality:
+  min_width: 8
+  min_height: 8
+  min_area: 64
+  min_visible_fraction: 0.30
+  min_sharpness:
+
+crop_selection:
+  max_samples_per_track: 4
+  min_frame_gap: 5
+  require_quality_gate: true
+
+prototype:
+  aggregation_strategy: mean
+
+verification:
+  min_samples_for_consistency: 2
+  min_verified_score: 0.70
+  weak_score_threshold: 0.55
+
+fusion:
+  query_mode: single_target
+  semantic_weight: 0.65
+  appearance_weight: 0.35
+  missing_appearance_policy: semantic_only
+  missing_appearance_penalty: 0.15
+  min_fused_score: 0.35
+  winner_margin: 0.05
+
+output:
+  directory: outputs/locate_tracking/appearance
+  save_crops: true
+  include_vectors_in_json: true
+
+runtime:
+  overwrite: false
+  log_level: INFO
