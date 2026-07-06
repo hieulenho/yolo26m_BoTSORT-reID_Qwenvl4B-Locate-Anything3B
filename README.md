@@ -571,6 +571,12 @@ Smoke benchmark:
 .\scripts\run_language_benchmark_smoke.ps1 -Overwrite
 ```
 
+Install optional LocateAnything dependencies before running the real NVIDIA backend:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements\locate_tracking.txt
+```
+
 Create a real-video subset template:
 
 ```powershell

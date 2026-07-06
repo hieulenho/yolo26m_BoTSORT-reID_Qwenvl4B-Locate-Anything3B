@@ -8,7 +8,7 @@ inference:
   task: phrase_grounding
   batch_size: 1
   max_new_tokens: 4096
-  prompt_template: "Locate the object described by this phrase: {query}"
+  prompt_template: "Locate a single instance that matches the following description: {query}."
 
 cache:
   enabled: true
@@ -20,4 +20,3 @@ output:
 runtime:
   overwrite: false
   log_level: INFO
-

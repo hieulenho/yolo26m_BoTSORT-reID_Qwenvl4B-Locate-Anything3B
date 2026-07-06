@@ -12,6 +12,7 @@ from football_tracking.locate_tracking.grounding.backend import MockGroundingBac
 from football_tracking.locate_tracking.grounding.cache import GroundingCache
 from football_tracking.locate_tracking.grounding.locate_anything_backend import (
     DEFAULT_LOCATEANYTHING_MODEL_ID,
+    DEFAULT_LOCATEANYTHING_PROMPT_TEMPLATE,
     LocateAnythingBackend,
     LocateAnythingBackendError,
 )
@@ -96,7 +97,7 @@ def load_locate_image_config(
                 "prompt_template",
                 backend.get(
                     "prompt_template",
-                    "Locate the object described by this phrase: {query}",
+                    DEFAULT_LOCATEANYTHING_PROMPT_TEMPLATE,
                 ),
             )
         ),
@@ -219,4 +220,3 @@ def run_locate_image(
             "cache_directory": str(config.cache_directory),
         },
     }
-

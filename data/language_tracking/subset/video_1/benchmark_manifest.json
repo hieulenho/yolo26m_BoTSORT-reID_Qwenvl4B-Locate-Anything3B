@@ -9,8 +9,8 @@
       "sequence_name": "video_1",
       "split": "dev",
       "source_video": "F:\\videos\\1.mp4",
-      "mot_ground_truth_path": "data\\mot\\sportsmot_football\\val\\YOUR_SEQUENCE\\gt\\gt.txt",
-      "frame_count": 1200,
+      "mot_ground_truth_path": "data\\language_tracking\\manual_gt\\video_1\\gt\\gt.txt",
+      "frame_count": 1399,
       "fps": 25.0,
       "queries": [
         {
@@ -20,7 +20,7 @@
           "query_category": "role",
           "difficulty": "medium",
           "evaluation_start_frame": 1,
-          "evaluation_end_frame": 1200,
+          "evaluation_end_frame": 1399,
           "target_gt_track_ids": [
             3
           ],
@@ -28,7 +28,7 @@
             {
               "gt_track_id": 3,
               "start_frame": 1,
-              "end_frame": 1200,
+              "end_frame": 1399,
               "visibility_notes": "TODO: verify manually."
             }
           ],

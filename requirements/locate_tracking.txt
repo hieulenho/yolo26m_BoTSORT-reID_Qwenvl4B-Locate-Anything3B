@@ -1,3 +1,5 @@
-transformers
+transformers==4.57.1
 accelerate
 pillow
+decord==0.6.0
+lmdb==1.7.5

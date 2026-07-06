@@ -6,11 +6,11 @@
   "current_raw_track_id": 7,
   "segments": [
     {
-      "segment_id": "segment_049c25e57d7b2a09",
+      "segment_id": "segment_0d0a1703c6a7cfd6",
       "semantic_target_id": "target_e6361837cebe",
       "raw_track_id": 7,
       "start_frame": 1,
-      "end_frame": 1200,
+      "end_frame": 1399,
       "source": "initial_semantic_resolution",
       "confidence": 1.0,
       "status": "confirmed",
@@ -22,10 +22,10 @@
   ],
   "reference_semantic_memory": null,
   "reference_appearance_prototype": null,
-  "last_confirmed_frame": 1200,
-  "last_update_frame": 1200,
-  "created_at": "2026-07-06T07:52:47.680178+00:00",
-  "updated_at": "2026-07-06T07:52:47.680178+00:00",
+  "last_confirmed_frame": 1399,
+  "last_update_frame": 1399,
+  "created_at": "2026-07-06T07:54:39.919454+00:00",
+  "updated_at": "2026-07-06T07:54:39.919454+00:00",
   "metadata": {
     "created_by": "create_initial_semantic_target"
   }

@@ -2,3 +2,5 @@ transformers
 accelerate
 qwen-vl-utils
 pillow
+decord
+lmdb

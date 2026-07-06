@@ -8,7 +8,7 @@
       "query_id": "q_goalkeeper_green",
       "status": "resolved",
       "semantic_target_path": "data\\language_tracking\\subset\\video_1\\artifacts\\semantic_target.json",
-      "tracks_path": "F:\\videos\\1_Tracking.txt",
+      "tracks_path": "F:\\videos\\1_Tracking_qwen.txt",
       "reacquisition_result_path": null,
       "grounding_call_count": 0,
       "runtime_seconds": null,
