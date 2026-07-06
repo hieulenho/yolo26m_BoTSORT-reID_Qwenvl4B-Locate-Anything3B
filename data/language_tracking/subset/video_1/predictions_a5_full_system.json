@@ -1,0 +1,25 @@
+{
+  "variant_id": "a5_full_system",
+  "variant_name": "A5 full system",
+  "benchmark_name": "language_tracking_subset",
+  "predictions": [
+    {
+      "sequence_name": "video_1",
+      "query_id": "q_goalkeeper_green",
+      "status": "resolved",
+      "semantic_target_path": "data\\language_tracking\\subset\\video_1\\artifacts\\semantic_target.json",
+      "tracks_path": "F:\\videos\\1_Tracking.txt",
+      "reacquisition_result_path": null,
+      "grounding_call_count": 0,
+      "runtime_seconds": null,
+      "metadata": {
+        "created_semantic_target_template": true,
+        "manual_review_required": true
+      }
+    }
+  ],
+  "metadata": {
+    "uses_same_raw_mot_base": true,
+    "generated_by": "create-language-benchmark-template"
+  }
+}

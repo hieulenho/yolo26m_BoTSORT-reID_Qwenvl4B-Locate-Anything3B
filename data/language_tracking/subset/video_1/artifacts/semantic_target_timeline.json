@@ -1,0 +1,20 @@
+{
+  "semantic_target_id": "target_e6361837cebe",
+  "query": "the goalkeeper wearing green",
+  "state": "ACTIVE",
+  "current_raw_track_id": 7,
+  "last_confirmed_frame": 1200,
+  "last_update_frame": 1200,
+  "segments": [
+    {
+      "raw_track_id": 7,
+      "start_frame": 1,
+      "end_frame": 1200,
+      "status": "confirmed",
+      "source": "initial_semantic_resolution",
+      "confidence": 1.0,
+      "transition_id": null
+    }
+  ],
+  "note": "semantic target timeline; raw tracker IDs remain read-only"
+}

@@ -1,0 +1,46 @@
+{
+  "benchmark_name": "language_tracking_subset",
+  "benchmark_version": "0.1.0",
+  "dataset_name": "custom_video",
+  "split": "dev",
+  "annotation_policy": "Real-video language benchmark scaffold. Review GT IDs, frame ranges, and events before reporting results.",
+  "sequences": [
+    {
+      "sequence_name": "video_1",
+      "split": "dev",
+      "source_video": "F:\\videos\\1.mp4",
+      "mot_ground_truth_path": "data\\mot\\sportsmot_football\\val\\YOUR_SEQUENCE\\gt\\gt.txt",
+      "frame_count": 1200,
+      "fps": 25.0,
+      "queries": [
+        {
+          "query_id": "q_goalkeeper_green",
+          "query_text": "the goalkeeper wearing green",
+          "query_mode": "single_target",
+          "query_category": "role",
+          "difficulty": "medium",
+          "evaluation_start_frame": 1,
+          "evaluation_end_frame": 1200,
+          "target_gt_track_ids": [
+            3
+          ],
+          "identity_segments": [
+            {
+              "gt_track_id": 3,
+              "start_frame": 1,
+              "end_frame": 1200,
+              "visibility_notes": "TODO: verify manually."
+            }
+          ],
+          "loss_events": [],
+          "reacquisition_events": [],
+          "notes": "TODO: review annotation before using as benchmark."
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "generated_by": "create-language-benchmark-template",
+    "requires_manual_review": true
+  }
+}
