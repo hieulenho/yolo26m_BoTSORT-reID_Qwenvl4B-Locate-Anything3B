@@ -1,0 +1,23 @@
+backend:
+  name: locate_anything
+  model_id: nvidia/LocateAnything-3B
+  device: cuda
+  torch_dtype: bfloat16
+
+inference:
+  task: phrase_grounding
+  batch_size: 1
+  max_new_tokens: 4096
+  prompt_template: "Locate the object described by this phrase: {query}"
+
+cache:
+  enabled: true
+  directory: outputs/locate_tracking/cache
+
+output:
+  directory: outputs/locate_tracking/grounding
+
+runtime:
+  overwrite: false
+  log_level: INFO
+

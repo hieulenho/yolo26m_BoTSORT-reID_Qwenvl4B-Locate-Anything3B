@@ -256,6 +256,25 @@ def _add_vlm_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--debug", action="store_true")
 
 
+def _add_locate_image_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/locate_tracking/locateanything_grounding.yaml"),
+    )
+    parser.add_argument("--image", type=Path, required=True)
+    parser.add_argument("--query", required=True)
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--backend", default=None)
+    parser.add_argument("--model-id", default=None)
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--torch-dtype", default=None)
+    parser.add_argument("--max-new-tokens", type=int, default=None)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="football-tracking")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -476,6 +495,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_vlm_options(vlm_parser)
 
+    locate_image_parser = subparsers.add_parser(
+        "locate-image",
+        help="Ground one image with a natural-language query.",
+    )
+    _add_locate_image_options(locate_image_parser)
+
     benchmark_parser = subparsers.add_parser(
         "benchmark",
         help="Generate benchmark CSV, JSON, Markdown, and figures.",
@@ -667,6 +692,17 @@ def _vlm_overrides(args: argparse.Namespace) -> dict[str, object]:
         "crop_padding": getattr(args, "crop_padding", None),
         "run_model": True if getattr(args, "run_model", False) else None,
         "do_sample": True if getattr(args, "do_sample", False) else None,
+        "overwrite": True if getattr(args, "overwrite", False) else None,
+    }
+
+
+def _locate_image_overrides(args: argparse.Namespace) -> dict[str, object]:
+    return {
+        "backend_name": getattr(args, "backend", None),
+        "model_id": getattr(args, "model_id", None),
+        "device": getattr(args, "device", None),
+        "torch_dtype": getattr(args, "torch_dtype", None),
+        "max_new_tokens": getattr(args, "max_new_tokens", None),
         "overwrite": True if getattr(args, "overwrite", False) else None,
     }
 
@@ -1011,6 +1047,34 @@ def main(argv: Sequence[str] | None = None) -> int:
             RuntimeError,
             ValueError,
         ) as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            if getattr(args, "debug", False):
+                traceback.print_exc()
+            return 2
+
+    if args.command == "locate-image":
+        setup_logging("INFO")
+        try:
+            from football_tracking.locate_tracking.cli.locate_image import (
+                LocateImageError,
+                run_locate_image,
+            )
+
+            result = run_locate_image(
+                args.config,
+                image=args.image,
+                query=args.query,
+                output=args.output,
+                overrides=_locate_image_overrides(args),
+                dry_run=args.dry_run,
+            )
+            sys.stdout.write(json.dumps(result, indent=2, default=str))
+            sys.stdout.write("\n")
+            if result.get("dry_run"):
+                return 0
+            runtime_info = result.get("result", {}).get("runtime_info", {})
+            return 1 if runtime_info.get("errors") else 0
+        except (LocateImageError, FileNotFoundError, RuntimeError, ValueError) as exc:
             sys.stderr.write(f"Error: {exc}\n")
             if getattr(args, "debug", False):
                 traceback.print_exc()
