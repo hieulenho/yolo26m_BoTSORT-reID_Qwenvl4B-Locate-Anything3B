@@ -1,9 +1,9 @@
 # Script Guide
 
-The project is focused on:
+The cleaned raw-video experiment flow is:
 
 ```text
-YOLO26m -> BoT-SORT ReID -> team/position semantics -> quantitative benchmark
+raw video -> YOLO26m -> BoT-SORT ReID -> A/B/C semantic pipelines
 ```
 
 The full terminal runbook is:
@@ -12,33 +12,50 @@ The full terminal runbook is:
 outputs\reports\focused_pipeline\run_all_team_position_commands.txt
 ```
 
-## Main Commands
+## Main Raw-Video Command
 
-Track one raw video and run Qwen VLM:
+Change `-SourceVideo` to switch between `1.mp4`, `2.mp4`, `3.mp4`, etc.
 
 ```powershell
-.\scripts\track_video_qwen_vlm.ps1 `
-  -Source F:\videos\1.mp4 `
-  -OutputVideo F:\videos\1_A_qwen.mp4 `
-  -RunModel `
+.\scripts\run_raw_video_semantic_experiments.ps1 `
+  -SourceVideo F:\videos\1.mp4 `
+  -Query "the goalkeeper wearing green" `
+  -Pipelines A,B,C `
+  -LocateBackend locate_anything `
+  -RunQwenModel `
+  -Device cuda `
+  -TorchDtype auto `
   -MaxKeyframes 2 `
   -MaxTracks 20 `
   -MaxCropsPerTrack 1 `
   -MaxNewTokens 512 `
+  -LocateMaxFrames 6 `
+  -OutputRoot outputs\semantic_video_experiments `
   -Overwrite
 ```
 
-Analyze ID switch failure types across trackers:
+Pipelines:
+
+- `A`: YOLO26m + BoT-SORT ReID + Qwen3-VL 4B.
+- `B`: YOLO26m + BoT-SORT ReID + LocateAnything 3B.
+- `C`: YOLO26m + BoT-SORT ReID + LocateAnything 3B + Qwen3-VL 4B.
+
+Use a fast plumbing check before loading large models:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\analyze_idsw_taxonomy.py `
-  --mot-root data\mot\sportsmot_football `
-  --seqmap data\mot\sportsmot_football\seqmaps\all.txt `
-  --output-dir outputs\reports\focused_pipeline\idsw_taxonomy `
-  --overwrite
+.\scripts\run_raw_video_semantic_experiments.ps1 `
+  -SourceVideo F:\videos\1.mp4 `
+  -Query "the goalkeeper wearing green" `
+  -Pipelines A,B,C `
+  -LocateBackend mock `
+  -OutputRoot outputs\semantic_video_experiments `
+  -Overwrite
 ```
 
-Run team/position benchmark:
+## Benchmark Commands
+
+Use these only when you already have a benchmark manifest and saved prediction
+manifests.
 
 ```powershell
 .\scripts\run_team_position_benchmark.ps1 `
@@ -49,19 +66,17 @@ Run team/position benchmark:
   -Overwrite
 ```
 
-Render `bbox + ID + team + role` to video:
+## Supporting Commands
+
+Analyze ID switch failure types across trackers:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\render_team_position_video.py `
-  --source-video F:\videos\1.mp4 `
-  --tracks F:\videos\1_Tracking_qwen.txt `
-  --predictions data\team_benchmark\video_1\pipeline_a_yolo26m_botsort_reid_qwen4b_expanded_bootstrap.json `
-  --sequence-name video_1 `
-  --output-video F:\videos\1_A_team_position.mp4 `
+.\.venv\Scripts\python.exe scripts\analyze_idsw_taxonomy.py `
+  --mot-root data\mot\sportsmot_football `
+  --seqmap data\mot\sportsmot_football\seqmaps\all.txt `
+  --output-dir outputs\reports\focused_pipeline\idsw_taxonomy `
   --overwrite
 ```
-
-## Supporting Commands
 
 Train detector:
 

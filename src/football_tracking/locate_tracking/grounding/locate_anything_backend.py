@@ -35,14 +35,17 @@ def _extract_generated_text(output: Any) -> str:
 
 def _resolve_dtype(dtype: str) -> Any:
     normalized = str(dtype or "auto").lower()
-    if normalized == "auto":
-        return "auto"
     try:
         import torch  # type: ignore[import-not-found]
     except Exception as exc:  # noqa: BLE001
+        if normalized == "auto":
+            return "auto"
         raise LocateAnythingBackendError(
             "PyTorch is required when LocateAnything torch_dtype is not auto."
         ) from exc
+    if normalized == "auto":
+        # Default to bfloat16 to avoid loading 3B model in float32 and causing OOM
+        return torch.bfloat16
     aliases = {
         "float16": torch.float16,
         "fp16": torch.float16,

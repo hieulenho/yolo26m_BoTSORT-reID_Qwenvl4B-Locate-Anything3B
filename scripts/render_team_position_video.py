@@ -1,9 +1,10 @@
-"""Render tracking video with team and role/position labels from a prediction manifest."""
+"""Render tracking video with team and role labels from a prediction manifest."""
 
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import Any
 import cv2
 
 
-TEAM_COLORS = {
+TEAM_COLORS: dict[str, tuple[int, int, int]] = {
     "light_blue": (60, 210, 60),
     "dark_blue": (210, 90, 20),
     "goalkeeper_red": (30, 30, 230),
@@ -23,16 +24,52 @@ TEAM_COLORS = {
     "unknown": (140, 140, 140),
 }
 
+# Short scoreboard-style labels for the current demo videos. Keep these separate
+# from the benchmark labels so the JSON remains domain-neutral.
+TEAM_SHORT_NAMES: dict[str, str] = {
+    "light_blue": "MCI",
+    "dark_blue": "CHE",
+    "goalkeeper_red": "CHE",
+    "goalkeeper_green": "MCI",
+    "yellow_kit": "YLW",
+    "dark_kit": "DRK",
+    "goalkeeper_orange": "GK",
+    "unknown": "?",
+}
+
+ROLE_SHORT_NAMES: dict[str, str] = {
+    "goalkeeper": "GK",
+    "defender": "DEF",
+    "midfielder": "MID",
+    "forward": "FWD",
+    "player": "P",
+    "unknown": "?",
+}
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Render bbox/ID/team/position labels over a tracked video.",
+        description="Render bbox/ID/team/role labels over a tracked video.",
     )
     parser.add_argument("--source-video", type=Path, required=True)
     parser.add_argument("--tracks", type=Path, required=True)
     parser.add_argument("--predictions", type=Path, required=True)
     parser.add_argument("--sequence-name", required=True)
     parser.add_argument("--output-video", type=Path, required=True)
+    parser.add_argument(
+        "--title",
+        default="",
+        help="Optional title rendered in the top-left corner of every frame.",
+    )
+    parser.add_argument(
+        "--hide-unlabeled",
+        action="store_true",
+        help=(
+            "Skip tracks that do not have a resolved prediction. This is the "
+            "recommended mode for verified demo videos because it avoids "
+            "labeling referees/false positives as a team."
+        ),
+    )
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -52,6 +89,8 @@ def main() -> None:
         tracks_by_frame=tracks_by_frame,
         labels=labels,
         output_video=args.output_video,
+        hide_unlabeled=args.hide_unlabeled,
+        title=args.title,
     )
     metadata_path = args.output_video.with_suffix(".metadata.json")
     metadata = {
@@ -60,6 +99,8 @@ def main() -> None:
         "predictions": str(args.predictions),
         "sequence_name": args.sequence_name,
         "output_video": str(args.output_video),
+        "title": args.title,
+        "hide_unlabeled": args.hide_unlabeled,
         "track_count_with_predictions": len(labels),
         **rendered,
     }
@@ -109,6 +150,8 @@ def _render(
     tracks_by_frame: dict[int, list[dict[str, Any]]],
     labels: dict[int, dict[str, str]],
     output_video: Path,
+    hide_unlabeled: bool,
+    title: str,
 ) -> dict[str, Any]:
     cap = cv2.VideoCapture(str(source_video))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -126,14 +169,29 @@ def _render(
         raise SystemExit(f"Could not open video writer: {output_video}")
 
     rendered_frames = 0
+    total_track_boxes = 0
+    drawn_boxes = 0
+    skipped_unlabeled_boxes = 0
+    unlabeled_track_ids: set[int] = set()
+
     while True:
         ok, frame = cap.read()
         if not ok:
             break
         rendered_frames += 1
+        if title:
+            _draw_title(frame, title)
         for row in tracks_by_frame.get(rendered_frames, []):
+            total_track_boxes += 1
             track_id = int(row["track_id"])
-            label = labels.get(track_id, {"team_label": "unknown", "role_label": "unknown"})
+            label = labels.get(track_id)
+            if label is None:
+                unlabeled_track_ids.add(track_id)
+                skipped_unlabeled_boxes += int(hide_unlabeled)
+                if hide_unlabeled:
+                    continue
+                label = {"team_label": "unknown", "role_label": "unknown"}
+
             team = label["team_label"]
             role = label["role_label"]
             color = TEAM_COLORS.get(team, _hash_color(team))
@@ -142,8 +200,8 @@ def _render(
             x2 = min(width - 1, int(row["x"] + row["w"]))
             y2 = min(height - 1, int(row["y"] + row["h"]))
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            text = f"ID{track_id} {team} {role}"
-            _draw_label(frame, text, x1, y1, color)
+            _draw_label(frame, _format_label(track_id, team, role), x1, y1, color)
+            drawn_boxes += 1
         writer.write(frame)
 
     cap.release()
@@ -154,7 +212,22 @@ def _render(
         "height": height,
         "frame_count": frame_count,
         "rendered_frames": rendered_frames,
+        "total_track_boxes": total_track_boxes,
+        "drawn_boxes": drawn_boxes,
+        "skipped_unlabeled_boxes": skipped_unlabeled_boxes,
+        "unlabeled_track_count": len(unlabeled_track_ids),
+        "unlabeled_track_ids": sorted(unlabeled_track_ids),
     }
+
+
+def _format_label(track_id: int, team: str, role: str) -> str:
+    if team == "unknown" and role == "unknown":
+        return f"ID{track_id}"
+    team_text = TEAM_SHORT_NAMES.get(team, team.upper()[:3])
+    role_text = ROLE_SHORT_NAMES.get(role, role.upper()[:3])
+    if role_text in {"?", "P"}:
+        return f"ID{track_id} | {team_text}"
+    return f"ID{track_id} | {team_text} | {role_text}"
 
 
 def _draw_label(
@@ -183,12 +256,36 @@ def _draw_label(
     )
 
 
+def _draw_title(frame: Any, text: str) -> None:
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.62
+    thickness = 2
+    (text_w, text_h), baseline = cv2.getTextSize(text, font, scale, thickness)
+    margin = 10
+    x1 = margin
+    y1 = margin
+    x2 = x1 + text_w + 14
+    y2 = y1 + text_h + baseline + 12
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (24, 24, 24), -1)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (230, 230, 230), 1)
+    cv2.putText(
+        frame,
+        text,
+        (x1 + 7, y2 - baseline - 5),
+        font,
+        scale,
+        (255, 255, 255),
+        thickness,
+        cv2.LINE_AA,
+    )
+
+
 def _hash_color(label: str) -> tuple[int, int, int]:
-    value = abs(hash(label))
+    digest = hashlib.sha1(label.encode("utf-8")).digest()
     return (
-        70 + value % 150,
-        70 + (value // 11) % 150,
-        70 + (value // 37) % 150,
+        70 + digest[0] % 150,
+        70 + digest[1] % 150,
+        70 + digest[2] % 150,
     )
 
 
