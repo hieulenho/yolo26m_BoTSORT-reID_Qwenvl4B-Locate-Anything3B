@@ -1,67 +1,34 @@
-# video_1 Team Benchmark Draft
+# Video 1 Team/Position Benchmark
 
-This folder is the real-video scaffold for `F:/videos/1.mp4`.
+This folder contains the focused benchmark for `F:/videos/1.mp4`.
 
-SportsMOT-style MOT files do not contain team labels, so team labels must be
-manually annotated before this benchmark can support research claims.
+Core files:
 
-Current verified annotation:
+- `benchmark_manifest_expanded.json`: 21 reviewed tracks and 6 language/team queries.
+- `track_annotation_expanded.csv`: track-level team and role labels.
+- `track_annotation_template.csv`: template for adding more reviewed tracks.
+- `pipeline_a_yolo26m_botsort_reid_qwen4b_expanded_bootstrap.json`: Pipeline A bootstrap predictions.
+- `pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b_expanded_bootstrap.json`: Pipeline C bootstrap predictions.
 
-```text
-query: the goalkeeper wearing green
-track: 19
-window: frames 40-320
-evidence: outputs/locate_tracking/runs/video_1_locateanything_track19_window
-```
+Pipeline definitions:
 
-Files:
+- A: YOLO26m + BoT-SORT ReID + Qwen3-VL 4B.
+- B: YOLO26m + BoT-SORT ReID + LocateAnything 3B.
+- C: YOLO26m + BoT-SORT ReID + LocateAnything 3B + Qwen3-VL 4B.
 
-```text
-benchmark_manifest_draft.json
-  Runnable manifest with the verified track-19 target.
+Current limitation:
 
-track_annotation_template.csv
-  Top 30 longest tracks from F:/videos/1_Tracking_qwen.txt.
-  Fill team_label values that are currently __TODO__.
-
-predictions_pipeline_a_qwen_draft.json
-  Draft Pipeline A prediction artifact. Replace with real Qwen per-track
-  classification output when available.
-
-predictions_pipeline_b_locate_qwen_draft.json
-  Pipeline B prediction artifact derived from the resolved LocateAnything run.
-```
+- The A/C prediction manifests are bootstrap/contact-sheet artifacts for validating benchmark plumbing.
+- A true Pipeline B manifest is still required before reporting a complete A/B/C comparison.
+- Position labels are currently coarse (`player`, `goalkeeper`); paper-ready role labels should expand to `defender`, `midfielder`, `forward`, etc.
 
 Run:
 
 ```powershell
-.\.venv\Scripts\python.exe -m football_tracking.locate_tracking.cli validate-team-benchmark `
-  --manifest data\team_benchmark\video_1\benchmark_manifest_draft.json `
-  --output outputs\team_benchmark\video_1_draft\validation.json
-
-.\.venv\Scripts\python.exe -m football_tracking.locate_tracking.cli run-team-benchmark `
-  --manifest data\team_benchmark\video_1\benchmark_manifest_draft.json `
-  --predictions data\team_benchmark\video_1\predictions_pipeline_a_qwen_draft.json `
-  --output-dir outputs\team_benchmark\video_1_draft\pipeline_a_qwen `
-  --overwrite
-
-.\.venv\Scripts\python.exe -m football_tracking.locate_tracking.cli run-team-benchmark `
-  --manifest data\team_benchmark\video_1\benchmark_manifest_draft.json `
-  --predictions data\team_benchmark\video_1\predictions_pipeline_b_locate_qwen_draft.json `
-  --output-dir outputs\team_benchmark\video_1_draft\pipeline_b_locate_qwen `
-  --overwrite
-
-.\.venv\Scripts\python.exe -m football_tracking.locate_tracking.cli compare-team-benchmarks `
-  --evaluation outputs\team_benchmark\video_1_draft\pipeline_a_qwen `
-  --evaluation outputs\team_benchmark\video_1_draft\pipeline_b_locate_qwen `
-  --output-dir outputs\team_benchmark\video_1_draft\comparison `
-  --overwrite
+.\scripts\run_team_position_benchmark.ps1 `
+  -Manifest data\team_benchmark\video_1\benchmark_manifest_expanded.json `
+  -PipelineA data\team_benchmark\video_1\pipeline_a_yolo26m_botsort_reid_qwen4b_expanded_bootstrap.json `
+  -PipelineC data\team_benchmark\video_1\pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b_expanded_bootstrap.json `
+  -OutputDir outputs\team_benchmark\focused\video_1_available `
+  -Overwrite
 ```
-
-Next annotation step:
-
-1. Open `track_annotation_template.csv`.
-2. For each `__TODO__`, inspect track overlays/crops and set `team_label`.
-3. Promote verified rows into `benchmark_manifest_draft.json`.
-4. Generate real Pipeline A/Qwen and Pipeline B/Locate prediction manifests.
-5. Re-run the commands above.

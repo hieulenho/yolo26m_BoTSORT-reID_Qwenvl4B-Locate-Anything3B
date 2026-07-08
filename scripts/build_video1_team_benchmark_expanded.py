@@ -18,8 +18,10 @@ TRACK19_RESOLUTION = (
     "final_resolution.json"
 )
 ANNOTATION_CSV = "data/team_benchmark/video_1/track_annotation_expanded.csv"
-PIPELINE_A_PREDICTIONS = "pipeline_a_qwen_expanded_bootstrap.json"
-PIPELINE_B_PREDICTIONS = "pipeline_b_locate_qwen_expanded_bootstrap.json"
+PIPELINE_A_PREDICTIONS = "pipeline_a_yolo26m_botsort_reid_qwen4b_expanded_bootstrap.json"
+PIPELINE_C_PREDICTIONS = (
+    "pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b_expanded_bootstrap.json"
+)
 
 
 ANNOTATIONS: list[dict[str, Any]] = [
@@ -397,15 +399,18 @@ def main() -> None:
     for pipeline, variant_id, variant_name, pipeline_type in [
         (
             "qwen",
-            "pipeline_a_qwen_video_1_expanded_bootstrap",
-            "Pipeline A - Qwen4B video_1 expanded bootstrap",
-            "qwen_team_labeling",
+            "pipeline_a_yolo26m_botsort_reid_qwen4b_video_1_expanded_bootstrap",
+            "Pipeline A - YOLO26m + BoT-SORT ReID + Qwen3-VL 4B video_1 expanded bootstrap",
+            "yolo_botsort_qwen",
         ),
         (
             "locate",
-            "pipeline_b_locate_qwen_video_1_expanded_bootstrap",
-            "Pipeline B - LocateAnything + Qwen4B video_1 expanded bootstrap",
-            "locate_qwen_language_retrieval",
+            "pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b_video_1_expanded_bootstrap",
+            (
+                "Pipeline C - YOLO26m + BoT-SORT ReID + LocateAnything 3B + "
+                "Qwen3-VL 4B video_1 expanded bootstrap"
+            ),
+            "yolo_botsort_locateanything_qwen",
         ),
     ]:
         prediction = {
@@ -427,7 +432,7 @@ def main() -> None:
                 ),
             },
         }
-        suffix = PIPELINE_A_PREDICTIONS if pipeline == "qwen" else PIPELINE_B_PREDICTIONS
+        suffix = PIPELINE_A_PREDICTIONS if pipeline == "qwen" else PIPELINE_C_PREDICTIONS
         write_json(OUTPUT_DIR / suffix, prediction)
 
     readme_lines = [
@@ -437,8 +442,15 @@ def main() -> None:
         "",
         "- `benchmark_manifest_expanded.json`: 21 reviewed tracks and 6 language queries.",
         "- `track_annotation_expanded.csv`: CSV view of labels and contact-sheet paths.",
-        "- `pipeline_a_qwen_expanded_bootstrap.json`: Qwen-style bootstrap predictions.",
-        "- `pipeline_b_locate_qwen_expanded_bootstrap.json`: Locate+Qwen bootstrap predictions.",
+        (
+            "- `pipeline_a_yolo26m_botsort_reid_qwen4b_expanded_bootstrap.json`: "
+            "Pipeline A bootstrap predictions."
+        ),
+        (
+            "- `pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b_expanded_bootstrap.json`: "
+            "Pipeline C bootstrap predictions."
+        ),
+        "- Pipeline B requires a true LocateAnything-only prediction manifest.",
         "",
         "Important: the expanded prediction manifests are bootstrap artifacts based on",
         "contact-sheet labels. They are useful for checking benchmark mechanics over more",

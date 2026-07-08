@@ -15,6 +15,8 @@ class TeamBenchmarkComparisonError(RuntimeError):
 COMPARISON_METRICS = (
     "track_team_accuracy",
     "macro_team_f1",
+    "role_accuracy",
+    "macro_role_f1",
     "track_unknown_rate",
     "query_resolved_rate",
     "query_selected_track_exact_accuracy",
@@ -87,10 +89,10 @@ def _comparison_markdown(rows: list[dict[str, Any]]) -> str:
         "# Team Benchmark Comparison",
         "",
         (
-            "| Variant | Pipeline | Track Team Acc | Macro F1 | Query Exact Acc | "
-            "Query Team Acc | Correct ID+Team | Calls/Query |"
+            "| Variant | Pipeline | Track Team Acc | Macro Team F1 | Role Acc | "
+            "Query Exact Acc | Query Team Acc | Correct ID+Team | Calls/Query |"
         ),
-        "|---|---|---:|---:|---:|---:|---:|---:|",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         lines.append(
@@ -101,6 +103,7 @@ def _comparison_markdown(rows: list[dict[str, Any]]) -> str:
                     str(row.get("pipeline_type")),
                     _fmt(row.get("track_team_accuracy")),
                     _fmt(row.get("macro_team_f1")),
+                    _fmt(row.get("role_accuracy")),
                     _fmt(row.get("query_selected_track_exact_accuracy")),
                     _fmt(row.get("query_team_accuracy")),
                     _fmt(row.get("correct_id_correct_team_rate")),

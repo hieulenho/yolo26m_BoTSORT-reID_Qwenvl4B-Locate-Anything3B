@@ -1,8 +1,8 @@
 {
-  "variant_id": "pipeline_a_qwen",
-  "variant_name": "Pipeline A - YOLO + BoT-SORT ReID + Qwen4B",
+  "variant_id": "pipeline_a_yolo26m_botsort_reid_qwen4b_smoke",
+  "variant_name": "Pipeline A - YOLO26m + BoT-SORT ReID + Qwen3-VL 4B smoke",
   "benchmark_name": "team_language_smoke",
-  "pipeline_type": "qwen_team_labeling",
+  "pipeline_type": "yolo_botsort_qwen",
   "track_predictions": [
     {
       "sequence_name": "video_1",

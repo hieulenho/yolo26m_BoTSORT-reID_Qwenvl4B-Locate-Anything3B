@@ -1,9 +1,9 @@
 {
-  "variant_id": "pipeline_b_locate_qwen_video_1_expanded_bootstrap",
-  "variant_name": "Pipeline B - LocateAnything + Qwen4B video_1 expanded bootstrap",
+  "variant_id": "pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b_video_1_expanded_bootstrap",
+  "variant_name": "Pipeline C - YOLO26m + BoT-SORT ReID + LocateAnything 3B + Qwen3-VL 4B video_1 expanded bootstrap",
   "benchmark_name": "video_1_team_language_expanded",
-  "pipeline_type": "locate_qwen_language_retrieval",
-  "created_at": "2026-07-06T12:57:44.235051+00:00",
+  "pipeline_type": "yolo_botsort_locateanything_qwen",
+  "created_at": "2026-07-07T15:49:18.172542+00:00",
   "track_predictions": [
     {
       "sequence_name": "video_1",

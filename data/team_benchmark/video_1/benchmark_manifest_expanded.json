@@ -4,7 +4,7 @@
   "dataset_name": "custom_video_1_sportsmot_style",
   "split": "dev",
   "annotation_policy": "Expanded real-video benchmark. Team labels are manually verified from contact sheets; tracks with visible identity switches are excluded.",
-  "created_at": "2026-07-06T12:57:44.232698+00:00",
+  "created_at": "2026-07-07T15:49:18.170541+00:00",
   "sequences": [
     {
       "sequence_name": "video_1",

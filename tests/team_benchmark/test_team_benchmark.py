@@ -9,8 +9,14 @@ from football_tracking.team_benchmark.evaluator import evaluate_team_benchmark
 from football_tracking.team_benchmark.validation import validate_team_benchmark_manifest
 
 MANIFEST = Path("data/team_benchmark/smoke/benchmark_manifest.json")
-PRED_A = Path("data/team_benchmark/smoke/predictions_pipeline_a_qwen.json")
-PRED_B = Path("data/team_benchmark/smoke/predictions_pipeline_b_locate_qwen.json")
+PRED_A = Path(
+    "data/team_benchmark/smoke/"
+    "predictions_pipeline_a_yolo26m_botsort_reid_qwen4b.json"
+)
+PRED_C = Path(
+    "data/team_benchmark/smoke/"
+    "predictions_pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b.json"
+)
 
 
 def test_team_benchmark_validation_and_pipeline_a(tmp_path: Path) -> None:
@@ -32,33 +38,33 @@ def test_team_benchmark_validation_and_pipeline_a(tmp_path: Path) -> None:
     assert (tmp_path / "pipeline_a" / "team_benchmark_summary.md").is_file()
 
 
-def test_team_benchmark_pipeline_b_and_comparison(tmp_path: Path) -> None:
+def test_team_benchmark_pipeline_c_and_comparison(tmp_path: Path) -> None:
     eval_a = evaluate_team_benchmark(
         manifest_path=MANIFEST,
         prediction_manifest_path=PRED_A,
         output_dir=tmp_path / "pipeline_a",
         overwrite=True,
     )
-    eval_b = evaluate_team_benchmark(
+    eval_c = evaluate_team_benchmark(
         manifest_path=MANIFEST,
-        prediction_manifest_path=PRED_B,
-        output_dir=tmp_path / "pipeline_b",
+        prediction_manifest_path=PRED_C,
+        output_dir=tmp_path / "pipeline_c",
         overwrite=True,
     )
 
-    assert eval_b.aggregate["query_selected_track_exact_accuracy"] == 0.5
-    assert eval_b.aggregate["query_resolved_rate"] == 0.5
-    assert eval_b.aggregate["grounding_calls_per_query"] == 8.0
+    assert eval_c.aggregate["query_selected_track_exact_accuracy"] == 0.5
+    assert eval_c.aggregate["query_resolved_rate"] == 0.5
+    assert eval_c.aggregate["grounding_calls_per_query"] == 8.0
 
     comparison = compare_team_benchmark_evaluations(
-        evaluations=(tmp_path / "pipeline_a", tmp_path / "pipeline_b"),
+        evaluations=(tmp_path / "pipeline_a", tmp_path / "pipeline_c"),
         output_dir=tmp_path / "comparison",
         overwrite=True,
     )
     assert comparison["variant_count"] == 2
     rows = {row["variant_id"]: row for row in comparison["rows"]}
     assert rows[eval_a.variant_id]["correct_id_correct_team_rate"] == 1.0
-    assert rows[eval_b.variant_id]["correct_id_correct_team_rate"] == 0.5
+    assert rows[eval_c.variant_id]["correct_id_correct_team_rate"] == 0.5
     assert (tmp_path / "comparison" / "team_benchmark_comparison.csv").is_file()
 
 
@@ -79,7 +85,7 @@ def test_team_benchmark_cli_smoke(tmp_path: Path) -> None:
     assert json.loads(validation_path.read_text(encoding="utf-8"))["summary"]["errors"] == 0
 
     out_a = tmp_path / "a"
-    out_b = tmp_path / "b"
+    out_c = tmp_path / "c"
     assert (
         locate_cli_main(
             [
@@ -102,9 +108,9 @@ def test_team_benchmark_cli_smoke(tmp_path: Path) -> None:
                 "--manifest",
                 str(MANIFEST),
                 "--predictions",
-                str(PRED_B),
+                str(PRED_C),
                 "--output-dir",
-                str(out_b),
+                str(out_c),
                 "--overwrite",
             ]
         )
@@ -117,7 +123,7 @@ def test_team_benchmark_cli_smoke(tmp_path: Path) -> None:
                 "--evaluation",
                 str(out_a),
                 "--evaluation",
-                str(out_b),
+                str(out_c),
                 "--output-dir",
                 str(tmp_path / "comparison"),
                 "--overwrite",

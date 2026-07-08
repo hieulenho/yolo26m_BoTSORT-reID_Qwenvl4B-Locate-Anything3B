@@ -10,6 +10,9 @@ from typing import Any, Literal
 PipelineType = Literal[
     "qwen_team_labeling",
     "locate_qwen_language_retrieval",
+    "yolo_botsort_qwen",
+    "yolo_botsort_locateanything",
+    "yolo_botsort_locateanything_qwen",
     "custom",
 ]
 PredictionStatus = Literal["resolved", "ambiguous", "not_found", "unknown"]
@@ -17,6 +20,9 @@ PredictionStatus = Literal["resolved", "ambiguous", "not_found", "unknown"]
 VALID_PIPELINE_TYPES = {
     "qwen_team_labeling",
     "locate_qwen_language_retrieval",
+    "yolo_botsort_qwen",
+    "yolo_botsort_locateanything",
+    "yolo_botsort_locateanything_qwen",
     "custom",
 }
 VALID_PREDICTION_STATUSES = {"resolved", "ambiguous", "not_found", "unknown"}

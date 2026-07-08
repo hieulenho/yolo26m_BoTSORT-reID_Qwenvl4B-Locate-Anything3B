@@ -1,102 +1,88 @@
 # Script Guide
 
-PowerShell scripts are thin wrappers around:
+The project is focused on:
 
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli
+```text
+YOLO26m -> BoT-SORT ReID -> team/position semantics -> quantitative benchmark
 ```
 
-Use scripts for common Windows workflows and use the CLI directly for precise automation.
+The full terminal runbook is:
 
-## Daily Video Tracking
-
-Track one video:
-
-```powershell
-.\scripts\track_video.ps1 -Source F:\videos\1.mp4 -OutputVideo F:\videos\1_Tracking.mp4 -Overwrite
+```text
+outputs\reports\focused_pipeline\run_all_team_position_commands.txt
 ```
 
-Track one video and prepare Qwen VLM artifacts:
+## Main Commands
+
+Track one raw video and run Qwen VLM:
 
 ```powershell
-.\scripts\track_video_qwen_vlm.ps1 -Source F:\videos\1.mp4 -OutputVideo F:\videos\1_Tracking.mp4 -Overwrite
-```
-
-Run Qwen after tracking:
-
-```powershell
-.\scripts\track_video_qwen_vlm.ps1 -Source F:\videos\1.mp4 -OutputVideo F:\videos\1_Tracking.mp4 -RunModel -Overwrite
-```
-
-Low-VRAM Qwen tracking report from existing tracking outputs:
-
-```powershell
-.\scripts\analyze_tracking_vlm.ps1 `
-  -SourceVideo F:\videos\1.mp4 `
-  -TrackedVideo F:\videos\1_Tracking_qwen.mp4 `
-  -Tracks F:\videos\1_Tracking_qwen.txt `
-  -Metadata F:\videos\1_Tracking_qwen.metadata.json `
-  -OutputDir F:\videos\1_vlm_tracking_report `
+.\scripts\track_video_qwen_vlm.ps1 `
+  -Source F:\videos\1.mp4 `
+  -OutputVideo F:\videos\1_A_qwen.mp4 `
   -RunModel `
-  -TorchDtype float16 `
   -MaxKeyframes 2 `
-  -MaxTracks 10 `
+  -MaxTracks 20 `
   -MaxCropsPerTrack 1 `
-  -MaxNewTokens 768 `
+  -MaxNewTokens 512 `
   -Overwrite
 ```
 
-Analyze existing tracking outputs without rerunning tracking:
+Analyze ID switch failure types across trackers:
 
 ```powershell
-.\scripts\analyze_tracking_vlm.ps1 `
-  -SourceVideo F:\videos\1.mp4 `
-  -TrackedVideo F:\videos\1_Tracking.mp4 `
-  -Tracks F:\videos\1_Tracking.txt `
-  -Metadata F:\videos\1_Tracking.metadata.json `
-  -OutputDir F:\videos\1_vlm `
-  -RunModel `
+.\.venv\Scripts\python.exe scripts\analyze_idsw_taxonomy.py `
+  --mot-root data\mot\sportsmot_football `
+  --seqmap data\mot\sportsmot_football\seqmaps\all.txt `
+  --output-dir outputs\reports\focused_pipeline\idsw_taxonomy `
+  --overwrite
+```
+
+Run team/position benchmark:
+
+```powershell
+.\scripts\run_team_position_benchmark.ps1 `
+  -Manifest data\team_benchmark\video_1\benchmark_manifest_expanded.json `
+  -PipelineA data\team_benchmark\video_1\pipeline_a_yolo26m_botsort_reid_qwen4b_expanded_bootstrap.json `
+  -PipelineC data\team_benchmark\video_1\pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b_expanded_bootstrap.json `
+  -OutputDir outputs\team_benchmark\focused\video_1_available `
   -Overwrite
 ```
 
-## Training And Evaluation
+Render `bbox + ID + team + role` to video:
 
-Train the current football detector:
+```powershell
+.\.venv\Scripts\python.exe scripts\render_team_position_video.py `
+  --source-video F:\videos\1.mp4 `
+  --tracks F:\videos\1_Tracking_qwen.txt `
+  --predictions data\team_benchmark\video_1\pipeline_a_yolo26m_botsort_reid_qwen4b_expanded_bootstrap.json `
+  --sequence-name video_1 `
+  --output-video F:\videos\1_A_team_position.mp4 `
+  --overwrite
+```
+
+## Supporting Commands
+
+Train detector:
 
 ```powershell
 .\scripts\train_football_detector.ps1
 ```
 
-Evaluate detector only:
+Evaluate detector:
 
 ```powershell
 .\scripts\evaluate_detector.ps1 -Config configs\yolo26m_sportsmot_football_eval.yaml
 ```
 
-## Dataset And Experiments
-
-Download SportsMOT:
-
-```powershell
-.\scripts\download_sportsmot.ps1 -Split "train,val"
-```
-
-Compare trackers:
+Compare MOT trackers:
 
 ```powershell
 .\scripts\compare_trackers.ps1 -Config configs\compare_trackers_yolo26m_botsort_identity_stable_all.yaml -Overwrite
 ```
 
-## Maintenance
-
 Run tests:
 
 ```powershell
 .\scripts\run_tests.ps1
-```
-
-For uncommon commands, prefer CLI help:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli --help
 ```

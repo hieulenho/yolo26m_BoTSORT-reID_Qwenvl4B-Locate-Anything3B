@@ -1,25 +1,29 @@
 # Football Tracking
 
-Reusable YOLO detection, multi-object tracking, TrackEval evaluation, and Qwen VLM analysis.
+Football player tracking and semantic team/position classification.
 
-The project started as a football-player tracking benchmark, but the current structure is designed
-to be reused across domains: football, generic people, vehicles, or any workflow where you want:
+The current project focus is:
 
 ```text
-video or image sequence
-  -> detector
-  -> tracker
-  -> metrics / rendered video / MOT files
-  -> VLM reasoning layer
+raw football video
+  -> YOLO26m detector
+  -> BoT-SORT ReID tracker
+  -> team + role/position semantic layer
+  -> quantitative benchmark and annotated MP4
 ```
 
-The recommended current football stack is:
+The three semantic pipelines are:
 
 ```text
-YOLO26m fine-tuned on SportsMOT football
-  -> BoT-SORT ReID
-  -> TrackEval metrics
-  -> optional Qwen3-VL-4B-Instruct analysis
+A = YOLO26m + BoT-SORT ReID + Qwen3-VL 4B
+B = YOLO26m + BoT-SORT ReID + LocateAnything 3B
+C = YOLO26m + BoT-SORT ReID + LocateAnything 3B + Qwen3-VL 4B
+```
+
+The official terminal runbook for the current focused pipeline is:
+
+```text
+outputs/reports/focused_pipeline/run_all_team_position_commands.txt
 ```
 
 ## Current Status
@@ -36,18 +40,18 @@ OpenCV 4.13.0
 DeepSORT realtime 1.3.2
 ```
 
-Latest full checks run successfully:
+Latest focused checks run successfully:
 
 ```powershell
-.\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m compileall src\football_tracking\evaluation\idsw_taxonomy.py src\football_tracking\team_benchmark\schemas.py src\football_tracking\team_benchmark\evaluator.py src\football_tracking\team_benchmark\comparison.py scripts\analyze_idsw_taxonomy.py scripts\render_team_position_video.py
+.\.venv\Scripts\python.exe -m pytest tests\team_benchmark\test_team_benchmark.py tests\test_render_video.py tests\test_vlm_tracking_context.py
 ```
 
 Result:
 
 ```text
-ruff: all checks passed
-pytest: 338 passed
+compileall: passed
+pytest: 8 passed
 ```
 
 ## Latest Reference Metrics
@@ -66,6 +70,12 @@ Stable BoT-SORT ReID on all 30 SportsMOT football sequences:
 
 Compared with the previous BoT-SORT ReID preset, the identity-stable preset reduced ID switches
 from `1064` to `895` while keeping HOTA and IDF1 essentially unchanged. The trade-off is more FN.
+
+IDSW taxonomy diagnostics are available at:
+
+```text
+outputs/reports/focused_pipeline/idsw_taxonomy/idsw_taxonomy_report.md
+```
 
 ## Project Layout
 
@@ -610,14 +620,14 @@ SportsMOT MOT ground truth contains bounding boxes and track IDs, but it does no
 team identity labels. Team attribution therefore uses a small extra manual annotation manifest
 on top of SportsMOT-style tracks.
 
-This benchmark compares two parallel structures with the same output schema:
+This benchmark compares available semantic structures with the same output schema:
 
 ```text
 Pipeline A: YOLO + BoT-SORT ReID + Qwen4B
   -> track_id + team_label + confidence
   -> optional query_id + selected_track_id + team_label
 
-Pipeline B: YOLO + BoT-SORT ReID + LocateAnything + Qwen4B
+Pipeline C: YOLO + BoT-SORT ReID + LocateAnything + Qwen4B
   -> query_id + selected_track_id + team_label + confidence
   -> optional track_id + team_label
 ```
@@ -642,8 +652,8 @@ Run the smoke comparison:
 Outputs:
 
 ```text
-outputs/team_benchmark/smoke/pipeline_a_qwen/team_benchmark_summary.md
-outputs/team_benchmark/smoke/pipeline_b_locate_qwen/team_benchmark_summary.md
+outputs/team_benchmark/smoke/pipeline_a_yolo26m_botsort_reid_qwen4b/team_benchmark_summary.md
+outputs/team_benchmark/smoke/pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b/team_benchmark_summary.md
 outputs/team_benchmark/smoke/comparison/team_benchmark_comparison.md
 ```
 

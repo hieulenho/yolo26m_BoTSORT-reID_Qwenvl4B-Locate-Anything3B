@@ -1,9 +1,9 @@
 {
-  "variant_id": "pipeline_a_qwen_video_1_expanded_bootstrap",
-  "variant_name": "Pipeline A - Qwen4B video_1 expanded bootstrap",
+  "variant_id": "pipeline_a_yolo26m_botsort_reid_qwen4b_video_1_expanded_bootstrap",
+  "variant_name": "Pipeline A - YOLO26m + BoT-SORT ReID + Qwen3-VL 4B video_1 expanded bootstrap",
   "benchmark_name": "video_1_team_language_expanded",
-  "pipeline_type": "qwen_team_labeling",
-  "created_at": "2026-07-06T12:57:44.233712+00:00",
+  "pipeline_type": "yolo_botsort_qwen",
+  "created_at": "2026-07-07T15:49:18.171542+00:00",
   "track_predictions": [
     {
       "sequence_name": "video_1",
