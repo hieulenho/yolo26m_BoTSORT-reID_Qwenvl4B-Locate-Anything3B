@@ -9,6 +9,8 @@ param(
     [string]$ModelId = "Qwen/Qwen3-VL-4B-Instruct",
     [string]$Device = "auto",
     [string]$TorchDtype = "auto",
+    [ValidateSet("none", "8bit", "4bit")]
+    [string]$Quantization = "8bit",
     [int]$MaxNewTokens = 512,
     [double]$KeyframeInterval = 1.0,
     [int]$MaxKeyframes = 12,
@@ -47,6 +49,7 @@ $Args = @(
     "--model-id", $ModelId,
     "--device", $Device,
     "--torch-dtype", $TorchDtype,
+    "--quantization", $Quantization,
     "--max-new-tokens", "$MaxNewTokens",
     "--keyframe-interval", "$KeyframeInterval",
     "--max-keyframes", "$MaxKeyframes",

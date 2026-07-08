@@ -1,5 +1,6 @@
 transformers==4.57.1
 accelerate
+bitsandbytes
 qwen-vl-utils
 pillow
 decord==0.6.0

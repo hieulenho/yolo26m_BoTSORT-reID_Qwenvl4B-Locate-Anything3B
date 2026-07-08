@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from football_tracking.paths import get_project_root, resolve_project_path
+from football_tracking.vlm.quantization import normalize_quantization
 
 
 class VlmConfigError(RuntimeError):
@@ -38,6 +39,7 @@ class VlmTrackingConfig:
     model_id: str
     device: str
     torch_dtype: str
+    quantization: str
     max_new_tokens: int
     temperature: float
     do_sample: bool
@@ -94,6 +96,7 @@ def load_vlm_tracking_config(
     model_cfg = _mapping(root.get("model"), "model", default={})
     prompt_cfg = _mapping(root.get("prompt"), "prompt", default={})
     runtime_cfg = _mapping(root.get("runtime"), "runtime", default={})
+    task_prompt = _load_task_prompt(prompt_cfg, project_root)
 
     output_dir = _resolve_path(
         output_cfg.get("dir", "outputs/vlm/qwen4b/tracking"),
@@ -138,10 +141,11 @@ def load_vlm_tracking_config(
         max_tracks=int(sampling_cfg.get("max_tracks", 40)),
         max_crops_per_track=int(sampling_cfg.get("max_crops_per_track", 3)),
         crop_padding=float(sampling_cfg.get("crop_padding", 0.12)),
-        task_prompt=str(prompt_cfg.get("task", _default_task_prompt())),
+        task_prompt=task_prompt,
         model_id=str(model_cfg.get("model_id", DEFAULT_QWEN4B_MODEL_ID)),
         device=str(model_cfg.get("device", "auto")),
         torch_dtype=str(model_cfg.get("torch_dtype", "auto")),
+        quantization=normalize_quantization(str(model_cfg.get("quantization", "none"))),
         max_new_tokens=int(model_cfg.get("max_new_tokens", 1024)),
         temperature=float(model_cfg.get("temperature", 0.1)),
         do_sample=bool(model_cfg.get("do_sample", False)),
@@ -187,6 +191,7 @@ def _apply_overrides(
         "model_id",
         "device",
         "torch_dtype",
+        "quantization",
         "max_new_tokens",
         "temperature",
         "do_sample",
@@ -198,7 +203,23 @@ def _apply_overrides(
             changes[field_name] = overrides[field_name]
     if overrides.get("task_prompt") is not None:
         changes["task_prompt"] = overrides["task_prompt"]
+    if "quantization" in changes:
+        changes["quantization"] = normalize_quantization(str(changes["quantization"]))
     return replace(config, **changes) if changes else config
+
+
+def _load_task_prompt(prompt_cfg: dict[str, Any], project_root: Path) -> str:
+    task_file = prompt_cfg.get("task_file")
+    if task_file:
+        path = _resolve_path(task_file, project_root, "prompt.task_file")
+        assert path is not None
+        if not path.is_file():
+            raise VlmConfigError(f"prompt.task_file does not exist: {path}")
+        text = path.read_text(encoding="utf-8").strip()
+        if not text:
+            raise VlmConfigError(f"prompt.task_file is empty: {path}")
+        return text
+    return str(prompt_cfg.get("task", _default_task_prompt()))
 
 
 def _validate_config(config: VlmTrackingConfig) -> None:

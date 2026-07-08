@@ -130,6 +130,7 @@ def _add_locate_image(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model-id", default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--torch-dtype", default=None)
+    parser.add_argument("--quantization", choices=("none", "8bit", "4bit"), default=None)
     parser.add_argument("--max-new-tokens", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -172,6 +173,7 @@ def _add_query_track_frame(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model-id", default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--torch-dtype", default=None)
+    parser.add_argument("--quantization", choices=("none", "8bit", "4bit"), default=None)
     parser.add_argument("--max-new-tokens", type=int, default=None)
     parser.add_argument("--save-overlay", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
@@ -247,6 +249,7 @@ def _add_resolve_language_track(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model-id", default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--torch-dtype", default=None)
+    parser.add_argument("--quantization", choices=("none", "8bit", "4bit"), default=None)
     parser.add_argument("--max-new-tokens", type=int, default=None)
     parser.add_argument("--save-overlay", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
@@ -317,6 +320,7 @@ def _add_execute_grounding_plan(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model-id", default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--torch-dtype", default=None)
+    parser.add_argument("--quantization", choices=("none", "8bit", "4bit"), default=None)
     parser.add_argument("--max-new-tokens", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--debug", action="store_true")
@@ -639,6 +643,7 @@ def _grounding_overrides(args: argparse.Namespace) -> dict[str, object]:
         "model_id": getattr(args, "model_id", None),
         "device": getattr(args, "device", None),
         "torch_dtype": getattr(args, "torch_dtype", None),
+        "quantization": getattr(args, "quantization", None),
         "max_new_tokens": getattr(args, "max_new_tokens", None),
         "overwrite": True if getattr(args, "overwrite", False) else None,
     }
@@ -866,6 +871,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 model_id=args.model_id,
                 device=args.device,
                 torch_dtype=args.torch_dtype,
+                quantization=args.quantization,
                 max_new_tokens=args.max_new_tokens,
                 overwrite=args.overwrite,
             )

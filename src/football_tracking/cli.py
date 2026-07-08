@@ -242,6 +242,7 @@ def _add_vlm_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model-id", default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--torch-dtype", default=None)
+    parser.add_argument("--quantization", choices=("none", "8bit", "4bit"), default=None)
     parser.add_argument("--max-new-tokens", type=int, default=None)
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--keyframe-interval", type=float, default=None)
@@ -269,6 +270,7 @@ def _add_locate_image_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model-id", default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--torch-dtype", default=None)
+    parser.add_argument("--quantization", choices=("none", "8bit", "4bit"), default=None)
     parser.add_argument("--max-new-tokens", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -683,6 +685,7 @@ def _vlm_overrides(args: argparse.Namespace) -> dict[str, object]:
         "model_id": getattr(args, "model_id", None),
         "device": getattr(args, "device", None),
         "torch_dtype": getattr(args, "torch_dtype", None),
+        "quantization": getattr(args, "quantization", None),
         "max_new_tokens": getattr(args, "max_new_tokens", None),
         "temperature": getattr(args, "temperature", None),
         "keyframe_interval_seconds": getattr(args, "keyframe_interval", None),
@@ -702,6 +705,7 @@ def _locate_image_overrides(args: argparse.Namespace) -> dict[str, object]:
         "model_id": getattr(args, "model_id", None),
         "device": getattr(args, "device", None),
         "torch_dtype": getattr(args, "torch_dtype", None),
+        "quantization": getattr(args, "quantization", None),
         "max_new_tokens": getattr(args, "max_new_tokens", None),
         "overwrite": True if getattr(args, "overwrite", False) else None,
     }

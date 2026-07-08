@@ -16,6 +16,39 @@ outputs\reports\focused_pipeline\run_all_team_position_commands.txt
 
 Change `-SourceVideo` to switch between `1.mp4`, `2.mp4`, `3.mp4`, etc.
 
+Reuse an existing MOT track file and export the three pipeline videos:
+
+```powershell
+.\scripts\run_raw_video_semantic_experiments.ps1 `
+  -SourceVideo F:\videos\1.mp4 `
+  -Tracks F:\videos\1_Tracking_qwen.txt `
+  -SkipTracking `
+  -Query "the goalkeeper wearing green" `
+  -Pipelines A,B,C `
+  -LocateBackend locate_anything `
+  -RunQwenModel `
+  -Device cuda `
+  -TorchDtype auto `
+  -Quantization 8bit `
+  -MaxKeyframes 2 `
+  -MaxTracks 20 `
+  -MaxCropsPerTrack 1 `
+  -MaxNewTokens 512 `
+  -LocateMaxFrames 6 `
+  -OutputRoot outputs\semantic_video_experiments `
+  -Overwrite
+```
+
+This writes:
+
+```text
+F:\videos\<video_stem>_pipeline_A_qwen4b.mp4
+F:\videos\<video_stem>_pipeline_B_locateanything3b.mp4
+F:\videos\<video_stem>_pipeline_C_locateanything3b_qwen4b.mp4
+```
+
+Run detector/tracker from scratch instead of reusing tracks:
+
 ```powershell
 .\scripts\run_raw_video_semantic_experiments.ps1 `
   -SourceVideo F:\videos\1.mp4 `
@@ -25,6 +58,7 @@ Change `-SourceVideo` to switch between `1.mp4`, `2.mp4`, `3.mp4`, etc.
   -RunQwenModel `
   -Device cuda `
   -TorchDtype auto `
+  -Quantization 8bit `
   -MaxKeyframes 2 `
   -MaxTracks 20 `
   -MaxCropsPerTrack 1 `
@@ -39,6 +73,10 @@ Pipelines:
 - `A`: YOLO26m + BoT-SORT ReID + Qwen3-VL 4B.
 - `B`: YOLO26m + BoT-SORT ReID + LocateAnything 3B.
 - `C`: YOLO26m + BoT-SORT ReID + LocateAnything 3B + Qwen3-VL 4B.
+
+`run_raw_video_semantic_experiments.ps1` defaults to `-Quantization 8bit`
+for Qwen and LocateAnything to reduce VRAM on 8 GB GPUs. Use
+`-Quantization none` only when you want a non-quantized comparison run.
 
 Use a fast plumbing check before loading large models:
 

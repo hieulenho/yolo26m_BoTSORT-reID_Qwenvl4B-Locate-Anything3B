@@ -150,6 +150,8 @@ def run_vlm_analysis(
             "provider": "qwen",
             "model_id": config.model_id,
             "run_model": config.run_model,
+            "quantization": config.quantization,
+            "torch_dtype": config.torch_dtype,
         },
         "summary": {
             "track_count": context["tracking_summary"]["track_count"],
@@ -335,6 +337,8 @@ def _dry_run_plan(config: VlmTrackingConfig) -> dict[str, Any]:
             "model_id": config.model_id,
             "run_model": config.run_model,
             "device": config.device,
+            "torch_dtype": config.torch_dtype,
+            "quantization": config.quantization,
         },
         "action": "validated config shape; no frames, crops, or model outputs were written",
     }

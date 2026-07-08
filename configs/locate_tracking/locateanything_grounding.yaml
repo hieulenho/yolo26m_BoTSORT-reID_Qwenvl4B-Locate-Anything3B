@@ -3,6 +3,7 @@ backend:
   model_id: nvidia/LocateAnything-3B
   device: cuda
   torch_dtype: bfloat16
+  quantization: 8bit
 
 inference:
   task: phrase_grounding

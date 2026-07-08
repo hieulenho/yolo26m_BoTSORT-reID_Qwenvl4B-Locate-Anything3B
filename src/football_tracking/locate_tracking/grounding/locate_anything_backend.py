@@ -6,6 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from football_tracking.locate_tracking.grounding.backend import BackendGroundingResponse
+from football_tracking.vlm.quantization import (
+    QuantizationConfigError,
+    build_bitsandbytes_config,
+    normalize_quantization,
+    quantized_device_map,
+)
 
 DEFAULT_LOCATEANYTHING_MODEL_ID = "nvidia/LocateAnything-3B"
 DEFAULT_LOCATEANYTHING_PROMPT_TEMPLATE = (
@@ -72,6 +78,7 @@ class LocateAnythingBackend:
         model_id: str = DEFAULT_LOCATEANYTHING_MODEL_ID,
         device: str = "cuda",
         torch_dtype: str = "bfloat16",
+        quantization: str = "none",
         max_new_tokens: int = 4096,
         prompt_template: str = DEFAULT_LOCATEANYTHING_PROMPT_TEMPLATE,
         trust_remote_code: bool = True,
@@ -79,6 +86,7 @@ class LocateAnythingBackend:
         self._model_id = model_id
         self.device = device
         self.torch_dtype = torch_dtype
+        self.quantization = normalize_quantization(quantization)
         self.max_new_tokens = int(max_new_tokens)
         self.prompt_template = prompt_template
         self.trust_remote_code = bool(trust_remote_code)
@@ -96,6 +104,7 @@ class LocateAnythingBackend:
         return {
             "device": self.device,
             "torch_dtype": self.torch_dtype,
+            "quantization": self.quantization,
             "max_new_tokens": self.max_new_tokens,
             "prompt_template": self.prompt_template,
             "trust_remote_code": self.trust_remote_code,
@@ -116,11 +125,29 @@ class LocateAnythingBackend:
                 "LocateAnything dependencies before using the real grounding backend."
             ) from exc
         dtype = _resolve_dtype(self.torch_dtype)
+        try:
+            import torch  # type: ignore[import-not-found]
+        except Exception as exc:  # noqa: BLE001
+            raise LocateAnythingBackendError(
+                "PyTorch is required for LocateAnything quantization."
+            ) from exc
+        quantization = normalize_quantization(self.quantization)
+        try:
+            quantization_config = build_bitsandbytes_config(
+                torch_module=torch,
+                quantization=quantization,
+                torch_dtype=self.torch_dtype,
+            )
+        except QuantizationConfigError as exc:
+            raise LocateAnythingBackendError(str(exc)) from exc
         model_kwargs: dict[str, object] = {
             "trust_remote_code": self.trust_remote_code,
         }
         if dtype != "auto":
             model_kwargs["dtype"] = dtype
+        if quantization_config is not None:
+            model_kwargs["quantization_config"] = quantization_config
+            model_kwargs["device_map"] = quantized_device_map(self.device)
         try:
             tokenizer = AutoTokenizer.from_pretrained(
                 self.model_id,
@@ -136,13 +163,17 @@ class LocateAnythingBackend:
                 if "dtype" in model_kwargs:
                     model_kwargs["torch_dtype"] = model_kwargs.pop("dtype")
                 model = AutoModel.from_pretrained(self.model_id, **model_kwargs)
-            model = _move_model(model, self.device)
+            if quantization_config is None:
+                model = _move_model(model, self.device)
+            else:
+                model = _eval_model(model)
             self._worker = _LocateAnythingWorker(
                 model=model,
                 tokenizer=tokenizer,
                 processor=processor,
                 device=self.device,
                 dtype=dtype,
+                quantization=quantization,
                 max_new_tokens=self.max_new_tokens,
                 prompt_template=self.prompt_template,
             )
@@ -186,6 +217,12 @@ def _move_model(model: Any, device: str) -> Any:
     return model
 
 
+def _eval_model(model: Any) -> Any:
+    if hasattr(model, "eval"):
+        return model.eval()
+    return model
+
+
 class _LocateAnythingWorker:
     """Direct LocateAnything worker using the model's custom AutoModel mapping."""
 
@@ -197,6 +234,7 @@ class _LocateAnythingWorker:
         processor: Any,
         device: str,
         dtype: Any,
+        quantization: str,
         max_new_tokens: int,
         prompt_template: str,
     ) -> None:
@@ -205,6 +243,7 @@ class _LocateAnythingWorker:
         self.processor = processor
         self.device = device
         self.dtype = dtype
+        self.quantization = normalize_quantization(quantization)
         self.max_new_tokens = int(max_new_tokens)
         self.prompt_template = prompt_template
 

@@ -25,6 +25,7 @@ def run_execute_grounding_plan(
     model_id: str | None,
     device: str | None,
     torch_dtype: str | None,
+    quantization: str | None,
     max_new_tokens: int | None,
     overwrite: bool,
 ) -> dict[str, Any]:
@@ -35,6 +36,7 @@ def run_execute_grounding_plan(
             "model_id": model_id,
             "device": device,
             "torch_dtype": torch_dtype,
+            "quantization": quantization,
             "max_new_tokens": max_new_tokens,
             "overwrite": overwrite,
         },

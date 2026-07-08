@@ -21,6 +21,7 @@ from football_tracking.locate_tracking.grounding.service import (
     GroundingServiceError,
 )
 from football_tracking.paths import get_project_root, resolve_project_path
+from football_tracking.vlm.quantization import normalize_quantization
 
 
 class LocateImageError(RuntimeError):
@@ -35,6 +36,7 @@ class LocateImageConfig:
     model_id: str
     device: str
     torch_dtype: str
+    quantization: str
     max_new_tokens: int
     prompt_template: str
     cache_enabled: bool
@@ -91,6 +93,7 @@ def load_locate_image_config(
         model_id=str(backend.get("model_id", DEFAULT_LOCATEANYTHING_MODEL_ID)),
         device=str(backend.get("device", "cuda")),
         torch_dtype=str(backend.get("torch_dtype", "bfloat16")),
+        quantization=normalize_quantization(str(backend.get("quantization", "none"))),
         max_new_tokens=int(inference.get("max_new_tokens", backend.get("max_new_tokens", 4096))),
         prompt_template=str(
             inference.get(
@@ -127,13 +130,15 @@ def _apply_overrides(
     overrides: dict[str, Any],
 ) -> LocateImageConfig:
     changes: dict[str, Any] = {}
-    for field_name in ("backend_name", "model_id", "device", "torch_dtype"):
+    for field_name in ("backend_name", "model_id", "device", "torch_dtype", "quantization"):
         if overrides.get(field_name) is not None:
             changes[field_name] = str(overrides[field_name])
     if overrides.get("max_new_tokens") is not None:
         changes["max_new_tokens"] = int(overrides["max_new_tokens"])
     if overrides.get("overwrite") is not None:
         changes["overwrite"] = bool(overrides["overwrite"])
+    if "quantization" in changes:
+        changes["quantization"] = normalize_quantization(str(changes["quantization"]))
     return replace(config, **changes) if changes else config
 
 
@@ -157,6 +162,7 @@ def _build_backend(config: LocateImageConfig) -> Any:
         model_id=config.model_id,
         device=config.device,
         torch_dtype=config.torch_dtype,
+        quantization=config.quantization,
         max_new_tokens=config.max_new_tokens,
         prompt_template=config.prompt_template,
     )
@@ -186,6 +192,8 @@ def run_locate_image(
             "backend": {
                 "name": config.backend_name,
                 "model_id": config.model_id,
+                "quantization": config.quantization,
+                "torch_dtype": config.torch_dtype,
             },
             "image": str(image_path),
             "query": query,

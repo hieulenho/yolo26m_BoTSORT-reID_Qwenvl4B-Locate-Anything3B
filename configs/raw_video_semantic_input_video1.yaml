@@ -1,0 +1,64 @@
+experiment:
+  name: video_1_abc_semantic_quantized
+  description: Run A/B/C semantic video pipelines from one raw source video.
+
+input:
+  source_video: F:\videos\1.mp4
+  tracks: F:\videos\1_Tracking_qwen.txt
+  skip_tracking: true
+  query: the goalkeeper wearing green
+
+pipelines:
+  enabled:
+    - A
+    - B
+    - C
+  A: YOLO26m + BoT-SORT ReID + Qwen3-VL 4B
+  B: YOLO26m + BoT-SORT ReID + LocateAnything 3B
+  C: YOLO26m + BoT-SORT ReID + LocateAnything 3B + Qwen3-VL 4B
+
+models:
+  qwen_model_id: Qwen/Qwen3-VL-4B-Instruct
+  locate_model_id: nvidia/LocateAnything-3B
+  locate_backend: locate_anything
+  device: cuda
+  torch_dtype: auto
+  quantization: 8bit
+
+sampling:
+  max_keyframes: 2
+  max_tracks: 20
+  max_crops_per_track: 1
+  max_new_tokens: 512
+  locate_max_frames: 6
+
+output:
+  root: outputs\semantic_video_experiments
+  videos_dir: F:\videos
+  pipeline_a_video: F:\videos\1_pipeline_A_qwen4b.mp4
+  pipeline_b_video: F:\videos\1_pipeline_B_locateanything3b.mp4
+  pipeline_c_video: F:\videos\1_pipeline_C_locateanything3b_qwen4b.mp4
+
+command:
+  powershell: |
+    $SourceVideo = "F:\videos\1.mp4"
+    $Query = "the goalkeeper wearing green"
+
+    .\scripts\run_raw_video_semantic_experiments.ps1 `
+      -SourceVideo $SourceVideo `
+      -Tracks "F:\videos\1_Tracking_qwen.txt" `
+      -SkipTracking `
+      -Query $Query `
+      -Pipelines A,B,C `
+      -LocateBackend locate_anything `
+      -RunQwenModel `
+      -Device cuda `
+      -TorchDtype auto `
+      -Quantization 8bit `
+      -MaxKeyframes 2 `
+      -MaxTracks 20 `
+      -MaxCropsPerTrack 1 `
+      -MaxNewTokens 512 `
+      -LocateMaxFrames 6 `
+      -OutputRoot outputs\semantic_video_experiments `
+      -Overwrite

@@ -21,17 +21,14 @@ model:
   model_id: Qwen/Qwen3-VL-4B-Instruct
   device: auto
   torch_dtype: auto
+  quantization: 8bit
   max_new_tokens: 1024
   temperature: 0.1
   do_sample: false
   run_model: false
 
 prompt:
-  task: >
-    Ban la bo kiem tra chat luong multi-object tracking. Uu tien audit track_id,
-    do on dinh ID, track bi dut quang, track di chuyen bat thuong, confidence,
-    va bang chung tu metadata. Chi tom tat tran dau that ngan. Khong ket luan
-    loi tracking neu khong co bang chung tu keyframe hoac metadata.
+  task_file: configs/prompts/team_position_qwen_prompt.md
 
 runtime:
   overwrite: false
