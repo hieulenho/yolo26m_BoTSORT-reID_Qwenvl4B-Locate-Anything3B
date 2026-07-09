@@ -35,6 +35,8 @@ Reuse an existing MOT track file and export the three pipeline videos:
   -MaxCropsPerTrack 1 `
   -MaxNewTokens 512 `
   -LocateMaxFrames 6 `
+  -CompleteRenderLabels $true `
+  -RenderLabelSamplesPerTrack 7 `
   -OutputRoot outputs\semantic_video_experiments `
   -Overwrite
 ```
@@ -77,6 +79,11 @@ Pipelines:
 `run_raw_video_semantic_experiments.ps1` defaults to `-Quantization 8bit`
 for Qwen and LocateAnything to reduce VRAM on 8 GB GPUs. Use
 `-Quantization none` only when you want a non-quantized comparison run.
+
+It also defaults to `-CompleteRenderLabels $true`. The shared visual-color
+completion gives every rendered track a team, referee, or `UNK` label. These
+coverage labels make videos readable, but their metadata marks them as
+`not_model_claim`; use the separate prediction manifests for benchmark metrics.
 
 Use a fast plumbing check before loading large models:
 

@@ -31,6 +31,13 @@ sampling:
   max_crops_per_track: 1
   max_new_tokens: 512
   locate_max_frames: 6
+  render_label_samples_per_track: 7
+
+render_labels:
+  complete_all_tracks: true
+  referee_label: referee_black
+  unknown_label: unknown
+  note: Render coverage labels are not model benchmark claims.
 
 output:
   root: outputs\semantic_video_experiments
@@ -60,5 +67,7 @@ command:
       -MaxCropsPerTrack 1 `
       -MaxNewTokens 512 `
       -LocateMaxFrames 6 `
+      -CompleteRenderLabels $true `
+      -RenderLabelSamplesPerTrack 7 `
       -OutputRoot outputs\semantic_video_experiments `
       -Overwrite

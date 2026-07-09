@@ -221,25 +221,26 @@ def build_prompt(config: VlmTrackingConfig, context: dict[str, Any]) -> str:
             "",
             config.task_prompt,
             "",
-            "Primary goal: audit the tracking quality. Keep match commentary short.",
             "Use only track IDs that appear in the metadata below.",
-            "If an issue is not visible or not supported by metadata, "
-            "say that it is not confirmed.",
+            "Use visual evidence from keyframes and crops. Do not infer a semantic "
+            "label from track duration, confidence, or motion alone.",
+            "When visual evidence is insufficient, return unknown.",
             "Each provided keyframe image is annotated with tracking IDs.",
-            "Cross-check the visual evidence with this tracking metadata and diagnostics:",
+            "The metadata below is supporting context, not semantic ground truth:",
             "",
             "```json",
             context_json,
             "```",
             "",
-            "Return your answer in Vietnamese using exactly these sections:",
-            "1. Tom tat tracking trong 2 cau",
-            "2. Track on dinh nhat kem bang chung",
-            "3. Track can kiem tra lai kem bang chung",
-            "4. Chuyen dong noi bat theo track_id",
-            "5. Ket luan va buoc kiem tra tiep theo",
-            "For every track claim, include evidence fields such as obs, dur_s, "
-            "disp_px, conf, gaps, max_gap, or visible keyframe IDs.",
+            "Return one JSON object only, without Markdown fences or prose:",
+            '{"track_predictions":[{"track_id":7,"team_label":"light_blue",'
+            '"role_label":"player","confidence":0.85,"evidence_frames":[5],'
+            '"evidence":"short visual reason"}],"notes":[]}',
+            "Include every selected track that has usable visual evidence.",
+            "Allowed team_label values: light_blue, dark_blue, yellow_kit, dark_kit, "
+            "goalkeeper_green, goalkeeper_red, goalkeeper_orange, referee_black, unknown.",
+            "Allowed role_label values: goalkeeper, defender, midfielder, forward, "
+            "player, referee, unknown.",
             "",
         ]
     )
@@ -276,7 +277,7 @@ def _compact_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
                 [],
             ),
         },
-        "selected_tracks": _prompt_tracks(context["tracks"], limit=6),
+        "selected_tracks": _prompt_tracks(context["tracks"], limit=40),
         "keyframes": [
             {
                 "frame": row.get("frame_index"),

@@ -1,4 +1,14 @@
 sequence_name,track_id,start_frame,end_frame,team_label,role_label,notes,contact_sheet
+video_1,17,5,361,dark_blue,player,Contact sheet verified; dark-blue player with one contaminated late crop.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0017.jpg
+video_1,20,5,9,light_blue,player,Contact sheet verified; five-frame light-blue edge fragment.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0020.jpg
+video_1,63,1219,1220,dark_blue,player,Contact sheet verified; two-frame dark-blue player fragment.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0063.jpg
+video_1,69,1332,1333,dark_blue,player,Contact sheet verified; two-frame dark-blue player fragment.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0069.jpg
+video_1,28,135,1346,referee_black,referee,Contact sheet verified; on-field referee wearing black.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0028.jpg
+video_1,78,1388,1390,referee_black,referee,Contact sheet verified; assistant referee wearing black and holding a flag.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0078.jpg
+video_1,29,138,147,goalkeeper_red,goalkeeper,Contact sheet verified; short fragment of the red goalkeeper.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0029.jpg
+video_1,53,797,820,goalkeeper_red,goalkeeper,Contact sheet verified; short fragment of the red goalkeeper.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0053.jpg
+video_1,59,1051,1107,goalkeeper_red,goalkeeper,Contact sheet verified; short fragment of the red goalkeeper.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0059.jpg
+video_1,74,1355,1359,goalkeeper_green,goalkeeper,Contact sheet verified; short fragment of the green goalkeeper.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0074.jpg
 video_1,7,5,1399,light_blue,player,Contact sheet verified; stable light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0007.jpg
 video_1,31,345,1351,light_blue,player,Contact sheet verified; light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0031.jpg
 video_1,37,428,1356,light_blue,player,Contact sheet verified; light-blue player.,outputs/team_benchmark/video_1_annotation/contact_sheets/track_0037.jpg

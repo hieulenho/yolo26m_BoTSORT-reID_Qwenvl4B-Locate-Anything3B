@@ -136,7 +136,9 @@ def test_run_vlm_analysis_writes_context_keyframes_and_crops(tmp_path, monkeypat
     prompt_text = prompt_path.read_text(encoding="utf-8")
     assert "Tracking VLM Analysis Task" in prompt_text
     assert "tracking_diagnostics" in prompt_text
-    assert "Primary goal: audit the tracking quality" in prompt_text
+    assert '"track_predictions"' in prompt_text
+    assert "referee_black" in prompt_text
+    assert "Do not infer a semantic label from track duration" in prompt_text
     assert '"obs"' in prompt_text
     assert '"dur_s"' in prompt_text
     assert len(prompt_text) < 5000

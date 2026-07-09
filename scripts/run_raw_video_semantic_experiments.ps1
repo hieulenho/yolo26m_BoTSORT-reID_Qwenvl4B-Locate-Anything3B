@@ -48,6 +48,10 @@ param(
 
     [bool]$UseBenchmarkLabelsForRender = $true,
 
+    [bool]$CompleteRenderLabels = $true,
+
+    [int]$RenderLabelSamplesPerTrack = 7,
+
     [switch]$HideUnlabeledRenderTracks,
 
     [switch]$RunQwenModel,
@@ -86,6 +90,7 @@ $AnnotationCsv = Join-Path $BenchmarkDir "track_annotation_expanded.csv"
 $PreferredManifestA = Join-Path $BenchmarkDir "pipeline_a_yolo26m_botsort_reid_qwen4b_expanded_bootstrap.json"
 $PreferredManifestB = Join-Path $BenchmarkDir "pipeline_b_yolo26m_botsort_reid_locateanything3b_expanded_bootstrap.json"
 $PreferredManifestC = Join-Path $BenchmarkDir "pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b_expanded_bootstrap.json"
+$CompletionManifest = Join-Path $RunRoot "shared\visual_label_completion.json"
 
 $DefaultTrackedVideo = Join-Path $SourceDir "${Stem}_yolo26m_botsort_reid.mp4"
 $DefaultTracks = [System.IO.Path]::ChangeExtension($DefaultTrackedVideo, ".txt")
@@ -185,7 +190,14 @@ function Invoke-PipelineVideoRender {
         "--tracks", "$TracksResolved",
         "--output", "$Predictions"
     )
-    if ($PreferredManifest -and (Test-Path -LiteralPath $PreferredManifest -PathType Leaf)) {
+    if ($CompleteRenderLabels -and (Test-Path -LiteralPath $CompletionManifest -PathType Leaf)) {
+        $PredictionArgs += @("--completion-manifest", "$CompletionManifest")
+    }
+    if (
+        $UseBenchmarkLabelsForRender -and
+        $PreferredManifest -and
+        (Test-Path -LiteralPath $PreferredManifest -PathType Leaf)
+    ) {
         $PredictionArgs += @("--preferred-manifest", "$PreferredManifest")
     }
     if ($UseBenchmarkLabelsForRender -and (Test-Path -LiteralPath $AnnotationCsv -PathType Leaf)) {
@@ -198,8 +210,9 @@ function Invoke-PipelineVideoRender {
         $PredictionArgs += @("--qwen-answer", "$QwenAnswer")
     }
     if ($Overwrite) { $PredictionArgs += "--overwrite" }
-    & $Python @PredictionArgs
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    & $Python @PredictionArgs | Out-Host
+    $PredictionExitCode = $LASTEXITCODE
+    if ($PredictionExitCode -ne 0) { exit $PredictionExitCode }
 
     $RenderArgs = @(
         "scripts\render_team_position_video.py",
@@ -212,8 +225,9 @@ function Invoke-PipelineVideoRender {
     )
     if ($HideUnlabeledRenderTracks) { $RenderArgs += "--hide-unlabeled" }
     if ($Overwrite) { $RenderArgs += "--overwrite" }
-    & $Python @RenderArgs
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    & $Python @RenderArgs | Out-Host
+    $RenderExitCode = $LASTEXITCODE
+    if ($RenderExitCode -ne 0) { exit $RenderExitCode }
 
     return [ordered]@{
         video = "$OutputVideo"
@@ -240,6 +254,25 @@ if ($SkipTracking) {
     Write-Host ""
     Write-Host "==> Step 1/4: YOLO26m + BoT-SORT ReID tracking"
     & $Python @TrackArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+if ($CompleteRenderLabels) {
+    Write-Host ""
+    Write-Host "==> Building shared full-track render labels"
+    $CompletionArgs = @(
+        "scripts\build_track_label_completion.py",
+        "--sequence-name", $SequenceName,
+        "--source-video", "$SourcePath",
+        "--tracks", "$TracksResolved",
+        "--output", "$CompletionManifest",
+        "--samples-per-track", "$RenderLabelSamplesPerTrack"
+    )
+    if (Test-Path -LiteralPath $AnnotationCsv -PathType Leaf) {
+        $CompletionArgs += @("--annotation-csv", "$AnnotationCsv")
+    }
+    if ($Overwrite) { $CompletionArgs += "--overwrite" }
+    & $Python @CompletionArgs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -387,6 +420,12 @@ $Summary = [ordered]@{
     torch_dtype = $TorchDtype
     render_pipeline_videos = [bool]$RenderPipelineVideos
     use_benchmark_labels_for_render = [bool]$UseBenchmarkLabelsForRender
+    complete_render_labels = [bool]$CompleteRenderLabels
+    render_label_completion_manifest = if ($CompleteRenderLabels) {
+        "$CompletionManifest"
+    } else {
+        $null
+    }
     pipeline_videos = $RenderedVideos
 }
 $SummaryPath = Join-Path $RunRoot "run_summary.json"

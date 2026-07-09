@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 PIPELINE_NAMES = {
     "A": "YOLO26m + BoT-SORT ReID + Qwen3-VL 4B",
     "B": "YOLO26m + BoT-SORT ReID + LocateAnything 3B",
@@ -35,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--annotation-csv", type=Path)
     parser.add_argument("--locate-final-resolution", type=Path)
     parser.add_argument("--qwen-answer", type=Path)
+    parser.add_argument("--completion-manifest", type=Path)
     parser.add_argument("--use-annotation-labels", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
@@ -57,6 +57,10 @@ def main() -> None:
             for item in manifest.get("track_predictions", [])
             if str(item.get("sequence_name")) == args.sequence_name
         ]
+        for item in track_predictions:
+            metadata = dict(item.get("metadata") or {})
+            metadata.setdefault("source_type", "preferred_render_manifest")
+            item["metadata"] = metadata
         source_notes.append(f"preferred_manifest:{args.preferred_manifest}")
 
     if not track_predictions and args.use_annotation_labels:
@@ -77,6 +81,25 @@ def main() -> None:
     if locate_predictions:
         track_predictions = _merge_by_track_id(track_predictions, locate_predictions)
         source_notes.append(f"locate_final_resolution:{args.locate_final_resolution}")
+
+    qwen_predictions = _predictions_from_qwen_answer(
+        path=args.qwen_answer,
+        sequence_name=args.sequence_name,
+    )
+    if qwen_predictions:
+        track_predictions = _merge_by_track_id(track_predictions, qwen_predictions)
+        source_notes.append(f"qwen_structured_answer:{args.qwen_answer}")
+
+    completion_predictions = _predictions_from_completion_manifest(
+        path=args.completion_manifest,
+        sequence_name=args.sequence_name,
+    )
+    if completion_predictions:
+        track_predictions = _merge_missing_by_track_id(
+            track_predictions,
+            completion_predictions,
+        )
+        source_notes.append(f"coverage_completion:{args.completion_manifest}")
 
     track_count = _count_unique_tracks(args.tracks)
     payload = {
@@ -186,14 +209,13 @@ def _predictions_from_locate_resolution(
     if path is None or not path.is_file():
         return []
     final = _read_json(path)
+    if str(final.get("status") or "").lower() not in {"resolved", "ok", "success"}:
+        return []
     selected_ids = final.get("selected_track_ids") or []
     if not selected_ids and final.get("selected_track_id") is not None:
         selected_ids = [final["selected_track_id"]]
     if not selected_ids:
-        best = final.get("best_raw_track_id")
-        if best is None:
-            return []
-        selected_ids = [best]
+        return []
     team_label, role_label = _labels_from_query(query)
     predictions: list[dict[str, Any]] = []
     for track_id in selected_ids:
@@ -216,6 +238,85 @@ def _predictions_from_locate_resolution(
             }
         )
     return predictions
+
+
+def _predictions_from_qwen_answer(
+    *,
+    path: Path | None,
+    sequence_name: str,
+) -> list[dict[str, Any]]:
+    if path is None or not path.is_file():
+        return []
+    payload = _read_json(path)
+    answer = payload.get("answer")
+    if isinstance(answer, dict):
+        parsed = answer
+    elif isinstance(answer, str):
+        parsed = _parse_embedded_json(answer)
+    else:
+        return []
+    if not parsed:
+        return []
+
+    predictions: list[dict[str, Any]] = []
+    for row in parsed.get("track_predictions", []):
+        if not isinstance(row, dict) or row.get("track_id") is None:
+            continue
+        predictions.append(
+            {
+                "sequence_name": sequence_name,
+                "track_id": int(row["track_id"]),
+                "status": "resolved",
+                "team_label": str(row.get("team_label") or "unknown"),
+                "role_label": str(row.get("role_label") or "unknown"),
+                "confidence": row.get("confidence"),
+                "evidence_frames": row.get("evidence_frames") or [],
+                "metadata": {
+                    "source": str(path),
+                    "source_type": "qwen_structured_prediction",
+                    "evidence": row.get("evidence"),
+                    "not_model_claim": False,
+                },
+            }
+        )
+    return predictions
+
+
+def _parse_embedded_json(text: str) -> dict[str, Any] | None:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        first_newline = stripped.find("\n")
+        last_fence = stripped.rfind("```")
+        if first_newline >= 0 and last_fence > first_newline:
+            stripped = stripped[first_newline + 1 : last_fence].strip()
+    candidates = [stripped]
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end > start:
+        candidates.append(stripped[start : end + 1])
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _predictions_from_completion_manifest(
+    *,
+    path: Path | None,
+    sequence_name: str,
+) -> list[dict[str, Any]]:
+    if path is None or not path.is_file():
+        return []
+    payload = _read_json(path)
+    return [
+        dict(item)
+        for item in payload.get("track_predictions", [])
+        if str(item.get("sequence_name")) == sequence_name
+    ]
 
 
 def _labels_from_query(query: str) -> tuple[str, str]:
@@ -245,6 +346,16 @@ def _merge_by_track_id(
     merged = {int(item["track_id"]): dict(item) for item in base}
     for item in override:
         merged[int(item["track_id"])] = dict(item)
+    return list(merged.values())
+
+
+def _merge_missing_by_track_id(
+    base: list[dict[str, Any]],
+    fallback: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged = {int(item["track_id"]): dict(item) for item in base}
+    for item in fallback:
+        merged.setdefault(int(item["track_id"]), dict(item))
     return list(merged.values())
 
 

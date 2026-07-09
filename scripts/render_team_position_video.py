@@ -6,12 +6,11 @@ import argparse
 import csv
 import hashlib
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
 import cv2
-
 
 TEAM_COLORS: dict[str, tuple[int, int, int]] = {
     "light_blue": (60, 210, 60),
@@ -21,6 +20,8 @@ TEAM_COLORS: dict[str, tuple[int, int, int]] = {
     "yellow_kit": (30, 220, 240),
     "dark_kit": (190, 80, 30),
     "goalkeeper_orange": (20, 140, 240),
+    "referee_black": (45, 45, 45),
+    "referee": (45, 45, 45),
     "unknown": (140, 140, 140),
 }
 
@@ -34,6 +35,8 @@ TEAM_SHORT_NAMES: dict[str, str] = {
     "yellow_kit": "YLW",
     "dark_kit": "DRK",
     "goalkeeper_orange": "GK",
+    "referee_black": "REF",
+    "referee": "REF",
     "unknown": "?",
 }
 
@@ -43,6 +46,7 @@ ROLE_SHORT_NAMES: dict[str, str] = {
     "midfielder": "MID",
     "forward": "FWD",
     "player": "P",
+    "referee": "REF",
     "unknown": "?",
 }
 
@@ -102,6 +106,15 @@ def main() -> None:
         "title": args.title,
         "hide_unlabeled": args.hide_unlabeled,
         "track_count_with_predictions": len(labels),
+        "prediction_source_counts": dict(
+            sorted(Counter(row["source_type"] for row in labels.values()).items())
+        ),
+        "team_label_counts": dict(
+            sorted(Counter(row["team_label"] for row in labels.values()).items())
+        ),
+        "role_label_counts": dict(
+            sorted(Counter(row["role_label"] for row in labels.values()).items())
+        ),
         **rendered,
     }
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -140,6 +153,9 @@ def _load_prediction_labels(path: Path, sequence_name: str) -> dict[int, dict[st
         labels[track_id] = {
             "team_label": str(item.get("team_label") or "unknown"),
             "role_label": str(item.get("role_label") or "unknown"),
+            "source_type": str(
+                (item.get("metadata") or {}).get("source_type") or "unspecified"
+            ),
         }
     return labels
 
@@ -222,10 +238,12 @@ def _render(
 
 def _format_label(track_id: int, team: str, role: str) -> str:
     if team == "unknown" and role == "unknown":
-        return f"ID{track_id}"
+        return f"ID{track_id} | UNK"
     team_text = TEAM_SHORT_NAMES.get(team, team.upper()[:3])
     role_text = ROLE_SHORT_NAMES.get(role, role.upper()[:3])
     if role_text in {"?", "P"}:
+        return f"ID{track_id} | {team_text}"
+    if role_text == team_text:
         return f"ID{track_id} | {team_text}"
     return f"ID{track_id} | {team_text} | {role_text}"
 

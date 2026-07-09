@@ -15,6 +15,86 @@
       "frame_count": 1399,
       "track_annotations": [
         {
+          "track_id": 17,
+          "team_label": "dark_blue",
+          "role_label": "player",
+          "start_frame": 5,
+          "end_frame": 361,
+          "notes": "Contact sheet verified; dark-blue player with one contaminated late crop."
+        },
+        {
+          "track_id": 20,
+          "team_label": "light_blue",
+          "role_label": "player",
+          "start_frame": 5,
+          "end_frame": 9,
+          "notes": "Contact sheet verified; five-frame light-blue edge fragment."
+        },
+        {
+          "track_id": 63,
+          "team_label": "dark_blue",
+          "role_label": "player",
+          "start_frame": 1219,
+          "end_frame": 1220,
+          "notes": "Contact sheet verified; two-frame dark-blue player fragment."
+        },
+        {
+          "track_id": 69,
+          "team_label": "dark_blue",
+          "role_label": "player",
+          "start_frame": 1332,
+          "end_frame": 1333,
+          "notes": "Contact sheet verified; two-frame dark-blue player fragment."
+        },
+        {
+          "track_id": 28,
+          "team_label": "referee_black",
+          "role_label": "referee",
+          "start_frame": 135,
+          "end_frame": 1346,
+          "notes": "Contact sheet verified; on-field referee wearing black."
+        },
+        {
+          "track_id": 78,
+          "team_label": "referee_black",
+          "role_label": "referee",
+          "start_frame": 1388,
+          "end_frame": 1390,
+          "notes": "Contact sheet verified; assistant referee wearing black and holding a flag."
+        },
+        {
+          "track_id": 29,
+          "team_label": "goalkeeper_red",
+          "role_label": "goalkeeper",
+          "start_frame": 138,
+          "end_frame": 147,
+          "notes": "Contact sheet verified; short fragment of the red goalkeeper."
+        },
+        {
+          "track_id": 53,
+          "team_label": "goalkeeper_red",
+          "role_label": "goalkeeper",
+          "start_frame": 797,
+          "end_frame": 820,
+          "notes": "Contact sheet verified; short fragment of the red goalkeeper."
+        },
+        {
+          "track_id": 59,
+          "team_label": "goalkeeper_red",
+          "role_label": "goalkeeper",
+          "start_frame": 1051,
+          "end_frame": 1107,
+          "notes": "Contact sheet verified; short fragment of the red goalkeeper."
+        },
+        {
+          "track_id": 74,
+          "team_label": "goalkeeper_green",
+          "role_label": "goalkeeper",
+          "start_frame": 1355,
+          "end_frame": 1359,
+          "notes": "Contact sheet verified; short fragment of the green goalkeeper."
+        },
+        {
           "track_id": 7,
           "team_label": "light_blue",
           "role_label": "player",

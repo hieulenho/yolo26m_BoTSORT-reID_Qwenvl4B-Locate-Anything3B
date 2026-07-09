@@ -26,6 +26,86 @@ PIPELINE_C_PREDICTIONS = (
 
 ANNOTATIONS: list[dict[str, Any]] = [
     {
+        "track_id": 17,
+        "team_label": "dark_blue",
+        "role_label": "player",
+        "start_frame": 5,
+        "end_frame": 361,
+        "notes": "Contact sheet verified; dark-blue player with one contaminated late crop.",
+    },
+    {
+        "track_id": 20,
+        "team_label": "light_blue",
+        "role_label": "player",
+        "start_frame": 5,
+        "end_frame": 9,
+        "notes": "Contact sheet verified; five-frame light-blue edge fragment.",
+    },
+    {
+        "track_id": 63,
+        "team_label": "dark_blue",
+        "role_label": "player",
+        "start_frame": 1219,
+        "end_frame": 1220,
+        "notes": "Contact sheet verified; two-frame dark-blue player fragment.",
+    },
+    {
+        "track_id": 69,
+        "team_label": "dark_blue",
+        "role_label": "player",
+        "start_frame": 1332,
+        "end_frame": 1333,
+        "notes": "Contact sheet verified; two-frame dark-blue player fragment.",
+    },
+    {
+        "track_id": 28,
+        "team_label": "referee_black",
+        "role_label": "referee",
+        "start_frame": 135,
+        "end_frame": 1346,
+        "notes": "Contact sheet verified; on-field referee wearing black.",
+    },
+    {
+        "track_id": 78,
+        "team_label": "referee_black",
+        "role_label": "referee",
+        "start_frame": 1388,
+        "end_frame": 1390,
+        "notes": "Contact sheet verified; assistant referee wearing black and holding a flag.",
+    },
+    {
+        "track_id": 29,
+        "team_label": "goalkeeper_red",
+        "role_label": "goalkeeper",
+        "start_frame": 138,
+        "end_frame": 147,
+        "notes": "Contact sheet verified; short fragment of the red goalkeeper.",
+    },
+    {
+        "track_id": 53,
+        "team_label": "goalkeeper_red",
+        "role_label": "goalkeeper",
+        "start_frame": 797,
+        "end_frame": 820,
+        "notes": "Contact sheet verified; short fragment of the red goalkeeper.",
+    },
+    {
+        "track_id": 59,
+        "team_label": "goalkeeper_red",
+        "role_label": "goalkeeper",
+        "start_frame": 1051,
+        "end_frame": 1107,
+        "notes": "Contact sheet verified; short fragment of the red goalkeeper.",
+    },
+    {
+        "track_id": 74,
+        "team_label": "goalkeeper_green",
+        "role_label": "goalkeeper",
+        "start_frame": 1355,
+        "end_frame": 1359,
+        "notes": "Contact sheet verified; short fragment of the green goalkeeper.",
+    },
+    {
         "track_id": 7,
         "team_label": "light_blue",
         "role_label": "player",
@@ -477,17 +557,33 @@ def main() -> None:
         "",
         "Current limitation:",
         "",
-        "- The A/C prediction manifests are bootstrap/contact-sheet artifacts for validating benchmark plumbing.",
-        "- A true Pipeline B manifest is still required before reporting a complete A/B/C comparison.",
-        "- Position labels are currently coarse (`player`, `goalkeeper`); paper-ready role labels should expand to `defender`, `midfielder`, `forward`, etc.",
+        (
+            "- The A/C prediction manifests are bootstrap/contact-sheet artifacts for "
+            "validating benchmark plumbing."
+        ),
+        (
+            "- A true Pipeline B manifest is still required before reporting a complete "
+            "A/B/C comparison."
+        ),
+        (
+            "- Position labels are currently coarse (`player`, `goalkeeper`); paper-ready "
+            "role labels should expand to `defender`, `midfielder`, `forward`, etc."
+        ),
         "",
         "Run:",
         "",
         "```powershell",
         ".\\scripts\\run_team_position_benchmark.ps1 `",
         "  -Manifest data\\team_benchmark\\video_1\\benchmark_manifest_expanded.json `",
-        "  -PipelineA data\\team_benchmark\\video_1\\pipeline_a_yolo26m_botsort_reid_qwen4b_expanded_bootstrap.json `",
-        "  -PipelineC data\\team_benchmark\\video_1\\pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b_expanded_bootstrap.json `",
+        (
+            "  -PipelineA data\\team_benchmark\\video_1\\"
+            "pipeline_a_yolo26m_botsort_reid_qwen4b_expanded_bootstrap.json `"
+        ),
+        (
+            "  -PipelineC data\\team_benchmark\\video_1\\"
+            "pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b_"
+            "expanded_bootstrap.json `"
+        ),
         "  -OutputDir outputs\\team_benchmark\\focused\\video_1_available `",
         "  -Overwrite",
         "```",

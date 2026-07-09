@@ -7,6 +7,191 @@
   "track_predictions": [
     {
       "sequence_name": "video_1",
+      "track_id": 17,
+      "status": "resolved",
+      "team_label": "dark_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        5,
+        124,
+        242,
+        361
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0017.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 20,
+      "status": "resolved",
+      "team_label": "light_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        5,
+        6,
+        8,
+        9
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0020.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 63,
+      "status": "resolved",
+      "team_label": "dark_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        1219,
+        1220
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0063.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 69,
+      "status": "resolved",
+      "team_label": "dark_blue",
+      "role_label": "player",
+      "confidence": 0.88,
+      "evidence_frames": [
+        1332,
+        1333
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0069.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 28,
+      "status": "resolved",
+      "team_label": "referee_black",
+      "role_label": "referee",
+      "confidence": 0.88,
+      "evidence_frames": [
+        135,
+        539,
+        942,
+        1346
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0028.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 78,
+      "status": "resolved",
+      "team_label": "referee_black",
+      "role_label": "referee",
+      "confidence": 0.88,
+      "evidence_frames": [
+        1388,
+        1389,
+        1390
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0078.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 29,
+      "status": "resolved",
+      "team_label": "goalkeeper_red",
+      "role_label": "goalkeeper",
+      "confidence": 0.88,
+      "evidence_frames": [
+        138,
+        141,
+        144,
+        147
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0029.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 53,
+      "status": "resolved",
+      "team_label": "goalkeeper_red",
+      "role_label": "goalkeeper",
+      "confidence": 0.88,
+      "evidence_frames": [
+        797,
+        805,
+        812,
+        820
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0053.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 59,
+      "status": "resolved",
+      "team_label": "goalkeeper_red",
+      "role_label": "goalkeeper",
+      "confidence": 0.88,
+      "evidence_frames": [
+        1051,
+        1070,
+        1088,
+        1107
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0059.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
+      "track_id": 74,
+      "status": "resolved",
+      "team_label": "goalkeeper_green",
+      "role_label": "goalkeeper",
+      "confidence": 0.88,
+      "evidence_frames": [
+        1355,
+        1356,
+        1358,
+        1359
+      ],
+      "metadata": {
+        "source": "manual_contact_sheet_bootstrap_for_expanded_benchmark",
+        "contact_sheet": "outputs/team_benchmark/video_1_annotation/contact_sheets/track_0074.jpg",
+        "not_model_claim": true
+      }
+    },
+    {
+      "sequence_name": "video_1",
       "track_id": 7,
       "status": "resolved",
       "team_label": "light_blue",
