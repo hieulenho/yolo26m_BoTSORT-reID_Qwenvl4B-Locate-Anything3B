@@ -155,6 +155,7 @@ def analyze_many_trackers(
         "per_sequence_csv": output / "idsw_taxonomy_per_sequence.csv",
         "events_csv": output / "idsw_taxonomy_events.csv",
         "report_md": output / "idsw_taxonomy_report.md",
+        "table_md": output / "idsw_taxonomy_table.md",
     }
     for path in paths.values():
         if path.exists() and not overwrite:
@@ -201,6 +202,7 @@ def analyze_many_trackers(
     _write_csv(per_sequence, paths["per_sequence_csv"])
     _write_csv(events, paths["events_csv"])
     paths["report_md"].write_text(_report_markdown(summaries), encoding="utf-8")
+    paths["table_md"].write_text(_table_markdown(summaries), encoding="utf-8")
     return result
 
 
@@ -442,15 +444,6 @@ def _summarize_events(sequence: str, events: list[SwitchEvent]) -> dict[str, Any
 
 
 def _report_markdown(summaries: list[dict[str, Any]]) -> str:
-    headers = [
-        "Tracker",
-        "IDSW",
-        "Fragmentation",
-        "Identity Swap",
-        "ReID Failure",
-        "Association Error",
-        "Appearance Confusion",
-    ]
     lines = [
         "# ID Switch Taxonomy",
         "",
@@ -460,7 +453,42 @@ def _report_markdown(summaries: list[dict[str, Any]]) -> str:
             "this taxonomy is a diagnostic breakdown of switch causes."
         ),
         "",
-        "| " + " | ".join(headers) + " |",
+        *_table_lines(summaries),
+        "",
+        "## Failure Type Definitions",
+        "",
+        (
+            "- `fragmentation`: the GT target briefly disappears from matching "
+            "and returns with a new predicted ID."
+        ),
+        (
+            "- `identity_swap`: the new predicted ID was recently owned by "
+            "another GT, or the old ID is assigned to another GT."
+        ),
+        (
+            "- `re_identification_failure`: the GT target has a longer unmatched "
+            "gap before returning with a new ID."
+        ),
+        "- `association_error`: continuous tracking changes ID without a nearby crowding cue.",
+        (
+            "- `appearance_confusion`: continuous switch occurs while other GT "
+            "players are nearby, usually indicating crowded/similar-appearance "
+            "ambiguity."
+        ),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _table_markdown(summaries: list[dict[str, Any]]) -> str:
+    return "\n".join(["# ID Switch Taxonomy Table", "", *_table_lines(summaries), ""]) + "\n"
+
+
+def _table_lines(summaries: list[dict[str, Any]]) -> list[str]:
+    lines = [
+        (
+            "| Tracker | Total IDSW | Fragmentation | Identity Swap | ReID Failure "
+            "| Association Error | Appearance Confusion |"
+        ),
         "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summaries:
@@ -479,19 +507,7 @@ def _report_markdown(summaries: list[dict[str, Any]]) -> str:
             )
             + " |"
         )
-    lines.extend(
-        [
-            "",
-            "## Failure Type Definitions",
-            "",
-            "- `fragmentation`: the GT target briefly disappears from matching and returns with a new predicted ID.",
-            "- `identity_swap`: the new predicted ID was recently owned by another GT, or the old ID is assigned to another GT.",
-            "- `re_identification_failure`: the GT target has a longer unmatched gap before returning with a new ID.",
-            "- `association_error`: continuous tracking changes ID without a nearby crowding cue.",
-            "- `appearance_confusion`: continuous switch occurs while other GT players are nearby, usually indicating crowded/similar-appearance ambiguity.",
-        ]
-    )
-    return "\n".join(lines) + "\n"
+    return lines
 
 
 def _write_csv(rows: list[dict[str, Any]], path: Path) -> None:
@@ -503,7 +519,10 @@ def _write_csv(rows: list[dict[str, Any]], path: Path) -> None:
             writer.writerow(row)
 
 
-def _iou(first: tuple[float, float, float, float], second: tuple[float, float, float, float]) -> float:
+def _iou(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
     left = max(first[0], second[0])
     top = max(first[1], second[1])
     right = min(first[2], second[2])
