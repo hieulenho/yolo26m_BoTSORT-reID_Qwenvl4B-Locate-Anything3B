@@ -275,7 +275,13 @@ def _apply_overrides(config: TrackingConfig, overrides: dict[str, Any]) -> Track
         changes["render_video"] = False
     if overrides.get("save_mot") is not None:
         changes["save_mot"] = bool(overrides["save_mot"])
+    # Pipeline D: inject class_ids from VLM scene_discovery at runtime
+    if overrides.get("class_ids") is not None:
+        raw = overrides["class_ids"]
+        if isinstance(raw, (list, tuple)) and raw:
+            changes["class_ids"] = tuple(int(c) for c in raw)
     return replace(config, **changes) if changes else config
+
 
 
 def _default_video_output_paths(source_path: Path) -> tuple[Path, Path, Path]:

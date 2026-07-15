@@ -1,109 +1,100 @@
-# Lệnh chạy tổng Pipeline Tracking (F:\videos\)
+# Bộ lệnh chạy Pipeline Tracking (F:\videos\)
 
-Cấu trúc lệnh dưới đây sẽ chạy toàn bộ các bước cho một video gốc nằm ở `F:\videos\`.
-Nó sẽ chạy YOLO26m (bóng đá) -> BoT-SORT ReID -> Qwen3-VL 4B / LocateAnything 3B, và tự động render video xuất thẳng ra `F:\videos\`.
+## ======================================================
+## PIPELINE A / B / C — Bóng đá (Football Semantic Tracking)
+## ======================================================
+## Áp dụng cho: videos bóng đá 1.mp4, 2.mp4, 3.webm, ...
+## Detector: YOLO26m fine-tuned bóng đá + BoT-SORT ReID
+## VLM: Qwen3-VL-4B phân loại đội / vị trí cầu thủ
 
-## 1. Chạy cho video thứ nhất (1.mp4)
+### Chạy đầy đủ Pipeline A (chỉ Qwen):
+.\scripts\run_raw_video_semantic_experiments.ps1 `
+    -SourceVideo "F:\videos\1.mp4" `
+    -Query "the goalkeeper wearing green" `
+    -Pipelines A `
+    -RunQwenModel `
+    -Overwrite
 
-```powershell
-# Chạy đầy đủ 3 Pipeline (A, B, C) cho video 1.mp4
-# LocateAnything sẽ tìm "the goalkeeper wearing green"
+### Chạy đầy đủ Pipeline A + B + C (Qwen + LocateAnything):
 .\scripts\run_raw_video_semantic_experiments.ps1 `
     -SourceVideo "F:\videos\1.mp4" `
     -Query "the goalkeeper wearing green" `
     -Pipelines A,B,C `
     -RunQwenModel `
     -Overwrite
-```
 
-## 2. Chạy cho video thứ hai (2.mp4)
-
-```powershell
-# Chạy đầy đủ 3 Pipeline (A, B, C) cho video 2.mp4
-# Chú ý: Đổi Query sao cho phù hợp với nội dung video 2
-.\scripts\run_raw_video_semantic_experiments.ps1 `
-    -SourceVideo "F:\videos\2.mp4" `
-    -Query "the goalkeeper" `
-    -Pipelines A,B,C `
-    -RunQwenModel `
-    -Overwrite
-```
-
-## 3. Chạy cho video thứ ba (3.mp4)
-
-```powershell
-.\scripts\run_raw_video_semantic_experiments.ps1 `
-    -SourceVideo "F:\videos\3.mp4" `
-    -Query "the referee" `
-    -Pipelines A,B,C `
-    -RunQwenModel `
-    -Overwrite
-```
-
----
-
-## Mẹo hữu ích
-1. **Tiết kiệm thời gian (Bỏ qua tracking lại):** Nếu video 1.mp4 đã chạy tracking (YOLO+BoT-SORT) một lần rồi, và bạn chỉ muốn chạy lại phần Qwen/LocateAnything, hãy thêm cờ `-SkipTracking` và chỉ đường dẫn `-Tracks`:
-```powershell
+### Skip tracking (dùng file tracks đã có sẵn):
 .\scripts\run_raw_video_semantic_experiments.ps1 `
     -SourceVideo "F:\videos\1.mp4" `
-    -Tracks "F:\videos\1_yolo26m_botsort_reid.txt" `
+    -Tracks "F:\videos\1_yolo26m_football_botsort_high_recall.txt" `
     -SkipTracking `
+    -Query "the goalkeeper wearing green" `
     -Pipelines A,B,C `
-    -RunQwenModel
-```
+    -RunQwenModel `
+    -Overwrite
 
-2. **Chạy thử nghiệm nhanh (Smoke test):** Nếu video quá dài, bạn có thể cắt ngắn chỉ chạy tracking 150 frames đầu tiên bằng cách thêm: `-MaxFrames 150`
-
-3. **Chỉ chạy Pipeline A (Qwen phân loại toàn đội):** Nếu không muốn chờ LocateAnything chạy, có thể rút gọn: `-Pipelines A`
- 
----
-
-## 4. Video 3.webm / highlight / zoom-heavy video
-
-Use this profile when the default football detector misses people in zoomed or cut-heavy footage. It keeps the football detector but raises recall with larger input size, lower confidence threshold, and a high-recall BoT-SORT profile.
-
-```powershell
-$SourceVideo = "F:\videos\3.webm"
-$Query = "the main football player or referee in the scene"
-
+### Chạy nhanh (150 frames đầu, smoke test):
 .\scripts\run_raw_video_semantic_experiments.ps1 `
-  -SourceVideo $SourceVideo `
-  -TrackingProfile football_high_recall `
-  -Query $Query `
-  -Pipelines A `
-  -RunQwenModel `
-  -Device cuda `
-  -TorchDtype auto `
-  -Quantization 8bit `
-  -MaxKeyframes 1 `
-  -MaxTracks 8 `
-  -MaxCropsPerTrack 1 `
-  -MaxNewTokens 256 `
-  -OutputRoot outputs\semantic_video_experiments `
-  -Overwrite
-```
+    -SourceVideo "F:\videos\1.mp4" `
+    -Query "the goalkeeper wearing green" `
+    -Pipelines A `
+    -MaxFrames 150 `
+    -RunQwenModel `
+    -Overwrite
 
-Main outputs:
+## ======================================================
+## PIPELINE D — VLM-Guided Open-Vocabulary Tracking (MỚI)
+## ======================================================
+## Áp dụng cho: ANY video (giao thông, phim, thể thao bất kỳ)
+## Bước 1: Qwen3-VL-4B tự phân tích bối cảnh -> sinh COCO class list
+## Bước 2: YOLO gốc (yolov8m.pt) detect chỉ các class VLM sinh ra
+## Bước 3: BoT-SORT tracking + render video với COCO class labels
 
-```text
-F:\videos\3_yolo26m_football_botsort_high_recall.mp4
-F:\videos\3_yolo26m_football_botsort_high_recall.txt
-F:\videos\3_pipeline_A_qwen4b.mp4
-outputs\semantic_video_experiments\3\tracking_diagnostics.md
-```
+### Chạy đầy đủ Pipeline D (từ video gốc):
+.\scripts\run_vlm_guided_pipeline.ps1 `
+    -SourceVideo "F:\videos\traffic.mp4" `
+    -Quantization 8bit `
+    -Overwrite
 
-Fast smoke test:
+### Skip discovery (dùng lại scene_discovery.json đã có):
+.\scripts\run_vlm_guided_pipeline.ps1 `
+    -SourceVideo "F:\videos\traffic.mp4" `
+    -SkipDiscovery `
+    -Overwrite
 
-```powershell
-.\scripts\run_raw_video_semantic_experiments.ps1 `
-  -SourceVideo "F:\videos\3.webm" `
-  -TrackingProfile football_high_recall `
-  -Pipelines A `
-  -MaxFrames 600 `
-  -MaxKeyframes 1 `
-  -MaxTracks 5 `
-  -MaxCropsPerTrack 1 `
-  -MaxNewTokens 128 `
-  -Overwrite
-```
+### Chỉ chạy Bước 1 (Discovery) độc lập:
+.venv\Scripts\python.exe scripts\run_scene_discovery.py `
+    --video "F:\videos\traffic.mp4" `
+    --output "outputs\vlm_guided_experiments\traffic\scene_discovery.json" `
+    --quantization 8bit `
+    --n-frames 3 `
+    --overwrite
+
+## ======================================================
+## IDSW TAXONOMY ANALYSIS
+## ======================================================
+## Phân tích loại ID Switch (Fragmentation / Identity Swap / ...)
+## Yêu cầu: đã có tracking outputs trong outputs/tracks/
+
+.\scripts\run_idsw_analysis.ps1
+
+### Với thư mục tùy chỉnh:
+.\scripts\run_idsw_analysis.ps1 `
+    -MotRoot "data/mot/sportsmot_football" `
+    -Seqmap "data/mot/sportsmot_football/seqmaps/all.txt" `
+    -OutputDir "outputs/reports/idsw_taxonomy" `
+    -Overwrite
+
+## ======================================================
+## ĐÁNH GIÁ ĐỊNH LƯỢNG (Pipeline A/B/C vs Ground Truth)
+## ======================================================
+## Chạy sau khi đã có render_predictions.json của các pipeline
+
+.venv\Scripts\python.exe scripts\evaluate_pipeline_results.py `
+    --sequence-name "video_1" `
+    --annotation-csv "data/team_benchmark/video_1/track_annotation_expanded.csv" `
+    --pipeline-a "outputs\semantic_video_experiments\1\pipeline_a_yolo26m_botsort_reid_qwen4b\render_predictions.json" `
+    --pipeline-b "outputs\semantic_video_experiments\1\pipeline_b_yolo26m_botsort_reid_locateanything3b\render_predictions.json" `
+    --pipeline-c "outputs\semantic_video_experiments\1\pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b\render_predictions.json" `
+    --output-dir "outputs\reports\evaluation\video_1" `
+    --overwrite

@@ -179,6 +179,15 @@ def _add_tracking_common_options(
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument(
+        "--class-ids",
+        default=None,
+        help=(
+            "Comma-separated COCO class IDs to detect (e.g. '0,2,3'). "
+            "Overrides the class_ids in the config YAML. "
+            "Used by Pipeline D (VLM-Guided) to inject classes discovered by VLM."
+        ),
+    )
 
 
 def _add_detection_cache_common_options(parser: argparse.ArgumentParser) -> None:
@@ -623,6 +632,14 @@ def _training_overrides(args: argparse.Namespace) -> dict[str, object]:
 
 
 def _tracking_overrides(args: argparse.Namespace) -> dict[str, object]:
+    # Parse --class-ids "0,2,3" -> [0, 2, 3]
+    class_ids_raw = getattr(args, "class_ids", None)
+    class_ids: list[int] | None = None
+    if class_ids_raw:
+        try:
+            class_ids = [int(x.strip()) for x in str(class_ids_raw).split(",") if x.strip()]
+        except ValueError:
+            class_ids = None
     return {
         "source": getattr(args, "source", None),
         "output_video": getattr(args, "output_video", None),
@@ -637,6 +654,7 @@ def _tracking_overrides(args: argparse.Namespace) -> dict[str, object]:
         "save_mot": True if getattr(args, "save_mot", None) else None,
         "overwrite": True if getattr(args, "overwrite", False) else None,
         "show_window": True if getattr(args, "show", False) else None,
+        "class_ids": class_ids,
     }
 
 
