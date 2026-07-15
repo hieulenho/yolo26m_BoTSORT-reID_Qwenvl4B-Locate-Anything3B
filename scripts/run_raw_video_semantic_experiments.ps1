@@ -60,6 +60,15 @@ param(
 
     [string]$TrackingConfig = "configs/track_video_yolo26m_botsort.yaml",
 
+    [ValidateSet("football", "football_high_recall", "general_person")]
+    [string]$TrackingProfile = "football",
+
+    [string]$TrackCheckpoint = "",
+
+    [double]$TrackConf = -1.0,
+
+    [int]$TrackImgsz = 0,
+
     [string]$Tracks = "",
 
     [string]$TrackedVideo = "",
@@ -94,6 +103,8 @@ param(
 
     [int]$MaxFrames = 0,
 
+    [bool]$RunTrackDiagnostics = $true,
+
     [bool]$RenderPipelineVideos = $true,
 
     [bool]$UseBenchmarkLabelsForRender = $true,
@@ -116,6 +127,21 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $ProjectRoot
+
+$TrackingConfigWasProvided = $PSBoundParameters.ContainsKey("TrackingConfig")
+if (-not $TrackingConfigWasProvided) {
+    switch ($TrackingProfile) {
+        "football_high_recall" {
+            $TrackingConfig = "configs/track_video_yolo26m_botsort_high_recall.yaml"
+        }
+        "general_person" {
+            $TrackingConfig = "configs/track_video_yolo26m_pretrained_person_botsort_high_recall.yaml"
+        }
+        default {
+            $TrackingConfig = "configs/track_video_yolo26m_botsort.yaml"
+        }
+    }
+}
 
 if (-not $env:PYTORCH_CUDA_ALLOC_CONF) {
     $env:PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"
@@ -154,7 +180,13 @@ $PreferredManifestC = Join-Path $BenchmarkDir "pipeline_c_yolo26m_botsort_reid_l
 $CompletionManifest = Join-Path $RunRoot "shared\visual_label_completion.json"
 
 # Tracking output paths
-$DefaultTrackedStem = "${Stem}_yolo26m_botsort_reid"
+$DefaultTrackedStem = if ($TrackingProfile -eq "general_person") {
+    "${Stem}_yolo26m_pretrained_person_botsort_high_recall"
+} elseif ($TrackingProfile -eq "football_high_recall") {
+    "${Stem}_yolo26m_football_botsort_high_recall"
+} else {
+    "${Stem}_yolo26m_botsort_reid"
+}
 $DefaultTrackedVideo = Join-Path $SourceDir "${DefaultTrackedStem}.mp4"
 $DefaultTracks = Join-Path $SourceDir "${DefaultTrackedStem}.txt"
 
@@ -192,7 +224,11 @@ if ($SkipTracking) {
     }
 } else {
     $TrackedVideo = if ($TrackedVideo) { $TrackedVideo } else { $DefaultTrackedVideo }
-    $TracksResolved = if ($Tracks) { $Tracks } else { $DefaultTracks }
+    $TracksResolved = if ($Tracks) {
+        $Tracks
+    } else {
+        [System.IO.Path]::ChangeExtension($TrackedVideo, ".txt")
+    }
     $TrackingMetadata = if ($TrackingMetadata) {
         $TrackingMetadata
     } else {
@@ -204,10 +240,15 @@ Write-Host ""
 Write-Host "==> Source video : $SourcePath"
 Write-Host "==> Run root     : $RunRoot"
 Write-Host "==> Sequence name: $SequenceName"
+Write-Host "==> Track profile: $TrackingProfile"
+Write-Host "==> Track config : $TrackingConfig"
 Write-Host "==> Tracks       : $TracksResolved"
 if ($TrackedVideo) { Write-Host "==> Tracked video: $TrackedVideo" }
 if ($TrackingMetadata) { Write-Host "==> Metadata     : $TrackingMetadata" }
 if ($SkipTracking) { Write-Host "==> SkipTracking : true" }
+if ($TrackCheckpoint) { Write-Host "==> Track ckpt   : $TrackCheckpoint" }
+if ($TrackConf -ge 0.0) { Write-Host "==> Track conf   : $TrackConf" }
+if ($TrackImgsz -gt 0) { Write-Host "==> Track imgsz  : $TrackImgsz" }
 Write-Host "==> Quantization : $Quantization"
 if ($AnnotationCsv) { Write-Host "==> Annotation   : $AnnotationCsv" }
 
@@ -321,11 +362,45 @@ if ($SkipTracking) {
     )
     if ($Overwrite) { $TrackArgs += "--overwrite" }
     if ($MaxFrames -gt 0) { $TrackArgs += @("--max-frames", "$MaxFrames") }
+    if ($TrackCheckpoint) { $TrackArgs += @("--checkpoint", "$TrackCheckpoint") }
+    if ($TrackConf -ge 0.0) { $TrackArgs += @("--conf", "$TrackConf") }
+    if ($TrackImgsz -gt 0) { $TrackArgs += @("--imgsz", "$TrackImgsz") }
 
     Write-Host ""
     Write-Host "==> Step 1/4: YOLO26m + BoT-SORT ReID tracking"
     & $Python @TrackArgs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+if (Test-Path -LiteralPath $TracksResolved -PathType Leaf) {
+    $TracksResolved = (Resolve-Path -LiteralPath $TracksResolved).Path
+}
+if ($TrackingMetadata -and (Test-Path -LiteralPath $TrackingMetadata -PathType Leaf)) {
+    $TrackingMetadata = (Resolve-Path -LiteralPath $TrackingMetadata).Path
+}
+
+$DiagnosticsJson = Join-Path $RunRoot "tracking_diagnostics.json"
+$DiagnosticsMd = Join-Path $RunRoot "tracking_diagnostics.md"
+if ($RunTrackDiagnostics -and (Test-Path -LiteralPath $TracksResolved -PathType Leaf)) {
+    Write-Host ""
+    Write-Host "==> Running tracking diagnostics"
+    $DiagnosticsArgs = @(
+        "scripts\diagnose_video_tracks.py",
+        "--tracks", "$TracksResolved",
+        "--source-video", "$SourcePath",
+        "--output-json", "$DiagnosticsJson",
+        "--output-md", "$DiagnosticsMd"
+    )
+    if ($TrackingMetadata -and (Test-Path -LiteralPath $TrackingMetadata -PathType Leaf)) {
+        $DiagnosticsArgs += @("--metadata", "$TrackingMetadata")
+    }
+    if ($Overwrite) { $DiagnosticsArgs += "--overwrite" }
+    & $Python @DiagnosticsArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Tracking diagnostics failed (exit $LASTEXITCODE). Continuing..."
+    } else {
+        Write-Host "==> Tracking diagnostics: $DiagnosticsMd"
+    }
 }
 
 if ($CompleteRenderLabels) {
@@ -543,7 +618,15 @@ $Summary = [ordered]@{
     query             = $Query
     run_root          = "$RunRoot"
     skip_tracking     = [bool]$SkipTracking
+    tracking_profile  = $TrackingProfile
+    tracking_config   = $TrackingConfig
+    tracking_overrides = [ordered]@{
+        checkpoint = if ($TrackCheckpoint) { $TrackCheckpoint } else { $null }
+        conf       = if ($TrackConf -ge 0.0) { $TrackConf } else { $null }
+        imgsz      = if ($TrackImgsz -gt 0) { $TrackImgsz } else { $null }
+    }
     tracks            = "$TracksResolved"
+    tracking_diagnostics = if ($RunTrackDiagnostics) { "$DiagnosticsJson" } else { $null }
     pipelines         = $NormalizedPipelines
     qwen_model_loaded = [bool]$RunQwenModel
     locate_backend    = $LocateBackend

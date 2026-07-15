@@ -56,3 +56,54 @@ Nó sẽ chạy YOLO26m (bóng đá) -> BoT-SORT ReID -> Qwen3-VL 4B / LocateAny
 2. **Chạy thử nghiệm nhanh (Smoke test):** Nếu video quá dài, bạn có thể cắt ngắn chỉ chạy tracking 150 frames đầu tiên bằng cách thêm: `-MaxFrames 150`
 
 3. **Chỉ chạy Pipeline A (Qwen phân loại toàn đội):** Nếu không muốn chờ LocateAnything chạy, có thể rút gọn: `-Pipelines A`
+ 
+---
+
+## 4. Video 3.webm / highlight / zoom-heavy video
+
+Use this profile when the default football detector misses people in zoomed or cut-heavy footage. It keeps the football detector but raises recall with larger input size, lower confidence threshold, and a high-recall BoT-SORT profile.
+
+```powershell
+$SourceVideo = "F:\videos\3.webm"
+$Query = "the main football player or referee in the scene"
+
+.\scripts\run_raw_video_semantic_experiments.ps1 `
+  -SourceVideo $SourceVideo `
+  -TrackingProfile football_high_recall `
+  -Query $Query `
+  -Pipelines A `
+  -RunQwenModel `
+  -Device cuda `
+  -TorchDtype auto `
+  -Quantization 8bit `
+  -MaxKeyframes 1 `
+  -MaxTracks 8 `
+  -MaxCropsPerTrack 1 `
+  -MaxNewTokens 256 `
+  -OutputRoot outputs\semantic_video_experiments `
+  -Overwrite
+```
+
+Main outputs:
+
+```text
+F:\videos\3_yolo26m_football_botsort_high_recall.mp4
+F:\videos\3_yolo26m_football_botsort_high_recall.txt
+F:\videos\3_pipeline_A_qwen4b.mp4
+outputs\semantic_video_experiments\3\tracking_diagnostics.md
+```
+
+Fast smoke test:
+
+```powershell
+.\scripts\run_raw_video_semantic_experiments.ps1 `
+  -SourceVideo "F:\videos\3.webm" `
+  -TrackingProfile football_high_recall `
+  -Pipelines A `
+  -MaxFrames 600 `
+  -MaxKeyframes 1 `
+  -MaxTracks 5 `
+  -MaxCropsPerTrack 1 `
+  -MaxNewTokens 128 `
+  -Overwrite
+```

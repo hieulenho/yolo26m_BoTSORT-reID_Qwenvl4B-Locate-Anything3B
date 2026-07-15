@@ -1,0 +1,29 @@
+tracker:
+  name: botsort_reid
+  tracker_type: botsort
+  # Lower detector-to-track thresholds keep small/zoomed people alive better
+  # in raw broadcast/highlight videos where the fine-tuned football detector
+  # can miss a few frames.
+  track_high_thresh: 0.25
+  track_low_thresh: 0.05
+  new_track_thresh: 0.35
+  track_buffer: 150
+  match_thresh: 0.85
+  fuse_score: true
+  gmc_method: sparseOptFlow
+  proximity_thresh: 0.35
+  appearance_thresh: 0.30
+  with_reid: true
+  model: yolo26n-cls.pt
+
+output:
+  confirmed_only: true
+  require_recent_update: true
+  max_time_since_update_for_output: 0
+  # Video highlight/cut footage often has short valid appearances; requiring
+  # five hits hides too many real boxes at the beginning of a track.
+  min_hits_for_output: 2
+  compact_ids: true
+
+runtime:
+  log_level: INFO
