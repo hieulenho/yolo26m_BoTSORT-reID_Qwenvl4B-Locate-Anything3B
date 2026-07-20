@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from football_tracking.tracking.schemas import TrackOutput
+from football_tracking.tracking.schemas import TrackerDetection, TrackOutput
 from football_tracking.tracking.trajectory import TrajectoryStore
 from football_tracking.utils.colors import stable_color
 
@@ -83,6 +83,41 @@ def draw_tracks(
             0.6,
             (255, 255, 255),
             2,
+            cv2.LINE_AA,
+        )
+    return rendered
+
+
+def draw_detection_overlays(
+    frame: Any,
+    detections: list[TrackerDetection],
+    *,
+    show_confidence: bool = True,
+    line_thickness: int = 2,
+    font_scale: float = 0.6,
+) -> Any:
+    """Draw detector-only classes without assigning misleading track IDs."""
+    import cv2  # type: ignore[import-not-found]
+
+    rendered = frame.copy()
+    for detection in detections:
+        color = stable_color(100_000 + detection.class_id)
+        x1 = int(round(detection.bbox_xyxy.x1))
+        y1 = int(round(detection.bbox_xyxy.y1))
+        x2 = int(round(detection.bbox_xyxy.x2))
+        y2 = int(round(detection.bbox_xyxy.y2))
+        cv2.rectangle(rendered, (x1, y1), (x2, y2), color, line_thickness)
+        label = f"DET | {detection.class_name}"
+        if show_confidence:
+            label += f" | {detection.confidence:.2f}"
+        cv2.putText(
+            rendered,
+            label,
+            (max(0, x1), max(16, y1 - 5)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            color,
+            max(1, line_thickness),
             cv2.LINE_AA,
         )
     return rendered

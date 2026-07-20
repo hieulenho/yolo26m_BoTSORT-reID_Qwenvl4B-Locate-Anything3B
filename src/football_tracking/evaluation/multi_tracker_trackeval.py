@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import configparser
 import importlib.util
 import json
 import shutil
@@ -118,7 +119,23 @@ def _run_official_trackeval(
         if allow_partial_sequences
         else _read_seqmap(seqmap)
     )
-    gt_folder = _trackeval_gt_folder(gt_root, split, seq_names, output_root)
+    frame_limits = (
+        _common_prediction_frame_limits(
+            tracker_names,
+            trackers_root,
+            split,
+            seq_names,
+        )
+        if allow_partial_sequences
+        else None
+    )
+    gt_folder = _trackeval_gt_folder(
+        gt_root,
+        split,
+        seq_names,
+        output_root,
+        frame_limits=frame_limits,
+    )
     results: dict[str, TrackEvalTrackerResult] = {}
     for tracker_name in tracker_names:
         _stage_tracker_files(tracker_name, trackers_root, staged_root, split, seq_names)
@@ -282,18 +299,98 @@ def _trackeval_gt_folder(
     split: str,
     seq_names: list[str],
     output_root: Path,
+    frame_limits: dict[str, int] | None = None,
 ) -> Path:
     split_dir = gt_root / split
-    if split_dir.is_dir():
+    if split_dir.is_dir() and frame_limits is None:
         return split_dir
     staged = output_root / "staged_gt" / split
     for seq_name in seq_names:
         source_dir = _find_gt_sequence_dir(gt_root, seq_name)
         dest_dir = staged / seq_name
         (dest_dir / "gt").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_dir / "gt" / "gt.txt", dest_dir / "gt" / "gt.txt")
-        shutil.copy2(source_dir / "seqinfo.ini", dest_dir / "seqinfo.ini")
+        frame_limit = frame_limits.get(seq_name) if frame_limits is not None else None
+        if frame_limit is None:
+            shutil.copy2(source_dir / "gt" / "gt.txt", dest_dir / "gt" / "gt.txt")
+            shutil.copy2(source_dir / "seqinfo.ini", dest_dir / "seqinfo.ini")
+        else:
+            _write_truncated_gt(
+                source_dir / "gt" / "gt.txt",
+                dest_dir / "gt" / "gt.txt",
+                frame_limit,
+            )
+            _write_partial_seqinfo(
+                source_dir / "seqinfo.ini",
+                dest_dir / "seqinfo.ini",
+                frame_limit,
+            )
     return staged
+
+
+def _common_prediction_frame_limits(
+    tracker_names: list[str],
+    trackers_root: Path,
+    split: str,
+    seq_names: list[str],
+) -> dict[str, int]:
+    limits: dict[str, int] = {}
+    for seq_name in seq_names:
+        tracker_limits = {
+            tracker_name: _prediction_frame_limit(
+                trackers_root / tracker_name / split / f"{seq_name}.txt"
+            )
+            for tracker_name in tracker_names
+        }
+        unique_limits = set(tracker_limits.values())
+        if len(unique_limits) != 1:
+            raise ValueError(
+                f"Partial benchmark frame limits differ for {seq_name}: "
+                f"{tracker_limits}"
+            )
+        frame_limit = unique_limits.pop()
+        if frame_limit < 1:
+            raise ValueError(
+                f"Partial benchmark frame limit must be positive for {seq_name}."
+            )
+        limits[seq_name] = frame_limit
+    return limits
+
+
+def _prediction_frame_limit(prediction_path: Path) -> int:
+    metadata_path = prediction_path.with_suffix(".metadata.json")
+    if metadata_path.is_file():
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        frame_count = int(metadata.get("frame_count", 0) or 0)
+        if frame_count > 0:
+            return frame_count
+    if not prediction_path.is_file():
+        raise FileNotFoundError(f"Tracker prediction file not found: {prediction_path}")
+    max_frame = 0
+    for raw_line in prediction_path.read_text(encoding="utf-8").splitlines():
+        columns = raw_line.strip().split(",")
+        if columns and columns[0].strip():
+            max_frame = max(max_frame, int(float(columns[0])))
+    return max_frame
+
+
+def _write_truncated_gt(source: Path, destination: Path, frame_limit: int) -> None:
+    rows = []
+    for raw_line in source.read_text(encoding="utf-8").splitlines():
+        columns = raw_line.strip().split(",")
+        if columns and columns[0].strip() and int(float(columns[0])) <= frame_limit:
+            rows.append(raw_line)
+    destination.write_text("\n".join(rows) + ("\n" if rows else ""), encoding="utf-8")
+
+
+def _write_partial_seqinfo(source: Path, destination: Path, frame_limit: int) -> None:
+    parser = configparser.ConfigParser()
+    parser.optionxform = str
+    parser.read(source, encoding="utf-8")
+    if not parser.has_section("Sequence"):
+        raise ValueError(f"seqinfo.ini has no [Sequence] section: {source}")
+    parser.set("Sequence", "seqLength", str(frame_limit))
+    with destination.open("w", encoding="utf-8", newline="") as handle:
+        parser.write(handle, space_around_delimiters=False)
 
 
 def _find_gt_sequence_dir(gt_root: Path, seq_name: str) -> Path:

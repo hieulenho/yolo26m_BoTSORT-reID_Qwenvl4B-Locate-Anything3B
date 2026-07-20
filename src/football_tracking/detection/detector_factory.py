@@ -11,6 +11,8 @@ from typing import Any
 
 from football_tracking.detection.detector import (
     DetectorError,
+    RoutedCompositeDetector,
+    SupplementalDetector,
     UltralyticsDetector,
     UltralyticsOpenVocabularyDetector,
 )
@@ -41,7 +43,77 @@ def create_detector(
     device: str = "auto",
     half: bool = False,
     model_factory: Any | None = None,
-) -> UltralyticsDetector:
+) -> UltralyticsDetector | RoutedCompositeDetector:
+    supplemental = model_config.get("supplemental_detectors", [])
+    if supplemental:
+        if not isinstance(supplemental, list | tuple):
+            raise DetectorError("model.supplemental_detectors must be a list.")
+        primary_config = dict(model_config)
+        primary_config.pop("supplemental_detectors", None)
+        primary = create_detector(
+            primary_config,
+            checkpoint,
+            device=device,
+            half=half,
+            model_factory=model_factory,
+        )
+        if not isinstance(primary, UltralyticsDetector):
+            raise DetectorError("Nested routed composite detectors are not supported.")
+        routed: list[SupplementalDetector] = []
+        for index, value in enumerate(supplemental):
+            if not isinstance(value, dict):
+                raise DetectorError(f"supplemental_detectors[{index}] must be a mapping.")
+            supplement_checkpoint = value.get("checkpoint")
+            if not isinstance(supplement_checkpoint, str) or not supplement_checkpoint:
+                raise DetectorError(
+                    f"supplemental_detectors[{index}].checkpoint is required."
+                )
+            input_ids = value.get("input_class_ids", [])
+            output_ids = value.get("output_class_ids", [])
+            class_names = value.get("class_names", [])
+            if not (
+                isinstance(input_ids, list | tuple)
+                and isinstance(output_ids, list | tuple)
+                and isinstance(class_names, list | tuple)
+                and len(input_ids) == len(output_ids) == len(class_names)
+                and input_ids
+            ):
+                raise DetectorError(
+                    f"supplemental_detectors[{index}] class mappings must have equal lengths."
+                )
+            supplement = create_detector(
+                value,
+                supplement_checkpoint,
+                device=device,
+                half=half,
+                model_factory=model_factory,
+            )
+            if not isinstance(supplement, UltralyticsDetector):
+                raise DetectorError("Nested routed composite detectors are not supported.")
+            output_values = [int(item) for item in output_ids]
+            routed.append(
+                SupplementalDetector(
+                    detector=supplement,
+                    class_id_map={
+                        int(source): destination
+                        for source, destination in zip(
+                            input_ids,
+                            output_values,
+                            strict=True,
+                        )
+                    },
+                    class_names={
+                        destination: str(name)
+                        for destination, name in zip(
+                            output_values,
+                            class_names,
+                            strict=True,
+                        )
+                    },
+                    every_n_frames=int(value.get("every_n_frames", 1)),
+                )
+            )
+        return RoutedCompositeDetector(primary, routed)
     backend = detector_backend_from_config(model_config)
     if backend in {"ultralytics_yoloe", "yoloe", "open_vocabulary"}:
         text_classes = model_config.get("text_classes", model_config.get("vocabulary", []))

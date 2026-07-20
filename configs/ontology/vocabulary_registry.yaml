@@ -10,7 +10,17 @@ classes:
     coco_class: person
     default_action: track
   - name: player
-    aliases: [footballer, athlete, soccer player, football player]
+    aliases:
+      - footballer
+      - athlete
+      - soccer player
+      - football player
+      - outfield player
+      - forward
+      - striker
+      - midfielder
+      - defender
+      - winger
     coco_class: person
     default_action: track
   - name: goalkeeper

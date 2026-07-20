@@ -1,0 +1,48 @@
+benchmark:
+  dataset: data/mot/sportsmot_football
+  split: all
+  detector_cache_root: outputs/detections/cache/yolo26m_sportsmot_football
+
+expected:
+  sequence_count: 30
+  frame_count: 20171
+  confidence_threshold: 0.10
+
+sources:
+  - tracker: sort
+    display_name: SORT
+    summary: outputs/metrics/experiments/yolo26m_botsort_all/sort_vs_deepsort_overall.json
+    per_sequence: outputs/metrics/experiments/yolo26m_botsort_all/sort_vs_deepsort_per_sequence.csv
+  - tracker: deepsort
+    display_name: DeepSORT
+    summary: outputs/metrics/experiments/yolo26m_botsort_all/sort_vs_deepsort_overall.json
+    per_sequence: outputs/metrics/experiments/yolo26m_botsort_all/sort_vs_deepsort_per_sequence.csv
+  - tracker: bytetrack
+    display_name: ByteTrack
+    summary: outputs/metrics/experiments/yolo26m_bytetrack_all/tracker_summary.json
+    per_sequence: outputs/metrics/experiments/yolo26m_bytetrack_all/tracker_sequence_metrics.csv
+  - tracker: botsort_reid
+    display_name: BoT-SORT ReID (stable)
+    summary: outputs/metrics/experiments/yolo26m_botsort_identity_stable_all/sort_vs_deepsort_overall.json
+    per_sequence: outputs/metrics/experiments/yolo26m_botsort_identity_stable_all/tracker_sequence_metrics.csv
+  - tracker: ocsort
+    display_name: OC-SORT
+    summary: outputs/benchmarks/tracking/sportsmot_yolo26m/oc_family/metrics/tracker_summary.json
+    per_sequence: outputs/benchmarks/tracking/sportsmot_yolo26m/oc_family/metrics/tracker_sequence_metrics.csv
+  - tracker: deepocsort_reid
+    display_name: Deep OC-SORT ReID
+    summary: outputs/benchmarks/tracking/sportsmot_yolo26m/oc_family/metrics/tracker_summary.json
+    per_sequence: outputs/benchmarks/tracking/sportsmot_yolo26m/oc_family/metrics/tracker_sequence_metrics.csv
+  - tracker: fasttrack
+    display_name: FastTracker
+    summary: outputs/benchmarks/tracking/sportsmot_yolo26m/modern/metrics/tracker_summary.json
+    per_sequence: outputs/benchmarks/tracking/sportsmot_yolo26m/modern/metrics/tracker_sequence_metrics.csv
+  - tracker: tracktrack
+    display_name: TrackTrack
+    summary: outputs/benchmarks/tracking/sportsmot_yolo26m/modern/metrics/tracker_summary.json
+    per_sequence: outputs/benchmarks/tracking/sportsmot_yolo26m/modern/metrics/tracker_sequence_metrics.csv
+
+output:
+  root: outputs/benchmarks/tracking/sportsmot_yolo26m/final
+  overwrite: false
+  write_figures: true

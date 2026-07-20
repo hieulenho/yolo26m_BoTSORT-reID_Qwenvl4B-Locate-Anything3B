@@ -1,100 +1,80 @@
-# Bộ lệnh chạy Pipeline Tracking (F:\videos\)
+# ADAPTIVE MULTI-DOMAIN TRACKING - POWERSHELL RUNBOOK
+# Run every command from F:\Tracking.
 
-## ======================================================
-## PIPELINE A / B / C — Bóng đá (Football Semantic Tracking)
-## ======================================================
-## Áp dụng cho: videos bóng đá 1.mp4, 2.mp4, 3.webm, ...
-## Detector: YOLO26m fine-tuned bóng đá + BoT-SORT ReID
-## VLM: Qwen3-VL-4B phân loại đội / vị trí cầu thủ
+Set-Location F:\Tracking
 
-### Chạy đầy đủ Pipeline A (chỉ Qwen):
-.\scripts\run_raw_video_semantic_experiments.ps1 `
-    -SourceVideo "F:\videos\1.mp4" `
-    -Query "the goalkeeper wearing green" `
-    -Pipelines A `
-    -RunQwenModel `
-    -Overwrite
+# 1. Install the environment (first setup only).
+.\scripts\setup_env.ps1
+.\.venv\Scripts\python.exe -m pip install -r requirements\vlm.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements\open_vocab.txt
+.\.venv\Scripts\python.exe -m football_tracking.cli doctor
 
-### Chạy đầy đủ Pipeline A + B + C (Qwen + LocateAnything):
-.\scripts\run_raw_video_semantic_experiments.ps1 `
-    -SourceVideo "F:\videos\1.mp4" `
-    -Query "the goalkeeper wearing green" `
-    -Pipelines A,B,C `
-    -RunQwenModel `
-    -Overwrite
+# 2. Full adaptive run. Change only these three paths for another video.
+$SourceVideo = "F:\videos\1.mp4"
+$TrackingVideo = "F:\videos\1_adaptive_tracking.mp4"
+$SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
 
-### Skip tracking (dùng file tracks đã có sẵn):
-.\scripts\run_raw_video_semantic_experiments.ps1 `
-    -SourceVideo "F:\videos\1.mp4" `
-    -Tracks "F:\videos\1_yolo26m_football_botsort_high_recall.txt" `
-    -SkipTracking `
-    -Query "the goalkeeper wearing green" `
-    -Pipelines A,B,C `
-    -RunQwenModel `
-    -Overwrite
+.\scripts\run_adaptive_tracking.ps1 `
+  -SourceVideo $SourceVideo `
+  -OutputVideo $TrackingVideo `
+  -SemanticOutputVideo $SemanticVideo `
+  -Profile realtime `
+  -QwenQuantization 4bit `
+  -Device cuda `
+  -MaxKeyframes 4 `
+  -SemanticMaxTracks 20 `
+  -SemanticMaxImages 8 `
+  -Overwrite
 
-### Chạy nhanh (150 frames đầu, smoke test):
-.\scripts\run_raw_video_semantic_experiments.ps1 `
-    -SourceVideo "F:\videos\1.mp4" `
-    -Query "the goalkeeper wearing green" `
-    -Pipelines A `
-    -MaxFrames 150 `
-    -RunQwenModel `
-    -Overwrite
+# 3. Short end-to-end smoke run before a long video.
+.\scripts\run_adaptive_tracking.ps1 `
+  -SourceVideo F:\videos\2.mp4 `
+  -OutputVideo F:\videos\2_adaptive_smoke.mp4 `
+  -SemanticOutputVideo F:\videos\2_adaptive_smoke_semantic.mp4 `
+  -Profile realtime `
+  -MaxFrames 120 `
+  -SemanticMaxTracks 4 `
+  -SemanticMaxImages 4 `
+  -Overwrite
 
-## ======================================================
-## PIPELINE D — VLM-Guided Open-Vocabulary Tracking (MỚI)
-## ======================================================
-## Áp dụng cho: ANY video (giao thông, phim, thể thao bất kỳ)
-## Bước 1: Qwen3-VL-4B tự phân tích bối cảnh -> sinh COCO class list
-## Bước 2: YOLO gốc (yolov8m.pt) detect chỉ các class VLM sinh ra
-## Bước 3: BoT-SORT tracking + render video với COCO class labels
+# 4. Detector + tracker only after discovery; no downstream 3B/4B semantics.
+.\scripts\run_adaptive_tracking.ps1 `
+  -SourceVideo F:\videos\3.webm `
+  -OutputVideo F:\videos\3_adaptive_tracking.mp4 `
+  -SemanticOutputVideo F:\videos\3_adaptive_labels.mp4 `
+  -Profile realtime `
+  -RunTrackSemantics $false `
+  -RunLocateVerification $false `
+  -Overwrite
 
-### Chạy đầy đủ Pipeline D (từ video gốc):
-.\scripts\run_vlm_guided_pipeline.ps1 `
-    -SourceVideo "F:\videos\traffic.mp4" `
-    -Quantization 8bit `
-    -Overwrite
+# 5. Webcam. Replace 0 with an RTSP URL for a network camera.
+.\scripts\run_realtime_adaptive.ps1 `
+  -Source 0 `
+  -RunName webcam_01 `
+  -CalibrationSeconds 8 `
+  -QwenQuantization 4bit `
+  -Device cuda `
+  -Overwrite
 
-### Skip discovery (dùng lại scene_discovery.json đã có):
-.\scripts\run_vlm_guided_pipeline.ps1 `
-    -SourceVideo "F:\videos\traffic.mp4" `
-    -SkipDiscovery `
-    -Overwrite
+# 6. Tracker smoke benchmark against SportsMOT GT.
+.\scripts\run_tracking_benchmark.ps1 -Smoke -SmokeFrames 300 -Overwrite
 
-### Chỉ chạy Bước 1 (Discovery) độc lập:
-.venv\Scripts\python.exe scripts\run_scene_discovery.py `
-    --video "F:\videos\traffic.mp4" `
-    --output "outputs\vlm_guided_experiments\traffic\scene_discovery.json" `
-    --quantization 8bit `
-    --n-frames 3 `
-    --overwrite
+# 7. Rebuild canonical detector/tracker/final reports from saved full experiments.
+.\.venv\Scripts\python.exe scripts\consolidate_detector_benchmark.py `
+  --config configs\benchmarks\detector_sportsmot.yaml `
+  --overwrite
 
-## ======================================================
-## IDSW TAXONOMY ANALYSIS
-## ======================================================
-## Phân tích loại ID Switch (Fragmentation / Identity Swap / ...)
-## Yêu cầu: đã có tracking outputs trong outputs/tracks/
+.\scripts\build_tracking_benchmark_report.ps1 -Overwrite
 
-.\scripts\run_idsw_analysis.ps1
+.\.venv\Scripts\python.exe scripts\build_final_benchmark_report.py `
+  --config configs\benchmarks\final_report.yaml `
+  --overwrite
 
-### Với thư mục tùy chỉnh:
-.\scripts\run_idsw_analysis.ps1 `
-    -MotRoot "data/mot/sportsmot_football" `
-    -Seqmap "data/mot/sportsmot_football/seqmaps/all.txt" `
-    -OutputDir "outputs/reports/idsw_taxonomy" `
-    -Overwrite
+# 8. Code and artifact verification.
+.\.venv\Scripts\python.exe -m ruff check src scripts tests
+.\.venv\Scripts\python.exe -m pytest -q
 
-## ======================================================
-## ĐÁNH GIÁ ĐỊNH LƯỢNG (Pipeline A/B/C vs Ground Truth)
-## ======================================================
-## Chạy sau khi đã có render_predictions.json của các pipeline
-
-.venv\Scripts\python.exe scripts\evaluate_pipeline_results.py `
-    --sequence-name "video_1" `
-    --annotation-csv "data/team_benchmark/video_1/track_annotation_expanded.csv" `
-    --pipeline-a "outputs\semantic_video_experiments\1\pipeline_a_yolo26m_botsort_reid_qwen4b\render_predictions.json" `
-    --pipeline-b "outputs\semantic_video_experiments\1\pipeline_b_yolo26m_botsort_reid_locateanything3b\render_predictions.json" `
-    --pipeline-c "outputs\semantic_video_experiments\1\pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b\render_predictions.json" `
-    --output-dir "outputs\reports\evaluation\video_1" `
-    --overwrite
+# Main local report:
+# F:\Tracking\outputs\benchmarks\final\final_experiment_report.md
+# GitHub-ready report:
+# F:\Tracking\docs\benchmarks\final_experiment_report.md

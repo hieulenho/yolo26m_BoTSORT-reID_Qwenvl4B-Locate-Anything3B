@@ -11,19 +11,35 @@ import yaml
 from football_tracking.adaptive_tracking.router import DetectorRoute
 from football_tracking.adaptive_tracking.schemas import SceneDiscovery
 
+TRACKER_PROFILES = {
+    "realtime": ("ocsort", "configs/trackers/ocsort_realtime.yaml"),
+    "balanced": (
+        "tracktrack",
+        "configs/trackers/tracktrack_realtime.yaml",
+    ),
+    "accuracy": (
+        "botsort_reid",
+        "configs/trackers/botsort_reid_identity_stable.yaml",
+    ),
+}
+
 
 def build_tracking_payload(
     *,
     source_video: str | Path,
     output_video: str | Path,
     route: DetectorRoute,
-    tracker_config: str = "configs/trackers/deepocsort_reid_realtime.yaml",
+    tracker_name: str | None = None,
+    tracker_config: str | None = None,
     device: str = "auto",
     overwrite: bool = False,
     max_frames: int | None = None,
 ) -> dict[str, Any]:
     source = Path(source_video).resolve()
     output = Path(output_video).resolve()
+    default_tracker_name, default_tracker_config = TRACKER_PROFILES[route.profile]
+    selected_tracker = tracker_name or default_tracker_name
+    selected_tracker_config = tracker_config or default_tracker_config
     model: dict[str, Any] = {
         "name": route.route_name,
         "backend": route.backend,
@@ -33,9 +49,15 @@ def build_tracking_payload(
         "allow_pretrained_fallback": True,
         "allow_smoke_checkpoint": False,
     }
-    preserve_classes = route.route_name != "football_finetuned"
+    preserve_classes = (
+        route.route_name != "football_finetuned" or bool(route.supplemental_detectors)
+    )
     if route.backend == "ultralytics_yoloe":
         model["text_classes"] = list(route.class_names)
+    if route.supplemental_detectors:
+        model["supplemental_detectors"] = [
+            dict(item) for item in route.supplemental_detectors
+        ]
     source_names = {
         str(class_id): class_name
         for class_id, class_name in zip(route.class_ids, route.class_names, strict=True)
@@ -50,14 +72,15 @@ def build_tracking_payload(
             "device": device,
             "half": False,
             "class_ids": list(route.class_ids),
+            "tracker_class_ids": list(route.tracker_class_ids),
             "target_class_id": 0,
             "target_class_name": "player" if not preserve_classes else "object",
             "preserve_source_classes": preserve_classes,
             "source_class_names": source_names,
         },
         "tracker": {
-            "name": "deepocsort_reid",
-            "config": tracker_config,
+            "name": selected_tracker,
+            "config": selected_tracker_config,
         },
         "source": {"path": str(source), "type": "video"},
         "output": {
@@ -128,7 +151,7 @@ def write_adaptive_plan(
             "vocabulary_normalization",
             "detector_routing",
             "frame_detection",
-            "deepocsort_reid_tracking",
+            f"{tracking_payload['tracker']['name']}_tracking",
             "track_crop_sampling",
             "qwen_track_semantics",
             "temporal_fusion_unknown_rejection",

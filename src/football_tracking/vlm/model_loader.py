@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import gc
+import os
+from pathlib import Path
 from typing import Any
 
 from football_tracking.vlm.quantization import (
@@ -19,6 +21,8 @@ class VlmModelLoadError(RuntimeError):
 
 def load_qwen_model(config: Any) -> tuple[Any, Any]:
     """Load the configured Qwen VLM and processor, preferring the local HF cache."""
+    model_id = str(config.model_id)
+    enable_cached_offline_mode(model_id)
     try:
         import torch  # type: ignore[import-not-found]
         from transformers import AutoProcessor  # type: ignore[import-not-found]
@@ -27,7 +31,6 @@ def load_qwen_model(config: Any) -> tuple[Any, Any]:
             "Missing Qwen dependencies. Install requirements/vlm.txt."
         ) from exc
     model_class = _load_model_class()
-    model_id = str(config.model_id)
     try:
         processor = _from_pretrained_with_local_cache(
             AutoProcessor,
@@ -159,8 +162,68 @@ def _from_pretrained_with_local_cache(loader: Any, model_id: str, **kwargs: Any)
             ) from remote_exc
 
 
+def enable_cached_offline_mode(model_id: str) -> bool:
+    """Avoid Hub probes when a complete local snapshot is already available."""
+
+    allow_network = os.environ.get("FOOTBALL_TRACKING_ALLOW_HF_NETWORK", "").lower()
+    if allow_network in {"1", "true", "yes", "on"}:
+        return False
+    if not _cached_snapshot_is_complete(model_id):
+        return False
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+    return True
+
+
+def _cached_snapshot_is_complete(
+    model_id: str,
+    *,
+    hub_root: str | Path | None = None,
+) -> bool:
+    model_path = Path(model_id).expanduser()
+    if model_path.is_dir():
+        snapshot_roots = (model_path,)
+    else:
+        cache_root = Path(hub_root) if hub_root is not None else _hub_cache_root()
+        repository = cache_root / f"models--{model_id.replace('/', '--')}" / "snapshots"
+        if not repository.is_dir():
+            return False
+        snapshot_roots = tuple(path for path in repository.iterdir() if path.is_dir())
+    for snapshot in snapshot_roots:
+        has_config = (snapshot / "config.json").is_file()
+        has_weights = any(snapshot.glob("*.safetensors")) or any(
+            snapshot.glob("*.bin")
+        )
+        has_processor = any(
+            (snapshot / name).is_file()
+            for name in (
+                "processor_config.json",
+                "preprocessor_config.json",
+                "video_preprocessor_config.json",
+            )
+        )
+        has_tokenizer = any(
+            (snapshot / name).is_file()
+            for name in ("tokenizer.json", "tokenizer_config.json")
+        )
+        if has_config and has_weights and has_processor and has_tokenizer:
+            return True
+    return False
+
+
+def _hub_cache_root() -> Path:
+    explicit_cache = os.environ.get("HF_HUB_CACHE")
+    if explicit_cache:
+        return Path(explicit_cache).expanduser()
+    hf_home = os.environ.get("HF_HOME")
+    if hf_home:
+        return Path(hf_home).expanduser() / "hub"
+    return Path.home() / ".cache" / "huggingface" / "hub"
+
+
 __all__ = [
     "VlmModelLoadError",
+    "enable_cached_offline_mode",
     "first_model_device",
     "load_qwen_model",
     "model_load_kwargs",

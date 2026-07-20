@@ -1,0 +1,32 @@
+tracker:
+  name: tracktrack
+  tracker_type: tracktrack
+  track_high_thresh: 0.30
+  track_low_thresh: 0.08
+  new_track_thresh: 0.35
+  track_buffer: 60
+  match_thresh: 0.75
+  lost_match_thr: 0.85
+  iou_weight: 0.65
+  reid_weight: 0.35
+  conf_weight: 0.10
+  angle_weight: 0.05
+  penalty_p: 0.20
+  penalty_q: 0.40
+  reduce_step: 0.05
+  tai_thr: 0.50
+  min_track_len: 2
+  gmc_method: sparseOptFlow
+  with_reid: false
+  model: auto
+  class_aware: true
+
+output:
+  confirmed_only: true
+  require_recent_update: true
+  max_time_since_update_for_output: 0
+  min_hits_for_output: 2
+  compact_ids: true
+
+runtime:
+  log_level: INFO

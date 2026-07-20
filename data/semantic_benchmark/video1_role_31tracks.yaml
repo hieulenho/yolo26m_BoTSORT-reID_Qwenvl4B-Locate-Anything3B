@@ -1,0 +1,58 @@
+schema_version: 1
+annotation:
+  source: data/team_benchmark/video_1/track_annotation_expanded.csv
+  method: contact_sheet_manual_review
+  review_status: reviewed
+  note: Team labels are retained as metadata; class_label evaluates role only.
+samples:
+  - sample_id: video1_botsort_reviewed_31tracks
+    artifacts:
+      discovery: ../../outputs/adaptive_runs/validation/1/discovery/scene_discovery.json
+      semantics: ../../outputs/benchmarks/semantic/video1_qwen4bit_31tracks_single/fused_track_semantics.json
+      tracking_metadata: ../../../videos/1_yolo26m_botsort_reid.metadata.json
+      qwen_answer: ../../outputs/benchmarks/semantic/video1_qwen4bit_31tracks_single/vlm_answer.json
+    ground_truth:
+      domain: sports
+      objects:
+        - canonical_name: player
+          action: track
+        - canonical_name: goalkeeper
+          action: track
+        - canonical_name: referee
+          action: track
+        - canonical_name: sports ball
+          action: detect
+        - canonical_name: spectator
+          action: context
+      tracks:
+        - {track_id: 17, class_label: player, team_label: dark_blue}
+        - {track_id: 20, class_label: player, team_label: light_blue}
+        - {track_id: 63, class_label: player, team_label: dark_blue}
+        - {track_id: 69, class_label: player, team_label: dark_blue}
+        - {track_id: 28, class_label: referee, team_label: referee_black}
+        - {track_id: 78, class_label: referee, team_label: referee_black}
+        - {track_id: 29, class_label: goalkeeper, team_label: goalkeeper_red}
+        - {track_id: 53, class_label: goalkeeper, team_label: goalkeeper_red}
+        - {track_id: 59, class_label: goalkeeper, team_label: goalkeeper_red}
+        - {track_id: 74, class_label: goalkeeper, team_label: goalkeeper_green}
+        - {track_id: 7, class_label: player, team_label: light_blue}
+        - {track_id: 31, class_label: player, team_label: light_blue}
+        - {track_id: 37, class_label: player, team_label: light_blue}
+        - {track_id: 10, class_label: player, team_label: light_blue}
+        - {track_id: 45, class_label: player, team_label: light_blue}
+        - {track_id: 48, class_label: player, team_label: light_blue}
+        - {track_id: 49, class_label: player, team_label: light_blue}
+        - {track_id: 43, class_label: player, team_label: light_blue}
+        - {track_id: 3, class_label: player, team_label: light_blue}
+        - {track_id: 8, class_label: player, team_label: light_blue}
+        - {track_id: 11, class_label: player, team_label: light_blue}
+        - {track_id: 51, class_label: player, team_label: dark_blue}
+        - {track_id: 12, class_label: player, team_label: dark_blue}
+        - {track_id: 32, class_label: player, team_label: dark_blue}
+        - {track_id: 50, class_label: player, team_label: dark_blue}
+        - {track_id: 18, class_label: player, team_label: dark_blue}
+        - {track_id: 2, class_label: player, team_label: dark_blue}
+        - {track_id: 38, class_label: player, team_label: dark_blue}
+        - {track_id: 46, class_label: player, team_label: dark_blue}
+        - {track_id: 4, class_label: goalkeeper, team_label: goalkeeper_red}
+        - {track_id: 19, class_label: goalkeeper, team_label: goalkeeper_green}

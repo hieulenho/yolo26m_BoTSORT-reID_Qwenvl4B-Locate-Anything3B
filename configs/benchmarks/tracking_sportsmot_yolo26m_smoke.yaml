@@ -1,0 +1,60 @@
+experiment:
+  name: tracking_sportsmot_yolo26m_smoke
+  seed: 42
+  split: all
+
+dataset:
+  mot_root: data/mot/sportsmot_football
+  seqmap: data/mot/sportsmot_football/seqmaps/all.txt
+
+detections:
+  cache_config: configs/detection_cache_yolo26m_all.yaml
+  cache_root: outputs/detections/cache/yolo26m_sportsmot_football
+  confidence_threshold: 0.10
+
+trackers:
+  - name: sort
+    config: configs/sort.yaml
+  - name: deepsort
+    config: configs/deepsort.yaml
+  - name: bytetrack
+    config: configs/trackers/bytetrack_fast.yaml
+  - name: botsort_reid
+    config: configs/trackers/botsort_reid_identity_stable.yaml
+  - name: ocsort
+    config: configs/trackers/ocsort_realtime.yaml
+  - name: deepocsort_reid
+    config: configs/trackers/deepocsort_reid_realtime.yaml
+  - name: fasttrack
+    config: configs/trackers/fasttrack_realtime.yaml
+  - name: tracktrack
+    config: configs/trackers/tracktrack_realtime.yaml
+
+evaluation:
+  trackeval_config: configs/trackeval.yaml
+  metrics:
+    - HOTA
+    - CLEAR
+    - Identity
+  allow_partial_sequences: true
+
+benchmark:
+  render_video: false
+  measure_tracker_only: true
+  measure_end_to_end_from_cache: true
+  warmup_sequences: 0
+
+output:
+  root: outputs/benchmarks/tracking/sportsmot_yolo26m/smoke/runs
+  tracks_root: outputs/benchmarks/tracking/sportsmot_yolo26m/smoke/tracks
+  metrics_root: outputs/benchmarks/tracking/sportsmot_yolo26m/smoke/metrics
+  figures_root: outputs/benchmarks/tracking/sportsmot_yolo26m/smoke/figures
+  videos_root: outputs/benchmarks/tracking/sportsmot_yolo26m/smoke/videos
+
+runtime:
+  max_sequences: 1
+  max_frames_per_sequence: 300
+  overwrite: false
+  fail_fast: true
+  smoke_only: true
+  log_level: INFO

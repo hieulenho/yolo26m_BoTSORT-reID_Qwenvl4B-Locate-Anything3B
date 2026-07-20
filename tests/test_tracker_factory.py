@@ -66,3 +66,34 @@ output:
     assert isinstance(tracker, UltralyticsTrackerAdapter)
     assert tracker.get_runtime_config()["tracker_type"] == "botsort"
     assert tracker.get_runtime_config()["model"] == "yolo26n-cls.pt"
+
+
+@pytest.mark.parametrize("tracker_name", ["fasttrack", "tracktrack"])
+def test_tracker_factory_creates_modern_ultralytics_trackers(
+    tmp_path, tracker_name: str
+) -> None:
+    config = tmp_path / f"{tracker_name}.yaml"
+    config.write_text(
+        f"""
+tracker:
+  name: {tracker_name}
+  tracker_type: {tracker_name}
+  track_high_thresh: 0.3
+  track_low_thresh: 0.1
+  new_track_thresh: 0.35
+  track_buffer: 30
+  match_thresh: 0.8
+  with_reid: false
+  model: auto
+output:
+  confirmed_only: true
+  require_recent_update: true
+  max_time_since_update_for_output: 0
+""".strip(),
+        encoding="utf-8",
+    )
+
+    tracker = create_tracker(tracker_name, config)
+
+    assert isinstance(tracker, UltralyticsTrackerAdapter)
+    assert tracker.get_runtime_config()["tracker_type"] == tracker_name

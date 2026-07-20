@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 SUPPORTED_QUANTIZATION = ("none", "8bit", "4bit")
 
 

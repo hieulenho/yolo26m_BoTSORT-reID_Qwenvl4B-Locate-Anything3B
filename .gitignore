@@ -57,6 +57,7 @@ models/**/*.metadata.json
 *.tflite
 *.pb
 *.safetensors
+mobileclip*.ts
 
 *.mp4
 *.avi

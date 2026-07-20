@@ -1,0 +1,18 @@
+output_dir: ../../outputs/benchmarks/semantic/pipelines
+frame_count: 1399
+
+pipelines:
+  - id: A
+    name: Qwen track semantics
+    components: YOLO26m + BoT-SORT ReID + Qwen3-VL-4B
+    evaluation: ../../outputs/benchmarks/semantic/video1_qwen4bit_31tracks_single/evaluation/semantic_benchmark_summary.json
+
+  - id: B
+    name: Locate-only track semantics
+    components: YOLO26m + BoT-SORT ReID + LocateAnything-3B
+    evaluation: ../../outputs/benchmarks/semantic/video1_pipeline_b/evaluation/semantic_benchmark_summary.json
+
+  - id: C
+    name: Qwen with event-triggered Locate verification
+    components: YOLO26m + BoT-SORT ReID + Qwen3-VL-4B + LocateAnything-3B
+    evaluation: ../../outputs/benchmarks/semantic/video1_pipeline_c/evaluation/semantic_benchmark_summary.json

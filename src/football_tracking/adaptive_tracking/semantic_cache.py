@@ -53,12 +53,26 @@ class SemanticCache:
         path = self.path_for(cache_key)
         if not path.is_file():
             return None
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return SceneDiscovery.from_dict(data["discovery"])
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if data.get("cache_key") != cache_key:
+                return None
+            return SceneDiscovery.from_dict(data["discovery"])
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            return None
 
     def save(self, cache_key: str, discovery: SceneDiscovery) -> Path:
         path = self.path_for(cache_key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"cache_key": cache_key, "discovery": discovery.to_dict()}
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        payload = {
+            "schema_version": 1,
+            "cache_key": cache_key,
+            "discovery": discovery.to_dict(),
+        }
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        temporary.replace(path)
         return path

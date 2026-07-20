@@ -1,148 +1,91 @@
 # Script Guide
 
-The cleaned raw-video experiment flow is:
+Supported entry points are grouped by purpose. Run them from `F:\Tracking` in PowerShell.
 
-```text
-raw video -> YOLO26m -> BoT-SORT ReID -> A/B/C semantic pipelines
-```
-
-The full terminal runbook is:
-
-```text
-outputs\reports\focused_pipeline\run_all_team_position_commands.txt
-```
-
-## Main Raw-Video Command
-
-Change `-SourceVideo` to switch between `1.mp4`, `2.mp4`, `3.mp4`, etc.
-
-Reuse an existing MOT track file and export the three pipeline videos:
+## Adaptive Video Pipeline
 
 ```powershell
-.\scripts\run_raw_video_semantic_experiments.ps1 `
+.\scripts\run_adaptive_tracking.ps1 `
   -SourceVideo F:\videos\1.mp4 `
-  -Tracks F:\videos\1_Tracking_qwen.txt `
-  -SkipTracking `
-  -Query "the goalkeeper wearing green" `
-  -Pipelines A,B,C `
-  -LocateBackend locate_anything `
-  -RunQwenModel `
+  -OutputVideo F:\videos\1_adaptive_tracking.mp4 `
+  -SemanticOutputVideo F:\videos\1_adaptive_semantic.mp4 `
+  -Profile realtime `
+  -QwenQuantization 4bit `
   -Device cuda `
-  -TorchDtype auto `
-  -Quantization 8bit `
-  -MaxKeyframes 2 `
-  -MaxTracks 20 `
-  -MaxCropsPerTrack 1 `
-  -MaxNewTokens 512 `
-  -LocateMaxFrames 6 `
-  -CompleteRenderLabels $true `
-  -RenderLabelSamplesPerTrack 7 `
-  -OutputRoot outputs\semantic_video_experiments `
   -Overwrite
 ```
 
-This writes:
+This is the primary offline entry point. It performs scene discovery, class normalization,
+detector routing, tracking, Qwen track semantics, event-triggered LocateAnything, fusion,
+unknown rejection, rendering, and run-report consolidation.
 
-```text
-F:\videos\<video_stem>_pipeline_A_qwen4b.mp4
-F:\videos\<video_stem>_pipeline_B_locateanything3b.mp4
-F:\videos\<video_stem>_pipeline_C_locateanything3b_qwen4b.mp4
-```
+Useful controls:
 
-Run detector/tracker from scratch instead of reusing tracks:
+| Parameter | Meaning |
+|---|---|
+| `-Profile realtime` | OC-SORT and small detector routes |
+| `-Profile balanced` | TrackTrack and medium routes |
+| `-Profile accuracy` | identity-stable BoT-SORT ReID |
+| `-MaxFrames 120` | bounded smoke run |
+| `-SemanticMaxTracks 4` | limit expensive Qwen track analysis |
+| `-RunTrackSemantics $false` | skip downstream Qwen track labeling |
+| `-RunLocateVerification $false` | skip LocateAnything verification |
+| `-RefreshSemanticCache` | rerun discovery for the same source |
+
+## Realtime Stream
 
 ```powershell
-.\scripts\run_raw_video_semantic_experiments.ps1 `
-  -SourceVideo F:\videos\1.mp4 `
-  -Query "the goalkeeper wearing green" `
-  -Pipelines A,B,C `
-  -LocateBackend locate_anything `
-  -RunQwenModel `
+.\scripts\run_realtime_adaptive.ps1 `
+  -Source 0 `
+  -RunName webcam_01 `
+  -CalibrationSeconds 8 `
+  -QwenQuantization 4bit `
   -Device cuda `
-  -TorchDtype auto `
-  -Quantization 8bit `
-  -MaxKeyframes 2 `
-  -MaxTracks 20 `
-  -MaxCropsPerTrack 1 `
-  -MaxNewTokens 512 `
-  -LocateMaxFrames 6 `
-  -OutputRoot outputs\semantic_video_experiments `
   -Overwrite
 ```
 
-Pipelines:
+The script captures a short calibration clip, discovers the vocabulary once, builds a realtime
+plan, and starts the camera/RTSP/file stream. Use `-NoWindow` for headless measurement.
 
-- `A`: YOLO26m + BoT-SORT ReID + Qwen3-VL 4B.
-- `B`: YOLO26m + BoT-SORT ReID + LocateAnything 3B.
-- `C`: YOLO26m + BoT-SORT ReID + LocateAnything 3B + Qwen3-VL 4B.
+## Benchmarking
 
-`run_raw_video_semantic_experiments.ps1` defaults to `-Quantization 8bit`
-for Qwen and LocateAnything to reduce VRAM on 8 GB GPUs. Use
-`-Quantization none` only when you want a non-quantized comparison run.
-
-It also defaults to `-CompleteRenderLabels $true`. The shared visual-color
-completion gives every rendered track a team, referee, or `UNK` label. These
-coverage labels make videos readable, but their metadata marks them as
-`not_model_claim`; use the separate prediction manifests for benchmark metrics.
-
-Use a fast plumbing check before loading large models:
+Fast tracker plumbing check:
 
 ```powershell
-.\scripts\run_raw_video_semantic_experiments.ps1 `
-  -SourceVideo F:\videos\1.mp4 `
-  -Query "the goalkeeper wearing green" `
-  -Pipelines A,B,C `
-  -LocateBackend mock `
-  -OutputRoot outputs\semantic_video_experiments `
-  -Overwrite
+.\scripts\run_tracking_benchmark.ps1 -Smoke -SmokeFrames 300 -Overwrite
 ```
 
-## Benchmark Commands
-
-Use these only when you already have a benchmark manifest and saved prediction
-manifests.
+Consolidate existing full benchmark sources:
 
 ```powershell
-.\scripts\run_team_position_benchmark.ps1 `
-  -Manifest data\team_benchmark\video_1\benchmark_manifest_expanded.json `
-  -PipelineA data\team_benchmark\video_1\pipeline_a_yolo26m_botsort_reid_qwen4b_expanded_bootstrap.json `
-  -PipelineC data\team_benchmark\video_1\pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b_expanded_bootstrap.json `
-  -OutputDir outputs\team_benchmark\focused\video_1_available `
-  -Overwrite
-```
-
-## Supporting Commands
-
-Analyze ID switch failure types across trackers:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\analyze_idsw_taxonomy.py `
-  --mot-root data\mot\sportsmot_football `
-  --seqmap data\mot\sportsmot_football\seqmaps\all.txt `
-  --output-dir outputs\reports\focused_pipeline\idsw_taxonomy `
+.\scripts\build_tracking_benchmark_report.ps1 -Overwrite
+.\.venv\Scripts\python.exe scripts\consolidate_detector_benchmark.py `
+  --config configs\benchmarks\detector_sportsmot.yaml `
+  --overwrite
+.\.venv\Scripts\python.exe scripts\build_final_benchmark_report.py `
+  --config configs\benchmarks\final_report.yaml `
   --overwrite
 ```
 
-Train detector:
+The final command validates source hashes, counts, ranges, hardware compatibility, semantic GT
+scope, and writes report-ready figures.
+
+## Validation
 
 ```powershell
-.\scripts\train_football_detector.ps1
+.\.venv\Scripts\python.exe -m football_tracking.cli doctor
+.\.venv\Scripts\python.exe -m ruff check src scripts tests
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Evaluate detector:
+## Compatibility Scripts
 
-```powershell
-.\scripts\evaluate_detector.ps1 -Config configs\yolo26m_sportsmot_football_eval.yaml
-```
+The following scripts support earlier football-only experiments and are not the primary adaptive
+entry point:
 
-Compare MOT trackers:
+- `run_raw_video_semantic_experiments.ps1`
+- `run_vlm_guided_pipeline.ps1`
+- `run_team_position_benchmark.ps1`
+- `render_team_position_video.py`
 
-```powershell
-.\scripts\compare_trackers.ps1 -Config configs\compare_trackers_yolo26m_botsort_identity_stable_all.yaml -Overwrite
-```
-
-Run tests:
-
-```powershell
-.\scripts\run_tests.ps1
-```
+Use them only when reproducing an older report whose manifest explicitly references those paths.

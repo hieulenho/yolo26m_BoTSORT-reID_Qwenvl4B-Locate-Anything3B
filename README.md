@@ -1,682 +1,272 @@
-# Football Tracking
+# Adaptive Multi-Domain Visual Tracking
 
-Football player tracking and semantic team/position classification.
+This repository turns a video or live stream into class-aware tracks and deeper semantic
+labels without fixing the vocabulary to football.
 
-The current project focus is:
-
-```text
-raw football video
-  -> YOLO26m detector
-  -> BoT-SORT ReID tracker
-  -> team + role/position semantic layer
-  -> quantitative benchmark and annotated MP4
-```
-
-The three semantic pipelines are:
+The production path is:
 
 ```text
-A = YOLO26m + BoT-SORT ReID + Qwen3-VL 4B
-B = YOLO26m + BoT-SORT ReID + LocateAnything 3B
-C = YOLO26m + BoT-SORT ReID + LocateAnything 3B + Qwen3-VL 4B
+video / webcam
+  -> shot-aware keyframes
+  -> Qwen3-VL-4B scene and class discovery
+  -> normalized vocabulary and detector routing
+  -> YOLO26 / YOLOE detection
+  -> profile-selected multi-object tracker
+  -> track crops and event-triggered semantic analysis
+  -> unknown rejection, MP4, MOT TXT, JSON, and metrics
 ```
 
-The official terminal runbook for the current focused pipeline is:
+![Adaptive architecture](docs/assets/benchmarks/adaptive_architecture.png)
 
-```text
-outputs/reports/focused_pipeline/run_all_team_position_commands.txt
-```
+## Why Tracking Comes Before Deep Semantics
 
-## Current Status
+The detector and tracker process every frame. Qwen and LocateAnything process a compact set of
+keyframes, uncertain tracks, and multi-time crops. A semantic result is then attached to the
+stable `track_id` instead of running a 3B/4B model on every frame. This keeps the live path
+responsive and makes every semantic claim auditable.
 
-Environment health is currently clean on the local Windows setup:
+## Dynamic Vocabulary
 
-```text
-Python 3.12.10
-PyTorch 2.11.0+cu128
-CUDA available
-GPU: NVIDIA GeForce RTX 4060 Laptop GPU
-Ultralytics 8.4.82
-OpenCV 4.13.0
-DeepSORT realtime 1.3.2
-```
+1. Shot boundaries are estimated from sampled frame differences.
+2. Representative full-frame keyframes are sent to `Qwen/Qwen3-VL-4B-Instruct`.
+3. Qwen returns the domain, visible objects, and an action for each object: `track`, `detect`,
+   or `context`.
+4. The ontology registry merges synonyms, removes attribute-only class names, limits class
+   count, and maps known classes to COCO IDs.
+5. The detector router selects a checkpoint per class group.
 
-Latest focused checks run successfully:
+| Route | Detector | Use |
+|---|---|---|
+| Football | fine-tuned YOLO26m | people on football footage |
+| COCO | YOLO26n/s pretrained | known general objects |
+| Open vocabulary | YOLOE-26n/s | classes outside the COCO vocabulary |
 
-```powershell
-.\.venv\Scripts\python.exe -m compileall src\football_tracking\evaluation\idsw_taxonomy.py src\football_tracking\team_benchmark\schemas.py src\football_tracking\team_benchmark\evaluator.py src\football_tracking\team_benchmark\comparison.py scripts\analyze_idsw_taxonomy.py scripts\render_team_position_video.py
-.\.venv\Scripts\python.exe -m pytest tests\team_benchmark\test_team_benchmark.py tests\test_render_video.py tests\test_vlm_tracking_context.py
-```
+Football uses a hybrid route: the fine-tuned model tracks people, while a small COCO detector
+samples detect-only classes such as the ball. The realtime profile runs this supplemental
+detector every six frames and never reuses stale box coordinates.
 
-Result:
+## Tracker Profiles
 
-```text
-compileall: passed
-pytest: 8 passed
-```
+| Profile | Tracker | Intended use |
+|---|---|---|
+| `realtime` | OC-SORT | live streams and lowest end-to-end latency |
+| `balanced` | TrackTrack | strongest measured HOTA with moderate speed |
+| `accuracy` | BoT-SORT ReID stable | lowest official IDSW among the evaluated identity trackers |
 
-## Latest Reference Metrics
+OC-SORT is the realtime default because the local 30-sequence benchmark places it ahead of
+the other low-latency candidates on the measured quality-speed trade-off. Appearance-CNN
+trackers remain available, but Deep OC-SORT ReID and BoT-SORT ReID were slower on this 8 GB
+laptop GPU.
 
-Fine-tuned detector on `data/yolo/sportsmot_football/dataset.yaml`, validation split:
+## Semantic Roles
 
-| Model | Checkpoint | Precision | Recall | mAP50 | mAP50-95 | mAP75 |
-|---|---|---:|---:|---:|---:|---:|
-| YOLO26m fine-tuned | `models/detector/football/yolo26m_best.pt` | 0.9595 | 0.9601 | 0.9793 | 0.8306 | 0.9536 |
+- **Qwen** discovers classes, reads global context, and assigns open semantic labels from
+  full-frame keyframes plus multi-time track crops.
+- **LocateAnything** is called on uncertain or query-relevant cases to ground a description
+  spatially; it is not run continuously on every frame.
+- **Fusion** combines accepted evidence and emits `unknown` when confidence or score margin is
+  insufficient.
 
-Stable BoT-SORT ReID on all 30 SportsMOT football sequences:
-
-| Tracker | Sequences | Frames | HOTA | DetA | AssA | MOTA | IDF1 | IDSW | FP | FN | FPS |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| BoT-SORT ReID identity-stable | 30 | 20171 | 68.503 | 80.080 | 58.643 | 88.451 | 71.352 | 895 | 8638 | 20764 | 13.672 |
-
-Compared with the previous BoT-SORT ReID preset, the identity-stable preset reduced ID switches
-from `1064` to `895` while keeping HOTA and IDF1 essentially unchanged. The trade-off is more FN.
-
-IDSW taxonomy diagnostics are available at:
-
-```text
-outputs/reports/focused_pipeline/idsw_taxonomy/idsw_taxonomy_report.md
-```
-
-## Project Layout
-
-```text
-configs/                  YAML configs and tracker presets
-docs/                     deeper design notes and runbooks
-requirements/             dependency groups
-scripts/                  PowerShell wrappers for common workflows
-src/football_tracking/    Python package
-tests/                    pytest suite
-```
-
-Generated or large artifacts are ignored by Git:
-
-```text
-data/                     downloaded and converted datasets
-models/                   promoted detector checkpoints
-outputs/                  metrics, videos, tracks, caches, VLM artifacts
-runs/                     Ultralytics run outputs
-```
-
-More detail:
-
-- [Project structure](docs/PROJECT_STRUCTURE.md)
-- [Config guide](configs/README.md)
-- [Script guide](scripts/README.md)
-- [Detector fine-tuning](docs/detector_finetuning.md)
-- [Domain optimization](docs/domain_optimization.md)
-- [Qwen VLM pipeline](docs/vlm_qwen4b_pipeline.md)
+Models run sequentially and are quantized by default (`Qwen` 4-bit, `LocateAnything` 8-bit),
+so their VRAM footprints do not add together.
 
 ## Installation
 
-Windows / PowerShell:
+Windows PowerShell, Python 3.12:
 
 ```powershell
 cd F:\Tracking
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
-.\.venv\Scripts\python.exe -m pip install -r requirements\dev.txt
-.\.venv\Scripts\python.exe -m pip install --editable .
-.\.venv\Scripts\python.exe -m football_tracking.cli doctor
-```
-
-Install PyTorch for your CUDA or CPU environment before heavy training. The base requirements do
-not pin PyTorch so a working CUDA install is not accidentally replaced.
-
-Optional Qwen VLM dependencies:
-
-```powershell
+.\scripts\setup_env.ps1
 .\.venv\Scripts\python.exe -m pip install -r requirements\vlm.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements\open_vocab.txt
 ```
 
-## Most Common Commands
-
-### Track One Video
-
-This is the simplest command for a normal video:
-
-```powershell
-.\scripts\track_video.ps1 `
-  -Source F:\videos\1.mp4 `
-  -OutputVideo F:\videos\1_Tracking.mp4 `
-  -Overwrite
-```
-
-Outputs are written beside the output video:
-
-```text
-F:\videos\1_Tracking.mp4
-F:\videos\1_Tracking.txt
-F:\videos\1_Tracking.metadata.json
-```
-
-### Track One Video And Prepare VLM Artifacts
-
-This runs tracking, then creates keyframes, crops, `vlm_context.json`, and `prompt.md`.
-It does not run Qwen unless `-RunModel` is included.
-
-```powershell
-.\scripts\track_video_qwen_vlm.ps1 `
-  -Source F:\videos\1.mp4 `
-  -OutputVideo F:\videos\1_Tracking.mp4 `
-  -Overwrite
-```
-
-### Track One Video And Run Qwen
-
-```powershell
-.\scripts\track_video_qwen_vlm.ps1 `
-  -Source F:\videos\1.mp4 `
-  -OutputVideo F:\videos\1_Tracking.mp4 `
-  -RunModel `
-  -MaxKeyframes 4 `
-  -MaxTracks 20 `
-  -Overwrite
-```
-
-For an 8GB laptop GPU, keep `MaxKeyframes` and `MaxTracks` modest.
-
-### Analyze Existing Tracking Output With Qwen
-
-Use this when the video was already tracked:
-
-```powershell
-.\scripts\analyze_tracking_vlm.ps1 `
-  -SourceVideo F:\videos\1.mp4 `
-  -TrackedVideo F:\videos\1_Tracking.mp4 `
-  -Tracks F:\videos\1_Tracking.txt `
-  -Metadata F:\videos\1_Tracking.metadata.json `
-  -OutputDir F:\videos\1_vlm `
-  -RunModel `
-  -MaxKeyframes 4 `
-  -MaxTracks 20 `
-  -Overwrite
-```
-
-## VLM Artifacts
-
-The VLM layer is downstream of tracking. It does not replace YOLO or the tracker.
-
-```text
-video
-  -> YOLO detector
-  -> BoT-SORT ReID tracker
-  -> MOT tracks + annotated video
-  -> keyframes/crops/context JSON
-  -> Qwen report
-```
-
-Typical output folder:
-
-```text
-F:\videos\1_vlm\
-  vlm_context.json
-  prompt.md
-  keyframes/
-  crops/
-  vlm_answer.md
-  vlm_answer.json
-```
-
-- `keyframes/`: full-frame images with tracking IDs drawn on top.
-- `crops/`: cropped object images grouped by `track_id`.
-- `vlm_context.json`: structured tracking metadata and `tracking_diagnostics` for downstream reasoning.
-- `prompt.md`: the prompt sent to Qwen.
-- `vlm_answer.md/json`: Qwen output, only present after `-RunModel`.
-
-The Qwen runner prefers the local Hugging Face cache first. If the cache is incomplete, it may need
-network access to download missing files.
-
-On the local RTX 4060 Laptop 8GB setup, use 2 keyframes before trying anything larger:
-
-```powershell
-.\scripts\analyze_tracking_vlm.ps1 `
-  -SourceVideo F:\videos\1.mp4 `
-  -TrackedVideo F:\videos\1_Tracking_qwen.mp4 `
-  -Tracks F:\videos\1_Tracking_qwen.txt `
-  -Metadata F:\videos\1_Tracking_qwen.metadata.json `
-  -OutputDir F:\videos\1_vlm_tracking_report `
-  -RunModel `
-  -TorchDtype float16 `
-  -MaxKeyframes 2 `
-  -MaxTracks 10 `
-  -MaxCropsPerTrack 1 `
-  -MaxNewTokens 768 `
-  -Overwrite
-```
-
-Smoke check Qwen without touching your video-side VLM folder:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli analyze-tracking-vlm `
-  --config configs\vlm_qwen4b_tracking.yaml `
-  --source-video F:\videos\1.mp4 `
-  --tracked-video F:\videos\1_Tracking_vlm.mp4 `
-  --tracks F:\videos\1_Tracking_vlm.txt `
-  --metadata F:\videos\1_Tracking_vlm.metadata.json `
-  --output-dir outputs\vlm\qwen4b\smoke_check `
-  --max-keyframes 1 `
-  --max-tracks 5 `
-  --max-crops-per-track 1 `
-  --max-new-tokens 64 `
-  --run-model `
-  --overwrite
-```
-
-Expected result:
-
-```text
-model_result.status = ok
-outputs/vlm/qwen4b/smoke_check/vlm_answer.md exists
-```
-
-## Dataset Workflow
-
-SportsMOT is the recommended football dataset because it provides MOT-style ground truth and track
-IDs.
-
-Download train and validation splits:
-
-```powershell
-.\scripts\download_sportsmot.ps1 -Split "train,val"
-```
-
-Prepare YOLO and MOTChallenge formats:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli prepare-dataset `
-  --config configs\sportsmot_data.yaml `
-  --overwrite
-```
-
-Validate and audit:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli validate-data `
-  --config configs\sportsmot_data.yaml
-
-.\.venv\Scripts\python.exe -m football_tracking.cli audit-data `
-  --config configs\sportsmot_data.yaml
-```
-
-## Detector Training
-
-Preflight:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli preflight-training `
-  --config configs\yolo26m_sportsmot_football_train.yaml
-```
-
-Full training:
-
-```powershell
-.\scripts\train_football_detector.ps1
-```
-
-Equivalent direct command:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli train-detector `
-  --config configs\yolo26m_sportsmot_football_train.yaml `
-  --device 0 `
-  --overwrite
-```
-
-Fast local experiments:
-
-```powershell
-.\scripts\train_football_detector.ps1 `
-  -Epochs 1 `
-  -Fraction 0.1 `
-  -Workers 0 `
-  -NoVal `
-  -Overwrite
-```
-
-Evaluate the active checkpoint:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli evaluate-detector `
-  --config configs\yolo26m_sportsmot_football_eval.yaml
-```
-
-Important output paths:
-
-```text
-models/detector/football/yolo26m_best.pt
-outputs/metrics/football/yolo26m/yolo26m_val.json
-outputs/metrics/football/yolo26m/yolo26m_val.csv
-```
-
-## Tracking Evaluation
-
-Create or refresh the shared detector cache:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli cache-detections `
-  --config configs\detection_cache_yolo26m_all.yaml `
-  --overwrite
-```
-
-Run the current stable BoT-SORT ReID evaluation across all 30 SportsMOT football sequences:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli compare-trackers `
-  --config configs\compare_trackers_yolo26m_botsort_identity_stable_all.yaml `
-  --overwrite
-```
-
-Dry-run the same experiment without running inference:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli compare-trackers `
-  --config configs\compare_trackers_yolo26m_botsort_identity_stable_all.yaml `
-  --dry-run
-```
-
-Current metric output:
-
-```text
-outputs/metrics/experiments/yolo26m_botsort_identity_stable_all/
-  best_tracker_result.json
-  tracker_summary.json
-  tracker_sequence_metrics.csv
-  tracker_comparison_report.md
-  botsort_reid_mot_validation.json
-```
-
-Open `best_tracker_result.json` first when you only need the selected best tracker.
-Use `tracker_summary.json` for the full configured tracker table and
-`tracker_sequence_metrics.csv` when you need per-sequence diagnostics.
-
-## Tracker Presets
-
-Recommended presets live in `configs/trackers/`.
-
-| Preset | Use |
-|---|---|
-| `botsort_reid_identity_stable.yaml` | Preferred when fewer ID switches matter most. |
-| `botsort_balanced.yaml` | Balanced baseline. |
-| `botsort_high_recall.yaml` | More permissive, useful when missed objects hurt more. |
-| `botsort_high_identity.yaml` | Stricter association for crowded identity cases. |
-| `bytetrack_fast.yaml` | Fast non-ReID baseline. |
-
-The default video tracker config is:
-
-```text
-configs/botsort_reid.yaml
-```
-
-## Reusable Domain Configs
-
-Domain profiles live in:
-
-```text
-configs/domains/
-  football.yaml
-  generic_person.yaml
-  vehicle.yaml
-```
-
-Generate reusable configs for a domain:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli build-domain-configs `
-  --domain configs\domains\football.yaml `
-  --output-dir configs\generated\football `
-  --overwrite
-```
-
-Generated configs are ignored by Git and can be regenerated at any time.
-
-## Reports And Benchmarks
-
-Generate a benchmark:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli benchmark `
-  --config configs\benchmark.yaml
-```
-
-Generate the final Markdown report:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli generate-report `
-  --config configs\report.yaml
-```
-
-## CLI Reference
-
-All commands are available through:
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli --help
-```
-
-Important commands:
-
-```text
-doctor
-prepare-dataset
-preflight-training
-train-detector
-resume-detector
-evaluate-detector
-cache-detections
-track-video
-track
-track-from-cache
-compare-trackers
-evaluate-tracking
-render-video
-plan-tracker-grid
-build-domain-configs
-analyze-tracking-vlm
-benchmark
-generate-report
-summarize-experiments
-```
-
-## Testing
-
-Run everything:
-
-```powershell
-.\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe -m pytest
-```
-
-Run focused VLM tests:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests\test_vlm_tracking_context.py
-```
-
-Run environment health check:
+Install a CUDA-enabled PyTorch build appropriate for the machine before running the large
+models. Check the environment with:
 
 ```powershell
 .\.venv\Scripts\python.exe -m football_tracking.cli doctor
+nvidia-smi
 ```
 
-## Troubleshooting
+## Run One Video
 
-### `Output run directory exists and overwrite=false`
-
-Pass `--overwrite` or use the PowerShell script's `-Overwrite` flag.
-
-### Qwen says `status: failed`
-
-Check `vlm_answer.json`. Common causes:
-
-- `requirements/vlm.txt` was not installed.
-- The Qwen model cache is incomplete.
-- The model needs more VRAM/RAM than available for the selected keyframes.
-
-Start with a small smoke run:
+Full adaptive path on `F:\videos\1.mp4`:
 
 ```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli analyze-tracking-vlm `
-  --config configs\vlm_qwen4b_tracking.yaml `
-  --source-video F:\videos\1.mp4 `
-  --tracked-video F:\videos\1_Tracking_vlm.mp4 `
-  --tracks F:\videos\1_Tracking_vlm.txt `
-  --metadata F:\videos\1_Tracking_vlm.metadata.json `
-  --output-dir outputs\vlm\qwen4b\smoke_check `
-  --max-keyframes 1 `
-  --max-tracks 5 `
-  --max-crops-per-track 1 `
-  --max-new-tokens 64 `
-  --run-model `
-  --overwrite
-```
-
-### Too many ID switches in rendered video
-
-Use the identity-stable BoT-SORT preset:
-
-```text
-configs/trackers/botsort_reid_identity_stable.yaml
-```
-
-For video tracking, `configs/botsort_reid.yaml` is already tuned toward fewer ID switches.
-
-### Tracking is slow
-
-BoT-SORT ReID is slower than SORT because it uses appearance features. Reduce video resolution,
-lower `detector.imgsz`, or switch to a faster tracker preset when identity stability is less
-important.
-
-### Terminal cannot show Vietnamese text
-
-The CLI writes JSON with escaped Unicode, but ad-hoc `print()` calls can fail on some Windows
-codepages. Prefer reading `vlm_answer.md` or use:
-
-```powershell
-chcp 65001
-```
-
-## Language-Guided Semantic Tracking
-
-`locate_tracking` is an optional parallel subsystem. Normal YOLO + BoT-SORT tracking works
-without LocateAnything, Qwen, or the language benchmark.
-
-The language pipeline is artifact-based:
-
-```text
-saved video frames + MOT TXT + language query
-  -> LocateAnything grounding
-  -> frame-to-track association
-  -> multi-frame semantic memory
-  -> appearance verification
-  -> uncertainty monitoring
-  -> event-triggered grounding
-  -> semantic reacquisition
-  -> stable semantic target identity
-  -> language benchmark/report
-```
-
-Smoke benchmark:
-
-```powershell
-.\scripts\run_language_benchmark_smoke.ps1 -Overwrite
-```
-
-Install optional LocateAnything dependencies before running the real NVIDIA backend:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements\locate_tracking.txt
-```
-
-Create a real-video subset template:
-
-```powershell
-.\scripts\create_language_subset_template.ps1 `
+.\scripts\run_adaptive_tracking.ps1 `
   -SourceVideo F:\videos\1.mp4 `
-  -Tracks F:\videos\1_Tracking.txt `
-  -GroundTruth data\mot\sportsmot_football\val\YOUR_SEQUENCE\gt\gt.txt `
-  -FrameCount 1200 `
-  -Query "the goalkeeper wearing green" `
-  -TargetGtTrackId 3 `
-  -RawTrackId 7 `
-  -OutputDir data\language_tracking\subset\video_1 `
+  -OutputVideo F:\videos\1_adaptive_tracking.mp4 `
+  -SemanticOutputVideo F:\videos\1_adaptive_semantic.mp4 `
+  -Profile realtime `
+  -QwenQuantization 4bit `
+  -Device cuda `
   -Overwrite
 ```
 
-Ablation smoke:
+Change only `-SourceVideo` and output names for `2.mp4`, `3.webm`, traffic footage, classroom
+footage, or another domain. Do not reuse a discovery cache across different source videos.
+
+For a short plumbing check:
 
 ```powershell
-.\scripts\run_language_ablation.ps1 -Overwrite
+.\scripts\run_adaptive_tracking.ps1 `
+  -SourceVideo F:\videos\1.mp4 `
+  -OutputVideo F:\videos\1_adaptive_smoke.mp4 `
+  -SemanticOutputVideo F:\videos\1_adaptive_smoke_semantic.mp4 `
+  -Profile realtime `
+  -MaxFrames 120 `
+  -SemanticMaxTracks 4 `
+  -SemanticMaxImages 4 `
+  -Overwrite
 ```
 
-Generate the language report:
+## Run A Webcam
+
+The camera is calibrated for a few seconds, Qwen creates one vocabulary cache, and the stream
+then runs with detector plus tracker only. Deep semantics can be triggered asynchronously in a
+future deployment.
 
 ```powershell
-.\scripts\generate_language_report.ps1 -Overwrite
+.\scripts\run_realtime_adaptive.ps1 `
+  -Source 0 `
+  -RunName webcam_01 `
+  -CalibrationSeconds 8 `
+  -QwenQuantization 4bit `
+  -Device cuda `
+  -Overwrite
 ```
 
-## Team And Language Pipeline Benchmark
+Use an RTSP URL instead of `0` for a network camera.
 
-SportsMOT MOT ground truth contains bounding boxes and track IDs, but it does not contain
-team identity labels. Team attribution therefore uses a small extra manual annotation manifest
-on top of SportsMOT-style tracks.
+## Outputs
 
-This benchmark compares available semantic structures with the same output schema:
+Video products are written to the paths supplied on the command line. Reproducibility artifacts
+are stored under `outputs/adaptive_runs/<video_stem>/`:
 
 ```text
-Pipeline A: YOLO + BoT-SORT ReID + Qwen4B
-  -> track_id + team_label + confidence
-  -> optional query_id + selected_track_id + team_label
-
-Pipeline C: YOLO + BoT-SORT ReID + LocateAnything + Qwen4B
-  -> query_id + selected_track_id + team_label + confidence
-  -> optional track_id + team_label
+discovery/scene_discovery.json       domain, objects, actions, evidence
+plan/adaptive_plan.json              detector route and tracker profile
+plan/tracking.generated.yaml         exact generated runtime config
+qwen_track_semantics/                keyframes, crops, prompt, model answer
+locate_verification/                 event plan and grounding result
+fused_track_semantics.json           accepted labels and unknown decisions
+adaptive_run_report.json             timings, VRAM, coverage, and provenance
 ```
 
-It reports:
+The MOT text rows use:
 
 ```text
-Benchmark 1: full tracking + team label
-  track_team_accuracy, macro_team_f1, track_unknown_rate, wrong_team_rate
-
-Benchmark 2: language target retrieval + team label
-  query_resolved_rate, query_selected_track_exact_accuracy, query_team_accuracy,
-  correct_id_correct_team_rate, support_ratio, grounding_calls_per_query
+frame, track_id, x, y, width, height, confidence, class_id, visibility, reserved
 ```
 
-Run the smoke comparison:
+Detection-only classes are rendered as `DET | class` and never receive a fake track ID.
+
+## Verified Results
+
+All detector and tracker quality scores below use SportsMOT ground truth. Runtime measurements
+use the same RTX 4060 Laptop GPU (8 GB), rendering enabled, and a 120-frame file source.
+
+### Detector
+
+| Detector | Precision | Recall | mAP50 | mAP50-95 | Detector FPS |
+|---|---:|---:|---:|---:|---:|
+| YOLO26m fine-tuned | 0.9595 | 0.9601 | 0.9793 | 0.8306 | 55.89 |
+| YOLO26m pretrained | 0.8662 | 0.9026 | 0.8935 | 0.7361 | 53.20 |
+| YOLOv8m pretrained | 0.8555 | 0.9139 | 0.8932 | 0.7229 | 6.65 |
+| YOLO26n pretrained | 0.7865 | 0.8377 | 0.8401 | 0.5894 | 58.65 |
+
+![Detector benchmark](docs/assets/benchmarks/detector_quality_speed.png)
+
+### Tracking
+
+| Tracker | HOTA | IDF1 | Official IDSW | Cached pipeline FPS |
+|---|---:|---:|---:|---:|
+| TrackTrack | 71.058 | 71.341 | 1042 | 21.66 |
+| BoT-SORT ReID stable | 68.503 | 71.352 | 895 | 11.66 |
+| OC-SORT | 59.379 | 66.108 | 2186 | 79.40 |
+| FastTracker | 58.702 | 64.325 | 2220 | 51.03 |
+| ByteTrack | 58.032 | 64.106 | 1828 | 83.33 |
+
+![Tracker quality-speed trade-off](docs/assets/benchmarks/tracker_quality_speed.png)
+
+The complete eight-tracker table and the diagnostic five-class IDSW decomposition are in the
+[final experiment report](docs/benchmarks/final_experiment_report.md).
+
+![IDSW taxonomy](docs/assets/benchmarks/idsw_taxonomy.png)
+
+### Semantic A/B/C Ablation
+
+The current semantic GT contains 31 manually reviewed tracks from one football video.
+
+| Pipeline | End-to-end accuracy | Macro F1 | Coverage | Cold time | Peak VRAM |
+|---|---:|---:|---:|---:|---:|
+| A: Qwen | 51.61% | 77.12% | 51.61% | 197.74 s | 4.01 GiB |
+| B: LocateAnything | 16.13% | 11.90% | 16.13% | 108.10 s | 4.46 GiB |
+| C: Qwen + event Locate | 64.52% | 81.87% | 64.52% | 267.30 s | 4.46 GiB |
+
+![Semantic benchmark](docs/assets/benchmarks/semantic_quality_cost.png)
+
+### Realtime Routes
+
+| Route | E2E FPS | Steady processing FPS | Startup |
+|---|---:|---:|---:|
+| Football hybrid | 28.57 | 58.29 | 0.54 s |
+| COCO pretrained | 26.97 | 62.21 | 0.58 s |
+| Open vocabulary | 21.25 | 42.49 | 2.62 s |
+
+![Realtime route benchmark](docs/assets/benchmarks/realtime_route_fps.png)
+
+`E2E FPS` includes video open/write overhead. `Steady processing FPS` excludes startup and the
+first five warm-up frames. These are short file-source measurements, not long-duration webcam
+claims.
+
+## Reproduce And Verify
 
 ```powershell
-.\scripts\run_team_benchmark_smoke.ps1 -Overwrite
+.\scripts\run_tracking_benchmark.ps1 -Smoke -Overwrite
+.\.venv\Scripts\python.exe scripts\build_final_benchmark_report.py `
+  --config configs\benchmarks\final_report.yaml `
+  --overwrite
+.\.venv\Scripts\python.exe -m ruff check src scripts tests
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Outputs:
+The verified local state is `379 passed`. Canonical reports:
+
+- [Final report](docs/benchmarks/final_experiment_report.md)
+- [Artifact audit](docs/benchmarks/artifact_audit.json)
+- [Runtime CSV](docs/benchmarks/realtime_route_summary.csv)
+- [Five-pass engineering audit](docs/benchmarks/five_pass_audit.md)
+- [All terminal commands](commands.txt)
+
+## Measurement Limits
+
+- Cross-domain routing is implemented and runtime-tested, but traffic, medical, and education
+  accuracy require new human ground truth before a valid accuracy claim can be made.
+- Semantic accuracy currently covers 31 tracks from one football video.
+- The five IDSW categories are deterministic diagnostic heuristics. Official tracker ranking
+  uses TrackEval IDSW, HOTA, AssA, and IDF1.
+- Functional position labels such as striker or midfielder generally require temporal and field
+  context; a visible jersey crop alone is not sufficient ground truth.
+
+## Repository Layout
 
 ```text
-outputs/team_benchmark/smoke/pipeline_a_yolo26m_botsort_reid_qwen4b/team_benchmark_summary.md
-outputs/team_benchmark/smoke/pipeline_c_yolo26m_botsort_reid_locateanything3b_qwen4b/team_benchmark_summary.md
-outputs/team_benchmark/smoke/comparison/team_benchmark_comparison.md
+configs/                    source configs, profiles, ontology, benchmarks
+data/                       local datasets and reviewed manifests
+docs/                       design notes and publishable figures
+models/                     local promoted checkpoints
+outputs/                    generated runs, caches, metrics, and reports
+requirements/               base, development, VLM, and open-vocabulary dependencies
+scripts/                    reproducible PowerShell and Python entry points
+src/football_tracking/      package implementation
+tests/                      regression and benchmark-contract tests
 ```
 
-Important artifacts:
-
-```text
-data/language_tracking/benchmark_manifest.json
-configs/locate_tracking/experiments/ablation_manifest.yaml
-outputs/locate_tracking/benchmark/
-outputs/locate_tracking/reports/
-```
-
-Documentation:
-
-- [Locate tracking system overview](docs/locate_tracking/system_overview.md)
-- [Language benchmark annotation guide](docs/locate_tracking/language_benchmark_annotation_guide.md)
-- [Windows benchmark runbook](docs/locate_tracking/benchmark_runbook_windows.md)
-- [Technical report template](docs/locate_tracking/technical_report.md)
-
-Current limitation: the checked-in benchmark is a tiny synthetic smoke fixture. Real
-research claims require manually annotated real sequences, frozen thresholds, and a
-separate final evaluation split.
+See [project structure](docs/PROJECT_STRUCTURE.md), [config guide](configs/README.md), and
+[script guide](scripts/README.md).
 
 ## License
 
-This project is released under the MIT License. See [LICENSE](LICENSE).
+See [LICENSE](LICENSE). Model checkpoints and datasets retain their original licenses.

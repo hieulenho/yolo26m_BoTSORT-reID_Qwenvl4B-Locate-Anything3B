@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -93,7 +94,7 @@ def run_vlm_analysis(
     rows_by_frame = _group_rows_by_frame(rows)
     keyframes = _write_keyframes(config, rows_by_frame, video_info)
     all_track_summaries = _summarize_tracks(rows, video_info)
-    track_summaries = all_track_summaries[: config.max_tracks]
+    track_summaries = _select_track_summaries(all_track_summaries, config)
     crops = _write_track_crops(
         config,
         rows,
@@ -110,6 +111,21 @@ def run_vlm_analysis(
         keyframes,
         crops,
     )
+    model_batches = _build_model_batches(
+        context,
+        keyframes,
+        crops,
+        max_images=config.max_model_images,
+    )
+    context["model_batches"] = [
+        {
+            "batch_id": batch["batch_id"],
+            "track_ids": batch["track_ids"],
+            "image_paths": [str(path) for path in batch["image_paths"]],
+            "image_labels": batch["image_labels"],
+        }
+        for batch in model_batches
+    ]
     context_path = config.output_dir / "vlm_context.json"
     prompt_path = config.output_dir / "prompt.md"
     context_path.write_text(json.dumps(context, indent=2, default=str), encoding="utf-8")
@@ -118,20 +134,43 @@ def run_vlm_analysis(
 
     model_result: dict[str, Any]
     if config.run_model:
-        from football_tracking.vlm.qwen_runner import QwenRunnerError, run_qwen_vlm
+        from football_tracking.vlm.qwen_runner import (
+            QwenRunnerError,
+            run_qwen_vlm_batches,
+        )
 
         try:
-            image_paths = _model_image_paths(
-                keyframes,
-                crops,
-                max_images=config.max_model_images,
-            )
-            model_result = run_qwen_vlm(config, prompt_text, image_paths)
+            prompt_batch_dir = config.output_dir / "prompt_batches"
+            prompt_batch_dir.mkdir(parents=True, exist_ok=True)
+            jobs: list[dict[str, Any]] = []
+            for batch in model_batches:
+                batch_context = _context_for_track_ids(context, set(batch["track_ids"]))
+                batch_prompt = build_prompt(config, batch_context)
+                batch_prompt_path = prompt_batch_dir / f"{batch['batch_id']}.md"
+                batch_prompt_path.write_text(batch_prompt, encoding="utf-8")
+                jobs.append(
+                    {
+                        "batch_id": batch["batch_id"],
+                        "prompt": batch_prompt,
+                        "image_paths": batch["image_paths"],
+                        "image_labels": batch["image_labels"],
+                        "track_ids": batch["track_ids"],
+                        "prompt_path": str(batch_prompt_path),
+                    }
+                )
+            raw_batches = run_qwen_vlm_batches(config, jobs)
+            model_result = _merge_qwen_batch_results(raw_batches, jobs)
         except QwenRunnerError as exc:
             model_result = {"status": "failed", "error": str(exc)}
         answer_path = config.output_dir / "vlm_answer.md"
         answer_json_path = config.output_dir / "vlm_answer.json"
-        answer_path.write_text(str(model_result.get("answer", "")), encoding="utf-8")
+        answer = model_result.get("answer", "")
+        answer_text = (
+            json.dumps(answer, indent=2, ensure_ascii=False)
+            if isinstance(answer, dict)
+            else str(answer)
+        )
+        answer_path.write_text(answer_text, encoding="utf-8")
         answer_json_path.write_text(
             json.dumps(model_result, indent=2, default=str),
             encoding="utf-8",
@@ -162,6 +201,15 @@ def run_vlm_analysis(
             "track_observation_count": context["tracking_summary"]["track_observation_count"],
             "keyframe_count": len(keyframes),
             "crop_count": len(crops),
+            "selected_track_count": len(track_summaries),
+            "model_batch_count": len(model_batches),
+            "modeled_track_count": len(
+                {
+                    int(track_id)
+                    for batch in model_batches
+                    for track_id in batch["track_ids"]
+                }
+            ),
         },
         "model_result": model_result,
         "paths": {
@@ -175,27 +223,239 @@ def run_vlm_analysis(
     }
 
 
-def _model_image_paths(
+def _select_track_summaries(
+    all_track_summaries: list[dict[str, Any]],
+    config: VlmTrackingConfig,
+) -> list[dict[str, Any]]:
+    if config.track_ids is None:
+        return all_track_summaries[: config.max_tracks]
+    by_id = {int(row["track_id"]): row for row in all_track_summaries}
+    missing = [track_id for track_id in config.track_ids if track_id not in by_id]
+    if missing:
+        raise VlmAnalysisError(
+            "Requested track IDs do not exist in the MOT input: "
+            + ", ".join(str(track_id) for track_id in missing)
+        )
+    return [by_id[track_id] for track_id in config.track_ids]
+
+
+def _build_model_batches(
+    context: dict[str, Any],
     keyframes: list[dict[str, Any]],
     crops: list[dict[str, Any]],
     *,
     max_images: int,
-) -> list[Path]:
-    """Use global context first, then add diverse track crops within the VRAM budget."""
-    selected = [Path(row["path"]) for row in keyframes[:max_images]]
-    remaining = max(max_images - len(selected), 0)
-    if remaining == 0:
-        return selected
-    seen_tracks: set[int] = set()
+) -> list[dict[str, Any]]:
+    """Pack selected tracks into bounded batches while retaining global context."""
+    if max_images < 1:
+        raise VlmAnalysisError("sampling.max_model_images must be positive.")
+    global_limit = min(len(keyframes), max(max_images - 1, 0))
+    global_rows = keyframes[:global_limit]
+    global_images = [Path(row["path"]) for row in global_rows]
+    global_labels = [
+        (
+            f"Global keyframe at frame {row.get('frame_index', 'unknown')}; "
+            f"visible track IDs: {row.get('visible_track_ids', [])}."
+        )
+        for row in global_rows
+    ]
+    crop_capacity = max_images - len(global_images)
+    if crop_capacity < 1:
+        raise VlmAnalysisError(
+            "At least one model image slot must remain for a track crop."
+        )
+    crops_by_track: dict[int, list[tuple[Path, str]]] = {}
     for row in crops:
         track_id = int(row["track_id"])
-        if track_id in seen_tracks:
+        crops_by_track.setdefault(track_id, []).append(
+            (
+                Path(row["path"]),
+                (
+                    f"Appearance crop for track ID {track_id} at frame "
+                    f"{row.get('frame_index', 'unknown')}."
+                ),
+            )
+        )
+    selected_ids = [int(row["track_id"]) for row in context["tracks"]]
+    batches: list[dict[str, Any]] = []
+    current_ids: list[int] = []
+    current_crops: list[Path] = []
+    current_crop_labels: list[str] = []
+
+    def flush() -> None:
+        if not current_ids:
+            return
+        batches.append(
+            {
+                "batch_id": f"batch_{len(batches) + 1:03d}",
+                "track_ids": list(current_ids),
+                "image_paths": [*global_images, *current_crops],
+                "image_labels": [*global_labels, *current_crop_labels],
+            }
+        )
+        current_ids.clear()
+        current_crops.clear()
+        current_crop_labels.clear()
+
+    for track_id in selected_ids:
+        track_crop_items = crops_by_track.get(track_id, [])[:crop_capacity]
+        if not track_crop_items:
             continue
-        selected.append(Path(row["path"]))
-        seen_tracks.add(track_id)
-        if len(selected) >= max_images:
-            break
-    return selected
+        if current_ids and len(current_crops) + len(track_crop_items) > crop_capacity:
+            flush()
+        current_ids.append(track_id)
+        current_crops.extend(path for path, _label in track_crop_items)
+        current_crop_labels.extend(label for _path, label in track_crop_items)
+    flush()
+    if selected_ids and not batches:
+        raise VlmAnalysisError("No valid track crops were available for Qwen inference.")
+    return batches
+
+
+def _context_for_track_ids(
+    context: dict[str, Any],
+    track_ids: set[int],
+) -> dict[str, Any]:
+    subset = dict(context)
+    subset["tracks"] = [
+        row for row in context["tracks"] if int(row["track_id"]) in track_ids
+    ]
+    subset["crops"] = [
+        row for row in context["crops"] if int(row["track_id"]) in track_ids
+    ]
+    subset["keyframes"] = [
+        {
+            **row,
+            "visible_track_ids": [
+                int(track_id)
+                for track_id in row.get("visible_track_ids", [])
+                if int(track_id) in track_ids
+            ],
+        }
+        for row in context["keyframes"]
+    ]
+    summary = dict(context["tracking_summary"])
+    summary["track_count"] = len(track_ids)
+    summary["track_observation_count"] = sum(
+        int(row.get("observation_count") or 0) for row in subset["tracks"]
+    )
+    subset["tracking_summary"] = summary
+    diagnostics = dict(context["tracking_diagnostics"])
+    for key in (
+        "stable_long_tracks",
+        "largest_displacement_tracks",
+        "fragmented_tracks",
+        "low_confidence_tracks",
+        "short_tracks",
+    ):
+        diagnostics[key] = [
+            row
+            for row in diagnostics.get(key, [])
+            if int(row.get("track_id", -1)) in track_ids
+        ]
+    for key in (
+        "selected_track_ids_visible_in_keyframes",
+        "selected_track_ids_not_visible_in_keyframes",
+    ):
+        diagnostics[key] = [
+            int(track_id)
+            for track_id in diagnostics.get(key, [])
+            if int(track_id) in track_ids
+        ]
+    subset["tracking_diagnostics"] = diagnostics
+    return subset
+
+
+def _merge_qwen_batch_results(
+    raw_result: dict[str, Any],
+    jobs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    jobs_by_id = {str(job["batch_id"]): job for job in jobs}
+    predictions: dict[int, dict[str, Any]] = {}
+    notes: list[str] = []
+    parse_failures: list[dict[str, str]] = []
+    expected_ids = {
+        int(track_id) for job in jobs for track_id in job.get("track_ids", [])
+    }
+    for batch in raw_result.get("batches", []):
+        batch_id = str(batch.get("batch_id", ""))
+        allowed_ids = {
+            int(track_id)
+            for track_id in jobs_by_id.get(batch_id, {}).get("track_ids", [])
+        }
+        try:
+            parsed = _parse_qwen_json_object(str(batch.get("answer", "")))
+        except ValueError as exc:
+            parse_failures.append({"batch_id": batch_id, "error": str(exc)})
+            continue
+        rows = parsed.get("track_predictions", [])
+        if not isinstance(rows, list):
+            parse_failures.append(
+                {"batch_id": batch_id, "error": "track_predictions is not a list"}
+            )
+            continue
+        for row in rows:
+            if not isinstance(row, dict) or row.get("track_id") is None:
+                continue
+            track_id = int(row["track_id"])
+            if track_id not in allowed_ids:
+                continue
+            previous = predictions.get(track_id)
+            if previous is None or float(row.get("confidence", 0.0)) > float(
+                previous.get("confidence", 0.0)
+            ):
+                predictions[track_id] = dict(row)
+        parsed_notes = parsed.get("notes", [])
+        if isinstance(parsed_notes, list):
+            notes.extend(str(note) for note in parsed_notes)
+    missing_ids = sorted(expected_ids - set(predictions))
+    for track_id in missing_ids:
+        predictions[track_id] = {
+            "track_id": track_id,
+            "class_label": "unknown",
+            "attributes": {},
+            "confidence": 0.0,
+            "evidence_frames": [],
+            "evidence": "",
+            "unknown_reason": "no_valid_prediction_returned_by_qwen",
+        }
+    answer = {
+        "track_predictions": [predictions[track_id] for track_id in sorted(predictions)],
+        "notes": notes,
+    }
+    return {
+        **raw_result,
+        "status": "partial" if parse_failures or missing_ids else "ok",
+        "answer": answer,
+        "coverage": {
+            "expected_track_count": len(expected_ids),
+            "predicted_track_count": len(expected_ids) - len(missing_ids),
+            "missing_track_ids": missing_ids,
+        },
+        "parse_failures": parse_failures,
+        "jobs": [
+            {
+                "batch_id": job["batch_id"],
+                "track_ids": job["track_ids"],
+                "image_count": len(job["image_paths"]),
+                "prompt_path": job["prompt_path"],
+            }
+            for job in jobs
+        ],
+    }
+
+
+def _parse_qwen_json_object(answer: str) -> dict[str, Any]:
+    match = re.search(r"\{.*\}", answer, re.DOTALL)
+    if not match:
+        raise ValueError("No JSON object found in Qwen batch answer.")
+    try:
+        payload = json.loads(match.group())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid Qwen batch JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Qwen batch answer root must be an object.")
+    return payload
 
 
 def read_mot_tracks(path: Path) -> list[MotTrackRow]:
@@ -242,8 +502,7 @@ def build_prompt(config: VlmTrackingConfig, context: dict[str, Any]) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    return "\n".join(
-        [
+    lines = [
             "# Tracking VLM Analysis Task",
             "",
             config.task_prompt,
@@ -259,7 +518,28 @@ def build_prompt(config: VlmTrackingConfig, context: dict[str, Any]) -> str:
             context_json,
             "```",
             "",
-            "Return one JSON object only, without Markdown fences or prose:",
+        ]
+    if config.output_schema == "dynamic":
+        lines.extend(
+            [
+                "Infer a short, singular class_label from visual evidence; do not use a "
+                "fixed football label list.",
+                "Keep color, clothing, state, role, and action in attributes instead of "
+                "the base class.",
+                "Return one JSON object only, without Markdown fences or prose:",
+                '{"track_predictions":[{"track_id":7,"class_label":"car",'
+                '"attributes":{"color":"red"},"confidence":0.85,'
+                '"evidence_frames":[5],"evidence":"short visual reason",'
+                '"unknown_reason":null}],"notes":[]}',
+                "Use class_label=unknown and explain unknown_reason when evidence is weak.",
+                "Include every selected track that has usable visual evidence.",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "Return one JSON object only, without Markdown fences or prose:",
             '{"track_predictions":[{"track_id":7,"team_label":"light_blue",'
             '"role_label":"player","confidence":0.85,"evidence_frames":[5],'
             '"evidence":"short visual reason"}],"notes":[]}',
@@ -269,8 +549,9 @@ def build_prompt(config: VlmTrackingConfig, context: dict[str, Any]) -> str:
             "Allowed role_label values: goalkeeper, defender, midfielder, forward, "
             "player, referee, unknown.",
             "",
-        ]
-    )
+            ]
+        )
+    return "\n".join(lines)
 
 
 def _compact_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
@@ -646,21 +927,19 @@ def _write_track_crops(
         for track_id, track_rows in _group_rows_by_track(rows).items():
             if track_id not in allowed_track_ids:
                 continue
-            selected = _evenly_select(
-                [row.frame_index for row in sorted(track_rows, key=lambda row: row.frame_index)],
+            selected_rows = _select_representative_track_rows(
+                track_rows,
                 config.max_crops_per_track,
+                video_info,
             )
-            rows_by_selected_frame = {
-                row.frame_index: row for row in track_rows if row.frame_index in selected
-            }
-            for frame_index in selected:
-                row = rows_by_selected_frame.get(frame_index)
-                if row is None:
-                    continue
+            for row in selected_rows:
+                frame_index = row.frame_index
                 frame = _read_frame(capture, frame_index)
                 if frame is None:
                     continue
                 crop = _crop_with_padding(frame, row, config.crop_padding)
+                native_height, native_width = crop.shape[:2]
+                crop = _prepare_crop_for_vlm(crop, config.crop_output_size)
                 track_dir = config.crops_dir / f"track_{track_id:04d}"
                 track_dir.mkdir(parents=True, exist_ok=True)
                 path = track_dir / f"frame_{frame_index:06d}.jpg"
@@ -671,11 +950,59 @@ def _write_track_crops(
                         "frame_index": frame_index,
                         "time_seconds": video_info.time_seconds(frame_index),
                         "path": str(path),
+                        "native_width": native_width,
+                        "native_height": native_height,
+                        "output_width": int(crop.shape[1]),
+                        "output_height": int(crop.shape[0]),
+                        "selection_score": round(
+                            _track_crop_score(row, video_info), 6
+                        ),
                     }
                 )
     finally:
         capture.release()
     return crops
+
+
+def _select_representative_track_rows(
+    rows: list[MotTrackRow],
+    limit: int,
+    video_info: VideoInfo,
+) -> list[MotTrackRow]:
+    """Choose one high-quality crop from each temporal segment of a track."""
+    ordered = sorted(rows, key=lambda row: row.frame_index)
+    if len(ordered) <= limit:
+        return ordered
+    selected: list[MotTrackRow] = []
+    segment_count = min(limit, len(ordered))
+    for segment_index in range(segment_count):
+        start = segment_index * len(ordered) // segment_count
+        end = (segment_index + 1) * len(ordered) // segment_count
+        segment = ordered[start:end]
+        selected.append(
+            max(
+                segment,
+                key=lambda row: (
+                    _track_crop_score(row, video_info),
+                    -row.frame_index,
+                ),
+            )
+        )
+    return sorted(selected, key=lambda row: row.frame_index)
+
+
+def _track_crop_score(row: MotTrackRow, video_info: VideoInfo) -> float:
+    area = max(row.width, 0.0) * max(row.height, 0.0)
+    if area <= 0:
+        return 0.0
+    x1 = max(row.x, 0.0)
+    y1 = max(row.y, 0.0)
+    x2 = min(row.x + row.width, float(video_info.width))
+    y2 = min(row.y + row.height, float(video_info.height))
+    visible_area = max(x2 - x1, 0.0) * max(y2 - y1, 0.0)
+    visible_ratio = visible_area / area
+    confidence = row.confidence if row.confidence is not None else 0.5
+    return math.log1p(area) * visible_ratio * (0.5 + 0.5 * confidence)
 
 
 def _read_frame(capture: Any, frame_index: int) -> Any | None:
@@ -725,6 +1052,36 @@ def _crop_with_padding(frame: Any, row: MotTrackRow, padding: float) -> Any:
     x2 = min(width, int(math.ceil(row.x + row.width + pad_x)))
     y2 = min(height, int(math.ceil(row.y + row.height + pad_y)))
     return frame[y1:y2, x1:x2]
+
+
+def _prepare_crop_for_vlm(crop: Any, output_size: int) -> Any:
+    import cv2  # type: ignore[import-not-found]
+
+    height, width = crop.shape[:2]
+    if height <= 0 or width <= 0:
+        raise VlmAnalysisError("Cannot prepare an empty track crop.")
+    scale = output_size / max(height, width)
+    resized_width = max(1, min(output_size, int(round(width * scale))))
+    resized_height = max(1, min(output_size, int(round(height * scale))))
+    interpolation = cv2.INTER_CUBIC if scale > 1.0 else cv2.INTER_AREA
+    resized = cv2.resize(
+        crop,
+        (resized_width, resized_height),
+        interpolation=interpolation,
+    )
+    top = (output_size - resized_height) // 2
+    bottom = output_size - resized_height - top
+    left = (output_size - resized_width) // 2
+    right = output_size - resized_width - left
+    return cv2.copyMakeBorder(
+        resized,
+        top,
+        bottom,
+        left,
+        right,
+        cv2.BORDER_CONSTANT,
+        value=(114, 114, 114),
+    )
 
 
 def _build_context(

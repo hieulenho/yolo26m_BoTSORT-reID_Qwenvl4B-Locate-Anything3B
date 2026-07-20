@@ -72,7 +72,7 @@ def _load_mot(tracks_path: Path) -> dict[int, list[dict]]:
             by_frame.setdefault(frame, []).append(
                 {"id": tid, "x": x, "y": y, "w": w, "h": h, "conf": conf, "class_id": class_id}
             )
-    return by_frame
+    return
 
 
 def parse_args() -> argparse.Namespace:
@@ -166,7 +166,16 @@ def main() -> None:
             lw, lh = cv2.getTextSize(label, font, font_scale, 1)[0]
             label_y = max(y1 - 6, lh + 6)
             cv2.rectangle(frame, (x1, label_y - lh - 4), (x1 + lw + 4, label_y + 2), color, -1)
-            cv2.putText(frame, label, (x1 + 2, label_y - 2), font, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.putText(
+                frame,
+                label,
+                (x1 + 2, label_y - 2),
+                font,
+                font_scale,
+                (255, 255, 255),
+                1,
+                cv2.LINE_AA,
+            )
 
         writer.write(frame)
 

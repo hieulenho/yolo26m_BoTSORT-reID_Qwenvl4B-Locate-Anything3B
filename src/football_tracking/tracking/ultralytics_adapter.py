@@ -44,6 +44,24 @@ class UltralyticsTrackerRuntimeConfig:
     use_byte: bool = False
     alpha_fixed_emb: float = 0.95
     class_aware: bool = False
+    reset_velocity_offset_occ: int = 5
+    reset_pos_offset_occ: int = 3
+    enlarge_bbox_occ: float = 1.1
+    dampen_motion_occ: float = 0.5
+    active_occ_to_lost_thresh: int = 10
+    occ_cover_thresh: float = 0.7
+    occ_reappear_window: int = 40
+    init_iou_suppress: float = 0.7
+    lost_match_thr: float = 0.0
+    iou_weight: float = 0.5
+    reid_weight: float = 0.5
+    conf_weight: float = 0.1
+    angle_weight: float = 0.05
+    penalty_p: float = 0.2
+    penalty_q: float = 0.4
+    reduce_step: float = 0.05
+    tai_thr: float = 0.55
+    min_track_len: int = 3
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -66,6 +84,24 @@ class UltralyticsTrackerRuntimeConfig:
             inertia=self.inertia,
             use_byte=self.use_byte,
             alpha_fixed_emb=self.alpha_fixed_emb,
+            reset_velocity_offset_occ=self.reset_velocity_offset_occ,
+            reset_pos_offset_occ=self.reset_pos_offset_occ,
+            enlarge_bbox_occ=self.enlarge_bbox_occ,
+            dampen_motion_occ=self.dampen_motion_occ,
+            active_occ_to_lost_thresh=self.active_occ_to_lost_thresh,
+            occ_cover_thresh=self.occ_cover_thresh,
+            occ_reappear_window=self.occ_reappear_window,
+            init_iou_suppress=self.init_iou_suppress,
+            lost_match_thr=self.lost_match_thr,
+            iou_weight=self.iou_weight,
+            reid_weight=self.reid_weight,
+            conf_weight=self.conf_weight,
+            angle_weight=self.angle_weight,
+            penalty_p=self.penalty_p,
+            penalty_q=self.penalty_q,
+            reduce_step=self.reduce_step,
+            tai_thr=self.tai_thr,
+            min_track_len=self.min_track_len,
         )
 
 
@@ -122,13 +158,40 @@ def load_ultralytics_tracker_config(
         use_byte=bool(tracker.get("use_byte", False)),
         alpha_fixed_emb=float(tracker.get("alpha_fixed_emb", 0.95)),
         class_aware=bool(tracker.get("class_aware", False)),
+        reset_velocity_offset_occ=int(tracker.get("reset_velocity_offset_occ", 5)),
+        reset_pos_offset_occ=int(tracker.get("reset_pos_offset_occ", 3)),
+        enlarge_bbox_occ=float(tracker.get("enlarge_bbox_occ", 1.1)),
+        dampen_motion_occ=float(tracker.get("dampen_motion_occ", 0.5)),
+        active_occ_to_lost_thresh=int(
+            tracker.get("active_occ_to_lost_thresh", 10)
+        ),
+        occ_cover_thresh=float(tracker.get("occ_cover_thresh", 0.7)),
+        occ_reappear_window=int(tracker.get("occ_reappear_window", 40)),
+        init_iou_suppress=float(tracker.get("init_iou_suppress", 0.7)),
+        lost_match_thr=float(tracker.get("lost_match_thr", 0.0)),
+        iou_weight=float(tracker.get("iou_weight", 0.5)),
+        reid_weight=float(tracker.get("reid_weight", 0.5)),
+        conf_weight=float(tracker.get("conf_weight", 0.1)),
+        angle_weight=float(tracker.get("angle_weight", 0.05)),
+        penalty_p=float(tracker.get("penalty_p", 0.2)),
+        penalty_q=float(tracker.get("penalty_q", 0.4)),
+        reduce_step=float(tracker.get("reduce_step", 0.05)),
+        tai_thr=float(tracker.get("tai_thr", 0.55)),
+        min_track_len=int(tracker.get("min_track_len", 3)),
     )
     validate_ultralytics_tracker_config(config)
     return config
 
 
 def validate_ultralytics_tracker_config(config: UltralyticsTrackerRuntimeConfig) -> None:
-    if config.tracker_type not in {"botsort", "bytetrack", "ocsort", "deepocsort"}:
+    if config.tracker_type not in {
+        "botsort",
+        "bytetrack",
+        "ocsort",
+        "deepocsort",
+        "fasttrack",
+        "tracktrack",
+    }:
         raise UltralyticsTrackerConfigError(
             f"Unsupported Ultralytics tracker_type: {config.tracker_type}"
         )
@@ -139,6 +202,17 @@ def validate_ultralytics_tracker_config(config: UltralyticsTrackerRuntimeConfig)
         "match_thresh",
         "proximity_thresh",
         "appearance_thresh",
+        "occ_cover_thresh",
+        "init_iou_suppress",
+        "lost_match_thr",
+        "iou_weight",
+        "reid_weight",
+        "conf_weight",
+        "angle_weight",
+        "penalty_p",
+        "penalty_q",
+        "reduce_step",
+        "tai_thr",
     ):
         value = float(getattr(config, field_name))
         if not 0.0 <= value <= 1.0:
@@ -157,6 +231,22 @@ def validate_ultralytics_tracker_config(config: UltralyticsTrackerRuntimeConfig)
         raise UltralyticsTrackerConfigError("inertia must be in [0, 1].")
     if not 0.0 <= config.alpha_fixed_emb <= 1.0:
         raise UltralyticsTrackerConfigError("alpha_fixed_emb must be in [0, 1].")
+    if config.reset_velocity_offset_occ < 0 or config.reset_pos_offset_occ < 0:
+        raise UltralyticsTrackerConfigError(
+            "FastTracker reset offsets must be >= 0."
+        )
+    if config.enlarge_bbox_occ < 1.0:
+        raise UltralyticsTrackerConfigError("enlarge_bbox_occ must be >= 1.0.")
+    if not 0.0 <= config.dampen_motion_occ <= 1.0:
+        raise UltralyticsTrackerConfigError("dampen_motion_occ must be in [0, 1].")
+    if config.active_occ_to_lost_thresh < 1:
+        raise UltralyticsTrackerConfigError(
+            "active_occ_to_lost_thresh must be >= 1."
+        )
+    if config.occ_reappear_window < 0:
+        raise UltralyticsTrackerConfigError("occ_reappear_window must be >= 0.")
+    if config.min_track_len < 0:
+        raise UltralyticsTrackerConfigError("min_track_len must be >= 0.")
 
 
 class _TrackerResults:
@@ -247,12 +337,28 @@ class UltralyticsTrackerAdapter:
                     )
 
                     self.tracker_factory = OCSORT
-                else:
+                elif self.config.tracker_type == "deepocsort":
                     from ultralytics.trackers.deep_oc_sort import (  # type: ignore[import-not-found]
                         DeepOCSORT,
                     )
 
                     self.tracker_factory = DeepOCSORT
+                elif self.config.tracker_type == "fasttrack":
+                    from ultralytics.trackers.fast_tracker import (  # type: ignore[import-not-found]
+                        FASTTracker,
+                    )
+
+                    self.tracker_factory = FASTTracker
+                elif self.config.tracker_type == "tracktrack":
+                    from ultralytics.trackers.track_tracker import (  # type: ignore[import-not-found]
+                        TRACKTRACK,
+                    )
+
+                    self.tracker_factory = TRACKTRACK
+                else:  # pragma: no cover - guarded by config validation
+                    raise UltralyticsTrackerConfigError(
+                        f"Unsupported tracker_type: {self.config.tracker_type}"
+                    )
             except Exception as exc:  # noqa: BLE001
                 raise UltralyticsTrackerConfigError(
                     "Could not import Ultralytics tracker dependencies. "

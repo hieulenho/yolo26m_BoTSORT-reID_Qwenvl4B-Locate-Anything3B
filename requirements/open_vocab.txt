@@ -1,0 +1,2 @@
+# Text encoder required by Ultralytics YOLOE custom vocabularies.
+git+https://github.com/ultralytics/CLIP.git

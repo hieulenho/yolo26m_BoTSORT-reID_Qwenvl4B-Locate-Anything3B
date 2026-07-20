@@ -1,0 +1,47 @@
+pipeline:
+  name: adaptive_multi_domain_tracking
+  schema_version: 1
+  default_profile: realtime
+
+scene_discovery:
+  model_id: Qwen/Qwen3-VL-4B-Instruct
+  quantization: 4bit
+  quantization_by_profile:
+    realtime: 4bit
+    balanced: 4bit
+    accuracy: 4bit
+  max_keyframes: 4
+  sample_fps: 2.0
+  transition_threshold: 0.45
+  max_classes: 24
+  registry: configs/ontology/vocabulary_registry.yaml
+  cache_root: outputs/cache/semantic_discovery
+
+detector_router:
+  football: models/detector/football/yolo26m_best.pt
+  coco_realtime: yolo26n.pt
+  coco_balanced: yolo26s.pt
+  open_realtime: yoloe-26n-seg.pt
+  open_balanced: yoloe-26s-seg.pt
+
+tracking:
+  profiles:
+    realtime:
+      tracker: ocsort
+      config: configs/trackers/ocsort_realtime.yaml
+    balanced:
+      tracker: tracktrack
+      config: configs/trackers/tracktrack_realtime.yaml
+    accuracy:
+      tracker: botsort_reid
+      config: configs/trackers/botsort_reid_identity_stable.yaml
+  class_aware: true
+
+semantic:
+  qwen_track_labeling: event_triggered
+  locateanything_grounding: event_triggered
+  unknown_rejection_threshold: 0.45
+
+runtime:
+  sequential_gpu_stages: true
+  output_root: outputs/adaptive_runs

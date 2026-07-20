@@ -6,8 +6,8 @@ import numpy as np
 
 from football_tracking.data.schemas import BoundingBoxXYXY
 from football_tracking.tracking.deepsort_adapter import DeepSortRuntimeConfig
-from football_tracking.tracking.pipeline import run_tracking
-from football_tracking.tracking.schemas import TrackOutput
+from football_tracking.tracking.pipeline import partition_tracking_detections, run_tracking
+from football_tracking.tracking.schemas import TrackerDetection, TrackOutput
 
 
 class FakeDetector:
@@ -47,6 +47,32 @@ class FakeAdapter:
                 metadata={"bbox_source": "fake"},
             )
         ]
+
+
+def test_detect_only_classes_are_not_sent_to_tracker() -> None:
+    detections = [
+        TrackerDetection.from_xyxy(
+            frame_index=1,
+            sequence_name="scene",
+            bbox_xyxy=BoundingBoxXYXY(1, 1, 10, 20),
+            confidence=0.9,
+            class_id=0,
+            class_name="person",
+        ),
+        TrackerDetection.from_xyxy(
+            frame_index=1,
+            sequence_name="scene",
+            bbox_xyxy=BoundingBoxXYXY(20, 1, 30, 20),
+            confidence=0.8,
+            class_id=9,
+            class_name="traffic light",
+        ),
+    ]
+
+    tracker_inputs, detection_only = partition_tracking_detections(detections, (0,))
+
+    assert [item.class_name for item in tracker_inputs] == ["person"]
+    assert [item.class_name for item in detection_only] == ["traffic light"]
 
 
 def _write_sequence(root: Path) -> Path:

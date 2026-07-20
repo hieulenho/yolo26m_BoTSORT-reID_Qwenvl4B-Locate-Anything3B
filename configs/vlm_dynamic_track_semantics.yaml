@@ -1,0 +1,39 @@
+input:
+  source_video: data/samples/match.mp4
+  tracked_video: null
+  tracks: outputs/tracks/adaptive/tracked.txt
+  metadata: null
+
+output:
+  dir: outputs/adaptive_runs/semantic
+  keyframes_dir: keyframes
+  crops_dir: crops
+
+sampling:
+  keyframe_interval_seconds: 2.0
+  max_keyframes: 2
+  max_tracks: 20
+  max_crops_per_track: 2
+  max_model_images: 8
+  crop_padding: 0.25
+  crop_output_size: 256
+
+model:
+  provider: qwen
+  model_id: Qwen/Qwen3-VL-4B-Instruct
+  device: auto
+  torch_dtype: auto
+  quantization: 4bit
+  max_new_tokens: 768
+  temperature: 0.0
+  do_sample: false
+  run_model: true
+
+prompt:
+  output_schema: dynamic
+  task: >-
+    Assign an open semantic class and visible attributes to each selected track.
+    Use global keyframes for context and track crops for appearance. Reject uncertain labels.
+
+runtime:
+  overwrite: false

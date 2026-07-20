@@ -1,0 +1,30 @@
+expected:
+  split: val
+  imgsz: 640
+  timed_image_count: 2900
+  gpu_name: NVIDIA GeForce RTX 4060 Laptop GPU
+
+sources:
+  - name: yolo26n_pretrained
+    display_name: YOLO26n pretrained
+    training: COCO pretrained
+    accuracy: outputs/metrics/detector_baselines/yolo26n_pretrained_sportsmot_val/yolov8m_pretrained_baseline.json
+    timing: outputs/metrics/detector_timing/yolo26n_pretrained_sportsmot_val/yolov8m_pretrained_baseline.json
+  - name: yolov8m_pretrained
+    display_name: YOLOv8m pretrained
+    training: COCO pretrained
+    accuracy: outputs/metrics/detector_baselines/yolov8m_pretrained_sportsmot_val/yolov8m_pretrained_baseline.json
+    timing: outputs/metrics/detector_timing/yolov8m_pretrained_sportsmot_val/yolov8m_pretrained_baseline.json
+  - name: yolo26m_pretrained
+    display_name: YOLO26m pretrained
+    training: COCO pretrained
+    accuracy: outputs/metrics/detector_baselines/yolo26m_pretrained_sportsmot_val/yolov8m_pretrained_baseline.json
+    timing: outputs/metrics/detector_timing/yolo26m_pretrained_sportsmot_val/yolov8m_pretrained_baseline.json
+  - name: yolo26m_finetuned
+    display_name: YOLO26m fine-tuned
+    training: SportsMOT train
+    accuracy: outputs/metrics/football/yolo26m_full/yolo26m_full_val.json
+    timing: outputs/metrics/detector_timing/yolo26m_finetuned_sportsmot_val/yolov8m_pretrained_baseline.json
+
+output:
+  root: outputs/benchmarks/detection/sportsmot_yolo26/final

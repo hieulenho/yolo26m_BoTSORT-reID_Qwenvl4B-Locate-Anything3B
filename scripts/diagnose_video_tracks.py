@@ -45,13 +45,18 @@ def _safe_quantiles(values: list[int], n: int = 4) -> list[float]:
     return [float(item) for item in statistics.quantiles(values, n=n)]
 
 
-def diagnose_tracks(tracks_path: Path, metadata_path: Path | None, source_video: Path | None) -> dict[str, Any]:
+def diagnose_tracks(
+    tracks_path: Path,
+    metadata_path: Path | None,
+    source_video: Path | None,
+) -> dict[str, Any]:
     tracks: dict[int, list[int]] = defaultdict(list)
     scores: dict[int, list[float]] = defaultdict(list)
     areas: dict[int, list[float]] = defaultdict(list)
     boxes_per_frame: dict[int, int] = defaultdict(int)
 
-    for line_number, line in enumerate(tracks_path.read_text(encoding="utf-8").splitlines(), start=1):
+    lines = tracks_path.read_text(encoding="utf-8").splitlines()
+    for line_number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
         parts = [part.strip() for part in line.split(",")]
@@ -84,18 +89,24 @@ def diagnose_tracks(tracks_path: Path, metadata_path: Path | None, source_video:
     short_120 = sum(length < 120 for length in lengths)
     warnings: list[str] = []
     if lengths and statistics.median(lengths) < 30:
-        warnings.append("Median track length is below 30 frames; likely heavy fragmentation/ID resets.")
+        warnings.append(
+            "Median track length is below 30 frames; likely heavy fragmentation/ID resets."
+        )
     if lengths and short_30 / max(len(lengths), 1) > 0.5:
         warnings.append("More than half of tracks are shorter than 30 frames.")
     if frame_count and len(boxes_per_frame) / frame_count < 0.8:
-        warnings.append("Many frames have no emitted tracks; detector or output confirmation may be too strict.")
+        warnings.append(
+            "Many frames have no emitted tracks; detector or output confirmation may "
+            "be too strict."
+        )
     if (
         metadata.get("detector_checkpoint")
         and "football" in str(metadata["detector_checkpoint"]).replace("\\", "/")
         and warnings
     ):
         warnings.append(
-            "Run used the football fine-tuned detector; if fragmentation persists, try football_high_recall or general_person."
+            "Run used the football fine-tuned detector; if fragmentation persists, try "
+            "football_high_recall or general_person."
         )
 
     duration_seconds = round(frame_count / fps, 3) if fps > 0 and frame_count else None
@@ -111,7 +122,9 @@ def diagnose_tracks(tracks_path: Path, metadata_path: Path | None, source_video:
         "duration_seconds": duration_seconds,
         "frame_count": frame_count,
         "frames_with_tracks": len(boxes_per_frame),
-        "frame_track_coverage_percent": _percent(len(boxes_per_frame) / frame_count) if frame_count else None,
+        "frame_track_coverage_percent": (
+            _percent(len(boxes_per_frame) / frame_count) if frame_count else None
+        ),
         "unique_track_count": len(tracks),
         "total_track_boxes": total_boxes,
         "track_length": {
@@ -135,7 +148,11 @@ def diagnose_tracks(tracks_path: Path, metadata_path: Path | None, source_video:
         "boxes_per_frame": {
             "min": min(boxes_per_frame.values()) if boxes_per_frame else 0,
             "p25": q_boxes[0],
-            "median": float(statistics.median(boxes_per_frame.values())) if boxes_per_frame else 0.0,
+            "median": (
+                float(statistics.median(boxes_per_frame.values()))
+                if boxes_per_frame
+                else 0.0
+            ),
             "p75": q_boxes[2],
             "max": max(boxes_per_frame.values()) if boxes_per_frame else 0,
         },
@@ -169,8 +186,12 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
         f"- Frames with tracks: `{payload['frames_with_tracks']}` / `{payload['frame_count']}`",
         f"- Track coverage: `{payload['frame_track_coverage_percent']}`%",
         f"- Median track length: `{track_length['median']}` frames",
-        f"- Tracks shorter than 30 frames: `{track_length['shorter_than_30']}` (`{track_length['shorter_than_30_percent']}`%)",
-        f"- Tracks shorter than 120 frames: `{track_length['shorter_than_120']}` (`{track_length['shorter_than_120_percent']}`%)",
+        "- Tracks shorter than 30 frames: "
+        f"`{track_length['shorter_than_30']}` "
+        f"(`{track_length['shorter_than_30_percent']}`%)",
+        "- Tracks shorter than 120 frames: "
+        f"`{track_length['shorter_than_120']}` "
+        f"(`{track_length['shorter_than_120_percent']}`%)",
         f"- Median boxes/frame: `{boxes['median']}`",
         "",
         "## Detector",
@@ -207,9 +228,17 @@ def main() -> int:
         raise FileExistsError(f"Output exists and overwrite=false: {args.output_md}")
     payload = diagnose_tracks(args.tracks, args.metadata, args.source_video)
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
-    args.output_json.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    args.output_json.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
     write_markdown(payload, args.output_md)
-    print(json.dumps({"status": "ok", "json": str(args.output_json), "md": str(args.output_md)}, indent=2))
+    print(
+        json.dumps(
+            {"status": "ok", "json": str(args.output_json), "md": str(args.output_md)},
+            indent=2,
+        )
+    )
     return 0
 
 

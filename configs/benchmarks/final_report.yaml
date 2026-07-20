@@ -1,0 +1,30 @@
+inputs:
+  detector_summary: outputs/benchmarks/detection/sportsmot_yolo26/final/detector_benchmark_summary.json
+  tracking_summary: outputs/benchmarks/tracking/sportsmot_yolo26m/final/tracker_benchmark_summary.json
+  tracking_per_sequence: outputs/benchmarks/tracking/sportsmot_yolo26m/final/tracker_benchmark_per_sequence.csv
+  tracking_manifest: outputs/benchmarks/tracking/sportsmot_yolo26m/final/benchmark_manifest.json
+  idsw_summary: outputs/benchmarks/tracking/sportsmot_yolo26m/final/idsw_taxonomy/idsw_taxonomy_summary.json
+  semantic_summary: outputs/benchmarks/semantic/pipelines/semantic_pipeline_comparison.json
+  runtime_routes:
+    - id: football
+      name: Football fine-tuned
+      metrics: outputs/benchmarks/runtime/football_120/metrics.json
+    - id: coco
+      name: COCO pretrained
+      metrics: outputs/benchmarks/runtime/coco_120/metrics.json
+    - id: open
+      name: Open vocabulary
+      metrics: outputs/benchmarks/runtime/open_vocab_120/metrics.json
+
+expected:
+  tracker_count: 8
+  sequence_count: 30
+  frame_count: 20171
+  semantic_gt_tracks: 31
+  runtime_route_count: 3
+  runtime_frames: 120
+
+output:
+  root: outputs/benchmarks/final
+  publish_figures: docs/assets/benchmarks
+  publish_report_root: docs/benchmarks

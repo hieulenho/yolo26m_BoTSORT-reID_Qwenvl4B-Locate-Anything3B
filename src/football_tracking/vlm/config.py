@@ -33,10 +33,13 @@ class VlmTrackingConfig:
     keyframe_interval_seconds: float
     max_keyframes: int
     max_tracks: int
+    track_ids: tuple[int, ...] | None
     max_crops_per_track: int
     max_model_images: int
     crop_padding: float
+    crop_output_size: int
     task_prompt: str
+    output_schema: str
     model_id: str
     device: str
     torch_dtype: str
@@ -140,10 +143,13 @@ def load_vlm_tracking_config(
         keyframe_interval_seconds=float(sampling_cfg.get("keyframe_interval_seconds", 1.0)),
         max_keyframes=int(sampling_cfg.get("max_keyframes", 12)),
         max_tracks=int(sampling_cfg.get("max_tracks", 40)),
+        track_ids=_parse_track_ids(sampling_cfg.get("track_ids")),
         max_crops_per_track=int(sampling_cfg.get("max_crops_per_track", 3)),
         max_model_images=int(sampling_cfg.get("max_model_images", 8)),
         crop_padding=float(sampling_cfg.get("crop_padding", 0.12)),
+        crop_output_size=int(sampling_cfg.get("crop_output_size", 256)),
         task_prompt=task_prompt,
+        output_schema=str(prompt_cfg.get("output_schema", "football_team_role")),
         model_id=str(model_cfg.get("model_id", DEFAULT_QWEN4B_MODEL_ID)),
         device=str(model_cfg.get("device", "auto")),
         torch_dtype=str(model_cfg.get("torch_dtype", "auto")),
@@ -188,9 +194,12 @@ def _apply_overrides(
         "keyframe_interval_seconds",
         "max_keyframes",
         "max_tracks",
+        "track_ids",
         "max_crops_per_track",
         "max_model_images",
         "crop_padding",
+        "crop_output_size",
+        "output_schema",
         "model_id",
         "device",
         "torch_dtype",
@@ -208,7 +217,26 @@ def _apply_overrides(
         changes["task_prompt"] = overrides["task_prompt"]
     if "quantization" in changes:
         changes["quantization"] = normalize_quantization(str(changes["quantization"]))
+    if "track_ids" in changes:
+        changes["track_ids"] = _parse_track_ids(changes["track_ids"])
     return replace(config, **changes) if changes else config
+
+
+def _parse_track_ids(value: Any) -> tuple[int, ...] | None:
+    if value is None or value == "":
+        return None
+    values = value.split(",") if isinstance(value, str) else value
+    if not isinstance(values, list | tuple):
+        raise VlmConfigError("sampling.track_ids must be a list or comma-separated string.")
+    try:
+        track_ids = tuple(int(item) for item in values)
+    except (TypeError, ValueError) as exc:
+        raise VlmConfigError("sampling.track_ids must contain integers.") from exc
+    if not track_ids or any(track_id <= 0 for track_id in track_ids):
+        raise VlmConfigError("sampling.track_ids must contain positive IDs.")
+    if len(set(track_ids)) != len(track_ids):
+        raise VlmConfigError("sampling.track_ids must not contain duplicates.")
+    return track_ids
 
 
 def _load_task_prompt(prompt_cfg: dict[str, Any], project_root: Path) -> str:
@@ -238,12 +266,18 @@ def _validate_config(config: VlmTrackingConfig) -> None:
             raise VlmConfigError(f"sampling.{field_name} must be positive.")
     if not 0.0 <= config.crop_padding <= 1.0:
         raise VlmConfigError("sampling.crop_padding must be in [0, 1].")
+    if not 64 <= config.crop_output_size <= 1024:
+        raise VlmConfigError("sampling.crop_output_size must be in [64, 1024].")
     if config.max_new_tokens <= 0:
         raise VlmConfigError("model.max_new_tokens must be positive.")
     if config.temperature < 0:
         raise VlmConfigError("model.temperature must be non-negative.")
     if not config.model_id:
         raise VlmConfigError("model.model_id must not be empty.")
+    if config.output_schema not in {"football_team_role", "dynamic"}:
+        raise VlmConfigError(
+            "prompt.output_schema must be football_team_role or dynamic."
+        )
 
 
 def _default_task_prompt() -> str:

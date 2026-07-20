@@ -257,8 +257,20 @@ def _add_vlm_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--keyframe-interval", type=float, default=None)
     parser.add_argument("--max-keyframes", type=int, default=None)
     parser.add_argument("--max-tracks", type=int, default=None)
+    parser.add_argument(
+        "--track-ids",
+        default=None,
+        help="Comma-separated track IDs for exact benchmark selection.",
+    )
     parser.add_argument("--max-crops-per-track", type=int, default=None)
+    parser.add_argument("--max-model-images", type=int, default=None)
     parser.add_argument("--crop-padding", type=float, default=None)
+    parser.add_argument("--crop-size", type=int, default=None)
+    parser.add_argument(
+        "--output-schema",
+        choices=("football_team_role", "dynamic"),
+        default=None,
+    )
     parser.add_argument("--run-model", action="store_true")
     parser.add_argument("--do-sample", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
@@ -460,7 +472,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     track_from_cache_parser.add_argument(
         "--tracker",
-        choices=("sort", "deepsort", "botsort_reid", "bytetrack"),
+        choices=(
+            "sort",
+            "deepsort",
+            "bytetrack",
+            "botsort_reid",
+            "ocsort",
+            "deepocsort_reid",
+            "fasttrack",
+            "tracktrack",
+        ),
         required=True,
     )
     track_from_cache_parser.add_argument(
@@ -709,8 +730,12 @@ def _vlm_overrides(args: argparse.Namespace) -> dict[str, object]:
         "keyframe_interval_seconds": getattr(args, "keyframe_interval", None),
         "max_keyframes": getattr(args, "max_keyframes", None),
         "max_tracks": getattr(args, "max_tracks", None),
+        "track_ids": getattr(args, "track_ids", None),
         "max_crops_per_track": getattr(args, "max_crops_per_track", None),
+        "max_model_images": getattr(args, "max_model_images", None),
         "crop_padding": getattr(args, "crop_padding", None),
+        "crop_output_size": getattr(args, "crop_size", None),
+        "output_schema": getattr(args, "output_schema", None),
         "run_model": True if getattr(args, "run_model", False) else None,
         "do_sample": True if getattr(args, "do_sample", False) else None,
         "overwrite": True if getattr(args, "overwrite", False) else None,

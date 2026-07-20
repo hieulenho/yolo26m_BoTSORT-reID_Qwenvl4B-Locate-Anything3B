@@ -14,7 +14,7 @@ from football_tracking.detection.cache import create_detection_cache
 from football_tracking.detection.cache_reader import DetectionCacheReader
 from football_tracking.detection.cache_validation import validate_cache_for_sources
 from football_tracking.detection.cache_writer import sequence_cache_dir
-from football_tracking.detection.serialization import file_sha256
+from football_tracking.detection.serialization import file_sha256, runtime_versions
 from football_tracking.evaluation.experiment_metrics import write_overall_metrics
 from football_tracking.evaluation.multi_tracker_trackeval import evaluate_trackers_with_trackeval
 from football_tracking.experiments.experiment_config import (
@@ -57,6 +57,7 @@ TRACKER_SEQUENCE_METRICS_FILENAME = "tracker_sequence_metrics.csv"
 TRACKER_COMPARISON_DELTA_FILENAME = "tracker_comparison_delta.json"
 BEST_TRACKER_RESULT_FILENAME = "best_tracker_result.json"
 TRACKER_COMPARISON_FIGURES_DIRNAME = "tracker_comparison"
+BENCHMARK_MANIFEST_FILENAME = "benchmark_manifest.json"
 TRACKING_EVALUATION_SUMMARY_STEM = "tracking_evaluation_summary"
 TRACKING_EVALUATION_BEST_FILENAME = "tracking_evaluation_best_tracker.json"
 BEST_TRACKER_SELECTION_CRITERIA = (
@@ -524,6 +525,7 @@ def _run_tracker(
             "tracker_config": load_tracker_runtime_config(spec.name, spec.config, device="auto"),
             "sequences": sequence_summaries,
             "detection_source": "cache",
+            "hardware": runtime_versions(),
             "created_at": datetime.now(UTC).isoformat(),
         },
     )
@@ -684,6 +686,40 @@ def _write_comparison_outputs(
         trackeval={name: value.to_dict() for name, value in trackeval.items()},
         figures=figure_paths,
     )
+    benchmark_manifest = config.metrics_root / BENCHMARK_MANIFEST_FILENAME
+    benchmark_manifest.write_text(
+        json.dumps(
+            {
+                "experiment": config.experiment_name,
+                "created_at": datetime.now(UTC).isoformat(),
+                "config": str(config.config_path),
+                "config_hash": file_sha256(config.config_path),
+                "dataset": str(config.mot_root),
+                "split": config.split,
+                "sequence_count": len({
+                    sequence
+                    for definition in definitions
+                    for sequence in definition.sequences
+                }),
+                "shared_detection_cache": str(config.detection_cache_root),
+                "confidence_threshold": config.confidence_threshold,
+                "hardware": runtime_versions(),
+                "tracker_configs": {
+                    definition.tracker_name: {
+                        "path": str(definition.tracker_config),
+                        "sha256": definition.tracker_config_hash,
+                    }
+                    for definition in definitions
+                },
+                "smoke_only": config.smoke_only,
+                "partial_sequences": config.max_frames_per_sequence is not None
+                or config.allow_partial_sequences,
+            },
+            indent=2,
+            default=str,
+        ),
+        encoding="utf-8",
+    )
     return {
         "tracker_summary_csv": str(summary_csv),
         "tracker_summary_json": str(summary_json),
@@ -692,6 +728,7 @@ def _write_comparison_outputs(
         "delta_json": str(delta_json),
         "report": str(report_path),
         "figures_dir": str(figures_dir),
+        "benchmark_manifest": str(benchmark_manifest),
     }
 
 

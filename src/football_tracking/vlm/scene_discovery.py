@@ -20,6 +20,7 @@ from football_tracking.adaptive_tracking.ontology import (
 )
 from football_tracking.adaptive_tracking.schemas import SceneDiscovery
 from football_tracking.adaptive_tracking.shot_sampling import sample_shot_keyframes
+from football_tracking.detection.serialization import file_sha256
 from football_tracking.paths import get_project_root, resolve_project_path
 from football_tracking.vlm.model_loader import first_model_device
 
@@ -223,14 +224,17 @@ def discover_scene(
             "max_classes": max_classes,
             "sample_fps": sample_fps,
             "transition_threshold": transition_threshold,
+            "registry_sha256": file_sha256(resolve_project_path(registry_path)),
         },
     )
     if destination is not None:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(
+        temporary = destination.with_suffix(destination.suffix + ".tmp")
+        temporary.write_text(
             json.dumps(result.to_dict(), indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+        temporary.replace(destination)
     return result
 
 

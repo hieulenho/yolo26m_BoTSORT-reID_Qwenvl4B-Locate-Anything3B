@@ -156,6 +156,8 @@ def analyze_many_trackers(
         "events_csv": output / "idsw_taxonomy_events.csv",
         "report_md": output / "idsw_taxonomy_report.md",
         "table_md": output / "idsw_taxonomy_table.md",
+        "count_figure": output / "idsw_taxonomy_counts.png",
+        "percent_figure": output / "idsw_taxonomy_percentages.png",
     }
     for path in paths.values():
         if path.exists() and not overwrite:
@@ -194,15 +196,20 @@ def analyze_many_trackers(
         "summaries": summaries,
         "paths": {key: str(value) for key, value in paths.items()},
     }
-    paths["summary_json"].write_text(
+    _write_text_atomic(
+        paths["summary_json"],
         json.dumps(result, indent=2, ensure_ascii=False),
-        encoding="utf-8",
     )
     _write_csv(summaries, paths["summary_csv"])
     _write_csv(per_sequence, paths["per_sequence_csv"])
     _write_csv(events, paths["events_csv"])
-    paths["report_md"].write_text(_report_markdown(summaries), encoding="utf-8")
-    paths["table_md"].write_text(_table_markdown(summaries), encoding="utf-8")
+    _write_text_atomic(paths["report_md"], _report_markdown(summaries))
+    _write_text_atomic(paths["table_md"], _table_markdown(summaries))
+    _write_figures(
+        summaries,
+        count_path=paths["count_figure"],
+        percent_path=paths["percent_figure"],
+    )
     return result
 
 
@@ -449,7 +456,7 @@ def _report_markdown(summaries: list[dict[str, Any]]) -> str:
         "",
         (
             "The IDSW total is recomputed from MOT files using frame-level greedy "
-            "IoU matching. TrackEval remains the source for official MOT scores; "
+            "IoU matching. TrackEval remains the source for official IDSW and MOT scores; "
             "this taxonomy is a diagnostic breakdown of switch causes."
         ),
         "",
@@ -512,11 +519,88 @@ def _table_lines(summaries: list[dict[str, Any]]) -> list[str]:
 
 def _write_csv(rows: list[dict[str, Any]], path: Path) -> None:
     fields = sorted({key for row in rows for key in row})
-    with path.open("w", newline="", encoding="utf-8") as handle:
+    temporary = path.with_suffix(f".tmp{path.suffix}")
+    with temporary.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
+    temporary.replace(path)
+
+
+def _write_text_atomic(path: Path, value: str) -> None:
+    temporary = path.with_suffix(f".tmp{path.suffix}")
+    temporary.write_text(value, encoding="utf-8")
+    temporary.replace(path)
+
+
+def _write_figures(
+    summaries: list[dict[str, Any]],
+    *,
+    count_path: Path,
+    percent_path: Path,
+) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    labels = [str(row["tracker"]) for row in summaries]
+    colors = ("#4C78A8", "#F58518", "#54A24B", "#E45756", "#B279A2")
+    display_names = (
+        "Fragmentation",
+        "Identity swap",
+        "Re-identification failure",
+        "Association error",
+        "Appearance confusion",
+    )
+
+    for suffix, output_path, ylabel, title in (
+        (
+            "count",
+            count_path,
+            "Recomputed switch events",
+            "Diagnostic ID-switch taxonomy by tracker",
+        ),
+        (
+            "percent",
+            percent_path,
+            "Share of recomputed switch events (%)",
+            "Diagnostic ID-switch composition by tracker",
+        ),
+    ):
+        figure, axis = plt.subplots(figsize=(12.5, 6.6))
+        bottom = np.zeros(len(labels), dtype=float)
+        for switch_type, display_name, color in zip(
+            IDSW_TYPES, display_names, colors, strict=True
+        ):
+            values = np.asarray(
+                [float(row[f"{switch_type}_{suffix}"]) for row in summaries],
+                dtype=float,
+            )
+            axis.bar(labels, values, bottom=bottom, label=display_name, color=color)
+            bottom += values
+        axis.set_ylabel(ylabel)
+        axis.set_title(title)
+        axis.tick_params(axis="x", labelrotation=18)
+        axis.grid(axis="y", alpha=0.22)
+        axis.legend(ncols=3, loc="upper center", bbox_to_anchor=(0.5, -0.16))
+        if suffix == "percent":
+            axis.set_ylim(0, 100)
+        figure.text(
+            0.5,
+            0.01,
+            "Diagnostic heuristic from frame-level IoU matches; official IDSW is "
+            "reported by TrackEval.",
+            ha="center",
+            fontsize=9,
+        )
+        figure.tight_layout(rect=(0, 0.08, 1, 1))
+        temporary = output_path.with_suffix(f".tmp{output_path.suffix}")
+        figure.savefig(temporary, dpi=180, bbox_inches="tight")
+        plt.close(figure)
+        temporary.replace(output_path)
 
 
 def _iou(

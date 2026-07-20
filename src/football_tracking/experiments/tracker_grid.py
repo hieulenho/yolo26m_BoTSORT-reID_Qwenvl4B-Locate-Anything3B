@@ -202,6 +202,7 @@ def _variant(
         grid_name,
         tracker_name,
         tracker_config,
+        output_root,
         variant_name,
         experiment_id,
         project_root,
@@ -230,6 +231,7 @@ def _compare_payload(
     grid_name: str,
     tracker_name: str,
     tracker_config: Path,
+    output_root: Path,
     variant_name: str,
     experiment_id: str,
     project_root: Path,
@@ -244,12 +246,12 @@ def _compare_payload(
         }
     ]
     output = payload.setdefault("output", {})
-    namespace = f"{grid_name}/{variant_name}_{experiment_id}"
-    output["root"] = f"outputs/experiments/tracker_grid/{namespace}"
-    output["tracks_root"] = f"outputs/tracks/tracker_grid/{namespace}"
-    output["metrics_root"] = f"outputs/metrics/experiments/tracker_grid/{namespace}"
-    output["figures_root"] = f"outputs/figures/experiments/tracker_grid/{namespace}"
-    output["videos_root"] = f"outputs/videos/comparison/tracker_grid/{namespace}"
+    namespace = f"{variant_name}_{experiment_id}"
+    output["root"] = _relative(output_root / "runs" / namespace, project_root)
+    output["tracks_root"] = _relative(output_root / "tracks" / namespace, project_root)
+    output["metrics_root"] = _relative(output_root / "metrics" / namespace, project_root)
+    output["figures_root"] = _relative(output_root / "figures" / namespace, project_root)
+    output["videos_root"] = _relative(output_root / "videos" / namespace, project_root)
     return payload
 
 

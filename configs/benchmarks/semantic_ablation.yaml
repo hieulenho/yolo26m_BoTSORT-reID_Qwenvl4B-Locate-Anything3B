@@ -1,0 +1,16 @@
+output_dir: ../../outputs/benchmarks/semantic/final
+
+runs:
+  - name: unlabeled_images_2_tracks
+    description: Baseline image list without interleaved image-to-track labels.
+    answer: ../../outputs/benchmarks/semantic/video1_qwen4bit_31tracks/vlm_answer.json
+
+  - name: labeled_images_2_tracks
+    description: Interleaved image labels, two tracks per Qwen batch.
+    answer: ../../outputs/benchmarks/semantic/video1_qwen4bit_31tracks_labeled/vlm_answer.json
+    evaluation: ../../outputs/benchmarks/semantic/video1_qwen4bit_31tracks_labeled/evaluation/semantic_benchmark_summary.json
+
+  - name: labeled_images_1_track
+    description: Interleaved image labels, one track per Qwen batch.
+    answer: ../../outputs/benchmarks/semantic/video1_qwen4bit_31tracks_single/vlm_answer.json
+    evaluation: ../../outputs/benchmarks/semantic/video1_qwen4bit_31tracks_single/evaluation/semantic_benchmark_summary.json

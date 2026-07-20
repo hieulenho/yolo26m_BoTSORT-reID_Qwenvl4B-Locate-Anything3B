@@ -1,80 +1,78 @@
 # Project Structure
 
-This repository is organized around reusable detection, tracking, evaluation, and VLM stages.
+The repository separates reusable source code, human-edited experiment definitions, local
+model/data assets, and generated evidence.
 
-## Source Code
+## Package Boundaries
 
 ```text
 src/football_tracking/
-  cli.py                    main argparse CLI
-  data/                     dataset discovery, conversion, validation, audit
-  detection/                YOLO detector, training, evaluation, detection cache
-  tracking/                 SORT, DeepSORT, BoT-SORT/ByteTrack adapters and MOT writing
-  experiments/              shared-cache tracker comparison and grid search
-  evaluation/               TrackEval integration
-  rendering/                annotated video rendering from MOT files
-  visualization/            plotting and overlay helpers
-  reporting/                Markdown/CSV/JSON report generation
-  domains/                  reusable domain profile config builder
-  vlm/                      Qwen VLM context creation and optional local inference
-  locate_tracking/          optional language-guided semantic tracking subsystem
-    grounding/              M1 LocateAnything/mock grounding artifacts
-    association/            M2 frame-level grounding-to-track association
-    semantic_memory/        M3 multi-frame semantic memory
-    appearance/             M4 appearance verification
-    monitoring/             M5 uncertainty monitoring
-    events/                 M5 uncertainty event schemas/store
-    grounding_scheduler/    M5 event-triggered grounding plans
-    identity/               M6 stable semantic target identity
-    reacquisition/          M6 semantic target reacquisition
-    benchmark/              M7 language benchmark schemas/metrics/evaluator
-    experiments/            M7 language ablation runner and artifact reuse checks
-    failure_analysis/       M7 deterministic failure categorization
-    reporting/              M7 language reports, charts, and demo manifests
+  adaptive_tracking/    discovery, ontology, routing, realtime loop, fusion, render
+  benchmarking/         detector/tracker/semantic consolidation and final report
+  data/                 SportsMOT preparation, conversion, validation, audit
+  detection/            Ultralytics YOLO/YOLOE adapters and composite detector routing
+  evaluation/           TrackEval integration and IDSW diagnostic taxonomy
+  experiments/          reproducible shared-cache tracker experiments
+  locate_tracking/      LocateAnything grounding, association, memory, and verification
+  reporting/            run-level provenance and report helpers
+  tracking/             tracker registry, adapters, MOT pipeline, timing
+  visualization/        frame overlays and plots
+  vlm/                  Qwen loading, quantization, scene discovery, prompt/context building
 ```
 
-## Human-Edited Project Files
+Dependency direction is intentionally one way: CLI/scripts call package services; package
+modules do not import scripts or generated outputs.
+
+## Human-Edited Files
 
 ```text
-configs/                    YAML entry points and tracker presets
-docs/                       design notes and runbooks
-requirements/               base/dev/VLM dependency groups
-scripts/                    PowerShell wrappers for common workflows
-tests/                      pytest regression suite
-README.md                   primary project guide
+configs/adaptive_tracking.yaml       primary adaptive defaults
+configs/ontology/                    canonical vocabulary registry
+configs/trackers/                    immutable tracker presets
+configs/benchmarks/                  benchmark contracts and source manifests
+requirements/                        dependency groups
+scripts/                             supported entry points
+tests/                               regression and artifact-contract tests
+README.md                            public project entry point
+commands.txt                         complete terminal runbook
 ```
 
-## Runtime Artifacts
-
-These paths are ignored by Git and can be regenerated.
+## Generated Artifacts
 
 ```text
-data/raw/                   downloaded datasets
-data/yolo/                  YOLO-format prepared datasets
-data/mot/                   MOTChallenge-format prepared datasets
-models/                     promoted checkpoints
-outputs/detections/cache/   per-frame detection cache
-outputs/tracks/             MOT tracker outputs
-outputs/videos/             rendered tracking videos
-outputs/metrics/            JSON/CSV/Markdown metrics
-outputs/figures/            generated figures
-outputs/training/           Ultralytics training runs
-runs/                       Ultralytics default run directory
-data/language_tracking/     language benchmark manifests and lightweight smoke fixtures
-outputs/locate_tracking/    optional language-guided tracking artifacts and reports
+outputs/adaptive_runs/               per-video discovery, plan, semantics, report
+outputs/benchmarks/detection/        canonical detector comparison
+outputs/benchmarks/tracking/         canonical tracking and IDSW comparison
+outputs/benchmarks/semantic/         reviewed semantic A/B/C ablation
+outputs/benchmarks/runtime/          route-level realtime measurements
+outputs/benchmarks/final/            consolidated local report
+outputs/cache/semantic_discovery/    reusable discovery cache keyed by source/config
+outputs/detections/cache/            shared detections for fair tracker comparison
 ```
 
-## Naming Conventions
+Publishable lightweight results live under `docs/benchmarks/` and
+`docs/assets/benchmarks/`, so README links continue to work on GitHub even though `outputs/`
+is ignored.
 
-- `*_smoke.yaml`: small/fast plumbing checks.
-- `yolov8m_*`: historical baseline configs.
-- `yolo26m_*`: current football detector configs.
-- `*_all.yaml`: all available SportsMOT football sequences.
-- `*_hard_identity.yaml`: focused identity-stress subsets.
-- `outputs/.../raw/`: raw third-party tool output, usually TrackEval.
+## Local Assets
 
-## Safe Cleanup
+`data/`, `models/`, root checkpoint files, videos, and model text encoders are local assets.
+They are intentionally ignored when large or licensed separately. Do not commit:
 
-It is usually safe to delete generated artifacts under `outputs/`, `runs/`, and
-`configs/generated/` when you want to rerun experiments. Do not delete `data/` or `models/`
-unless you are intentionally rebuilding datasets or retraining/downloading checkpoints.
+```text
+*.pt, *.pth, *.safetensors, mobileclip*.ts, videos, datasets, outputs, runs
+```
+
+## Legacy Compatibility
+
+The older football-only A/B/C scripts remain available for reproducing historical artifacts.
+New work should enter through `run_adaptive_tracking.ps1` or `run_realtime_adaptive.ps1`.
+Do not mix old result folders with `outputs/benchmarks/final/`.
+
+## Cleanup Rules
+
+- Safe to remove: Python caches, root archive backups, `runs/`, and disposable smoke outputs.
+- Preserve: `data/`, promoted checkpoints under `models/`, reviewed GT manifests, and canonical
+  benchmark sources referenced by `configs/benchmarks/final_report.yaml`.
+- Never delete a benchmark source before rebuilding the final report and checking
+  `artifact_audit.json`.

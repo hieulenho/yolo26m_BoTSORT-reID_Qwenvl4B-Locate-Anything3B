@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
 from football_tracking.locate_tracking.grounding.backend import BackendGroundingResponse
+from football_tracking.vlm.model_loader import enable_cached_offline_mode
 from football_tracking.vlm.quantization import (
     QuantizationConfigError,
     build_bitsandbytes_config,
@@ -91,6 +93,7 @@ class LocateAnythingBackend:
         self.prompt_template = prompt_template
         self.trust_remote_code = bool(trust_remote_code)
         self._worker: _LocateAnythingWorker | None = None
+        self._model_load_seconds: float | None = None
 
     @property
     def name(self) -> str:
@@ -100,12 +103,17 @@ class LocateAnythingBackend:
     def model_id(self) -> str:
         return self._model_id
 
+    @property
+    def model_load_seconds(self) -> float | None:
+        return self._model_load_seconds
+
     def inference_config(self) -> dict[str, object]:
         return {
             "device": self.device,
             "torch_dtype": self.torch_dtype,
             "quantization": self.quantization,
             "max_new_tokens": self.max_new_tokens,
+            "decoding": "greedy",
             "prompt_template": self.prompt_template,
             "trust_remote_code": self.trust_remote_code,
         }
@@ -113,6 +121,8 @@ class LocateAnythingBackend:
     def load_model(self) -> Any:
         if self._worker is not None:
             return self._worker
+        load_started = time.perf_counter()
+        enable_cached_offline_mode(self.model_id)
         try:
             from transformers import (  # type: ignore[import-not-found]
                 AutoModel,
@@ -177,6 +187,7 @@ class LocateAnythingBackend:
                 max_new_tokens=self.max_new_tokens,
                 prompt_template=self.prompt_template,
             )
+            self._model_load_seconds = time.perf_counter() - load_started
         except Exception as exc:  # noqa: BLE001
             raise LocateAnythingBackendError(
                 f"Failed to load LocateAnything model {self.model_id}: {exc}"
@@ -291,9 +302,7 @@ class _LocateAnythingWorker:
                 max_new_tokens=self.max_new_tokens,
                 use_cache=True,
                 generation_mode="hybrid",
-                temperature=0.7,
-                do_sample=True,
-                top_p=0.9,
+                do_sample=False,
                 repetition_penalty=1.1,
                 verbose=False,
             )

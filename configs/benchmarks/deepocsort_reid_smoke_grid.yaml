@@ -1,0 +1,23 @@
+grid:
+  name: deepocsort_reid_smoke_tuning
+  tracker_name: deepocsort_reid
+  base_tracker_config: configs/trackers/deepocsort_reid_realtime.yaml
+  base_compare_config: configs/benchmarks/tracking_sportsmot_yolo26m_smoke.yaml
+  output_root: outputs/benchmarks/tracking/sportsmot_yolo26m/tuning/deepocsort_reid
+  max_experiments: 7
+
+parameters:
+  tracker.appearance_thresh:
+    - 0.35
+    - 0.55
+    - 0.75
+  tracker.proximity_thresh:
+    - 0.40
+    - 0.50
+
+strategy:
+  mode: grid
+  include_baseline: true
+
+runtime:
+  command_prefix: .\.venv\Scripts\python.exe -m football_tracking.cli

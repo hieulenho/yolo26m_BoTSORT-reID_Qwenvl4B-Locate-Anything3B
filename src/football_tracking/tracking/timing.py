@@ -41,6 +41,7 @@ class TrackingTiming:
         return self.processed_frames / seconds
 
     def to_dict(self) -> dict[str, float | int | None]:
+        cold_start_seconds = self.model_load_seconds + self.total_pipeline_seconds
         return {
             "model_load_seconds": self.model_load_seconds,
             "detector_warmup_seconds": self.detector_warmup_seconds,
@@ -51,10 +52,13 @@ class TrackingTiming:
             "rendering_seconds": self.rendering_seconds,
             "video_write_seconds": self.video_write_seconds,
             "total_pipeline_seconds": self.total_pipeline_seconds,
+            "cold_start_total_seconds": cold_start_seconds,
             "processed_frames": self.processed_frames,
             "detector_fps": self.fps(self.detector_seconds),
             "tracker_fps": self.fps(self.tracker_seconds),
             "end_to_end_fps": self.fps(self.total_pipeline_seconds),
+            "steady_state_fps": self.fps(self.total_pipeline_seconds),
+            "cold_start_fps": self.fps(cold_start_seconds),
         }
 
 

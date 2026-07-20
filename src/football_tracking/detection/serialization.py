@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 import platform
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -82,17 +83,46 @@ def file_sha256(path: Path) -> str | None:
 
 
 def runtime_versions() -> dict[str, Any]:
-    versions: dict[str, Any] = {"python": platform.python_version()}
+    versions: dict[str, Any] = {
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor() or None,
+        "logical_cpu_count": os.cpu_count(),
+    }
+    try:
+        import psutil  # type: ignore[import-not-found]
+
+        memory = psutil.virtual_memory()
+        versions["physical_cpu_count"] = psutil.cpu_count(logical=False)
+        versions["system_memory_total_bytes"] = int(memory.total)
+    except Exception as exc:  # noqa: BLE001
+        versions["physical_cpu_count"] = None
+        versions["system_memory_total_bytes"] = None
+        versions["system_info_error"] = str(exc)
     try:
         import torch  # type: ignore[import-not-found]
 
         versions["torch"] = torch.__version__
+        versions["cuda_runtime"] = torch.version.cuda
         versions["cuda_available"] = bool(torch.cuda.is_available())
-        versions["gpu_name"] = torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
+        versions["cuda_device_count"] = (
+            int(torch.cuda.device_count()) if torch.cuda.is_available() else 0
+        )
+        if torch.cuda.is_available():
+            properties = torch.cuda.get_device_properties(0)
+            versions["gpu_name"] = properties.name
+            versions["gpu_memory_total_bytes"] = int(properties.total_memory)
+        else:
+            versions["gpu_name"] = None
+            versions["gpu_memory_total_bytes"] = None
     except Exception as exc:  # noqa: BLE001
         versions["torch"] = None
+        versions["cuda_runtime"] = None
         versions["cuda_available"] = False
+        versions["cuda_device_count"] = 0
         versions["gpu_name"] = None
+        versions["gpu_memory_total_bytes"] = None
         versions["torch_error"] = str(exc)
     try:
         import ultralytics  # type: ignore[import-not-found]

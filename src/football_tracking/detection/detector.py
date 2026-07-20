@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -273,3 +274,89 @@ class UltralyticsOpenVocabularyDetector(UltralyticsDetector):
             len(self.text_classes),
         )
         return self.model
+
+
+@dataclass(frozen=True)
+class SupplementalDetector:
+    detector: UltralyticsDetector
+    class_id_map: dict[int, int]
+    class_names: dict[int, str]
+    every_n_frames: int = 1
+
+    def __post_init__(self) -> None:
+        if self.every_n_frames <= 0:
+            raise DetectorError("Supplemental detector every_n_frames must be positive.")
+        if not self.class_id_map:
+            raise DetectorError("Supplemental detector class_id_map must not be empty.")
+
+
+class RoutedCompositeDetector:
+    """Run a primary detector plus detect-only routed specialists."""
+
+    def __init__(
+        self,
+        primary: UltralyticsDetector,
+        supplemental: Sequence[SupplementalDetector],
+    ) -> None:
+        self.primary = primary
+        self.supplemental = tuple(supplemental)
+        self.weights = primary.weights
+        self.device = primary.device
+        self.half = primary.half
+        self._frame_index = 0
+        self._supplemental_runs: dict[int, int] = {
+            index: 0 for index in range(len(self.supplemental))
+        }
+
+    @property
+    def model_name(self) -> str:
+        return f"{self.primary.model_name}_routed"
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "backend": "routed_composite",
+            "primary": self.primary.metadata(),
+            "supplemental": [
+                {
+                    **item.detector.metadata(),
+                    "class_id_map": item.class_id_map,
+                    "class_names": item.class_names,
+                    "every_n_frames": item.every_n_frames,
+                    "inference_calls": self._supplemental_runs[index],
+                }
+                for index, item in enumerate(self.supplemental)
+            ],
+        }
+
+    def load_model(self) -> RoutedCompositeDetector:
+        self.primary.load_model()
+        for item in self.supplemental:
+            item.detector.load_model()
+        return self
+
+    def predict_frame(self, frame: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        from football_tracking.detection.postprocessing import iter_prediction_rows
+
+        self._frame_index += 1
+        primary_result = self.primary.predict_frame(frame, **kwargs)
+        rows = [dict(item) for item in iter_prediction_rows(primary_result)]
+        for index, item in enumerate(self.supplemental):
+            should_run = (self._frame_index - 1) % item.every_n_frames == 0
+            if not should_run:
+                continue
+            raw = item.detector.predict_frame(frame, **kwargs)
+            self._supplemental_runs[index] += 1
+            for row in iter_prediction_rows(raw):
+                input_class_id = int(float(row["class_id"]))
+                output_class_id = item.class_id_map.get(input_class_id)
+                if output_class_id is None:
+                    continue
+                rows.append(
+                    {
+                        "xyxy": row["xyxy"],
+                        "confidence": row["confidence"],
+                        "class_id": output_class_id,
+                        "class_name": item.class_names[output_class_id],
+                    }
+                )
+        return rows

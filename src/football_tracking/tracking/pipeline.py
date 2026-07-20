@@ -41,7 +41,10 @@ from football_tracking.tracking.validation import (
     validate_mot_prediction_file,
     write_track_validation_report,
 )
-from football_tracking.visualization.draw_tracks import draw_tracks
+from football_tracking.visualization.draw_tracks import (
+    draw_detection_overlays,
+    draw_tracks,
+)
 from football_tracking.visualization.tracking_video import create_tracking_video_writer
 
 
@@ -76,6 +79,7 @@ class TrackingConfig:
     device: str
     half: bool
     class_ids: tuple[int, ...] | None
+    tracker_class_ids: tuple[int, ...] | None
     target_class_id: int
     target_class_name: str
     preserve_source_classes: bool
@@ -159,6 +163,12 @@ def load_tracking_config(
     render_video = bool(output.get("render_video", render.get("enabled", False)))
     class_values = detector.get("class_ids", [0])
     class_ids = None if class_values is None else tuple(int(value) for value in class_values)
+    tracker_class_values = detector.get("tracker_class_ids", class_values)
+    tracker_class_ids = (
+        None
+        if tracker_class_values is None
+        else tuple(int(value) for value in tracker_class_values)
+    )
     config = TrackingConfig(
         project_root=project_root,
         config_path=resolved_config,
@@ -207,6 +217,7 @@ def load_tracking_config(
         device=str(detector.get("device", "auto")),
         half=bool(detector.get("half", False)),
         class_ids=class_ids,
+        tracker_class_ids=tracker_class_ids,
         target_class_id=int(detector.get("target_class_id", 0)),
         target_class_name=str(detector.get("target_class_name", "player")),
         preserve_source_classes=bool(detector.get("preserve_source_classes", False)),
@@ -395,6 +406,8 @@ def _tracker_detections_from_raw(
     config: TrackingConfig,
     checkpoint_type: str,
     image_path: Path | None,
+    *,
+    tracker_only: bool = True,
 ) -> list[TrackerDetection]:
     keep_only_person = checkpoint_type == "pretrained_coco" and config.class_ids == (0,)
     detections = postprocess_detections(
@@ -413,6 +426,12 @@ def _tracker_detections_from_raw(
         preserve_source_class=config.preserve_source_classes,
         image_path=image_path,
     )
+    if tracker_only and config.tracker_class_ids is not None:
+        detections = [
+            detection
+            for detection in detections
+            if detection.target_class_id in config.tracker_class_ids
+        ]
     return [
         TrackerDetection.from_xyxy(
             frame_index=detection.frame_index,
@@ -452,6 +471,69 @@ def _predict_frame(detector: Any, frame: Any, config: TrackingConfig) -> Any:
     if isinstance(raw, list | tuple):
         return raw[0] if raw else None
     return raw
+
+
+def predict_tracking_frame(detector: Any, frame: Any, config: TrackingConfig) -> Any:
+    """Public frame-inference wrapper shared by offline and realtime runners."""
+    return _predict_frame(detector, frame, config)
+
+
+def tracker_detections_from_prediction(
+    raw_prediction: Any,
+    frame_index: int,
+    sequence_name: str,
+    image_width: int,
+    image_height: int,
+    config: TrackingConfig,
+    checkpoint_type: str,
+) -> list[TrackerDetection]:
+    """Convert one detector result to tracker input using the pipeline policy."""
+    return _tracker_detections_from_raw(
+        raw_prediction,
+        frame_index,
+        sequence_name,
+        image_width,
+        image_height,
+        config,
+        checkpoint_type,
+        image_path=None,
+    )
+
+
+def all_detections_from_prediction(
+    raw_prediction: Any,
+    frame_index: int,
+    sequence_name: str,
+    image_width: int,
+    image_height: int,
+    config: TrackingConfig,
+    checkpoint_type: str,
+) -> list[TrackerDetection]:
+    """Convert one result without dropping detector-only classes."""
+    return _tracker_detections_from_raw(
+        raw_prediction,
+        frame_index,
+        sequence_name,
+        image_width,
+        image_height,
+        config,
+        checkpoint_type,
+        image_path=None,
+        tracker_only=False,
+    )
+
+
+def partition_tracking_detections(
+    detections: list[TrackerDetection],
+    tracker_class_ids: tuple[int, ...] | None,
+) -> tuple[list[TrackerDetection], list[TrackerDetection]]:
+    """Split detections into tracker inputs and render-only observations."""
+    if tracker_class_ids is None:
+        return list(detections), []
+    tracked = set(tracker_class_ids)
+    tracker_inputs = [item for item in detections if item.class_id in tracked]
+    detection_only = [item for item in detections if item.class_id not in tracked]
+    return tracker_inputs, detection_only
 
 
 def _load_detector_once(
@@ -512,6 +594,7 @@ def run_tracking(
                 tracker_runtime_config,
                 detector,
                 tracker_adapter_factory,
+                global_timing.model_load_seconds,
             )
             sequence_summaries.append(summary.to_dict())
             validation_report.extend(sequence_validation)
@@ -559,7 +642,11 @@ def run_tracking(
         "sequences": sequence_summaries,
         "validation": validation_report.to_dict(),
     }
-    report_paths = write_tracking_run_report(payload, config.metrics_dir)
+    report_paths = write_tracking_run_report(
+        payload,
+        config.metrics_dir,
+        config.tracker_name,
+    )
     tracker_slug = config.tracker_name.lower().replace("-", "_")
     validation_path = write_track_validation_report(
         validation_report,
@@ -583,6 +670,7 @@ def _run_sequence(
     tracker_runtime_config: Any,
     detector: Any,
     tracker_adapter_factory: Callable[[Any], Any] | None,
+    shared_model_load_seconds: float,
 ) -> tuple[TrackingRunSummary, TrackValidationReport]:
     mot_path, metadata_path, video_path = _mot_output_paths(config, source)
     if config.save_mot and mot_path is not None and mot_path.exists() and not config.overwrite:
@@ -617,6 +705,8 @@ def _run_sequence(
         ).open()
     timing = TrackingTiming()
     detection_count = 0
+    tracker_detection_count = 0
+    detection_only_count = 0
     emitted_track_count = 0
     unique_tracks: set[int] = set()
     frame_count = 0
@@ -635,7 +725,7 @@ def _run_sequence(
             with timed_section(timing, "detector_seconds", config.device, synchronize_cuda=True):
                 raw_prediction = _predict_frame(detector, frame, config)
             with timed_section(timing, "detector_postprocess_seconds"):
-                detections = _tracker_detections_from_raw(
+                all_detections = _tracker_detections_from_raw(
                     raw_prediction,
                     frame_item.frame_index,
                     source.name,
@@ -644,6 +734,11 @@ def _run_sequence(
                     config,
                     checkpoint.checkpoint_type,
                     frame_item.image_path,
+                    tracker_only=False,
+                )
+                detections, detection_only = partition_tracking_detections(
+                    all_detections,
+                    config.tracker_class_ids,
                 )
             with timed_section(timing, "tracker_seconds"):
                 tracks = adapter.update(
@@ -654,7 +749,9 @@ def _run_sequence(
                     width,
                     height,
                 )
-            detection_count += len(detections)
+            detection_count += len(all_detections)
+            tracker_detection_count += len(detections)
+            detection_only_count += len(detection_only)
             emitted_track_count += len(tracks)
             unique_tracks.update(track.track_id for track in tracks)
             if writer is not None:
@@ -675,6 +772,13 @@ def _run_sequence(
                     fps=fps,
                     frame_index=frame_item.frame_index,
                     sequence_name=source.name,
+                    line_thickness=config.line_thickness,
+                    font_scale=config.font_scale,
+                )
+                rendered = draw_detection_overlays(
+                    rendered,
+                    detection_only,
+                    show_confidence=config.show_confidence,
                     line_thickness=config.line_thickness,
                     font_scale=config.font_scale,
                 )
@@ -704,6 +808,14 @@ def _run_sequence(
     timing.total_pipeline_seconds = time.perf_counter() - sequence_started
     if writer is not None:
         writer.write()
+    sequence_timing = timing.to_dict()
+    sequence_timing["model_load_seconds"] = shared_model_load_seconds
+    cold_start_seconds = shared_model_load_seconds + timing.total_pipeline_seconds
+    sequence_timing["cold_start_total_seconds"] = cold_start_seconds
+    sequence_timing["cold_start_fps"] = (
+        frame_count / cold_start_seconds if frame_count > 0 and cold_start_seconds > 0 else None
+    )
+    sequence_timing["model_load_scope"] = "shared_once_per_run"
     metadata = {
         "sequence": source.name,
         "source_type": source.source_type,
@@ -719,6 +831,11 @@ def _run_sequence(
             "iou": config.iou,
             "max_det": config.max_det,
             "class_ids": list(config.class_ids) if config.class_ids is not None else None,
+            "tracker_class_ids": (
+                list(config.tracker_class_ids)
+                if config.tracker_class_ids is not None
+                else None
+            ),
             "target_class_id": config.target_class_id,
             "target_class_name": config.target_class_name,
             "preserve_source_classes": config.preserve_source_classes,
@@ -739,9 +856,11 @@ def _run_sequence(
         ),
         "frame_count": frame_count,
         "detection_count": detection_count,
+        "tracker_detection_count": tracker_detection_count,
+        "detection_only_count": detection_only_count,
         "unique_track_count": len(unique_tracks),
         "device": config.device,
-        "timing": timing.to_dict(),
+        "timing": sequence_timing,
         "smoke_only": config.smoke_only or checkpoint.smoke_only,
         "warnings": warnings,
         "errors": errors,
