@@ -1,0 +1,29 @@
+tracker:
+  name: deepocsort_reid
+  tracker_type: deepocsort
+  track_high_thresh: 0.30
+  track_low_thresh: 0.08
+  new_track_thresh: 0.35
+  track_buffer: 60
+  match_thresh: 0.80
+  fuse_score: true
+  delta_t: 3
+  inertia: 0.20
+  use_byte: true
+  gmc_method: sparseOptFlow
+  proximity_thresh: 0.40
+  appearance_thresh: 0.82
+  alpha_fixed_emb: 0.95
+  with_reid: true
+  model: yolo26n-cls.pt
+  class_aware: true
+
+output:
+  confirmed_only: true
+  require_recent_update: true
+  max_time_since_update_for_output: 0
+  min_hits_for_output: 2
+  compact_ids: true
+
+runtime:
+  log_level: INFO

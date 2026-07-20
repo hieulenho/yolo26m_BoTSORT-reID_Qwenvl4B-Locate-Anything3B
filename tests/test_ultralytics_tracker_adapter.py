@@ -97,3 +97,62 @@ def test_ultralytics_tracker_adapter_filters_new_tracks_and_compacts_ids() -> No
 
     adapter.tracker.tracked_stracks[0].tracklet_len = 3
     assert adapter.update(2, "seq", [detection], frame=None, image_width=100, image_height=80) == []
+
+
+class FakeClassAwareTracker:
+    next_class_id = 0
+
+    def __init__(self, _args) -> None:
+        self.class_id = FakeClassAwareTracker.next_class_id
+        FakeClassAwareTracker.next_class_id += 1
+        self.frame_id = 1
+        self.tracked_stracks = [FakeUltralyticsTrack()]
+
+    def update(self, results, _frame):
+        if len(results) == 0:
+            return np.empty((0, 8), dtype=np.float32)
+        class_id = int(results.cls[0])
+        return np.asarray(
+            [[1.0, 2.0, 11.0, 22.0, 7.0, 0.8, class_id, 0.0]],
+            dtype=np.float32,
+        )
+
+
+def test_class_aware_tracking_keeps_class_names_and_global_ids_distinct() -> None:
+    FakeClassAwareTracker.next_class_id = 0
+    config = UltralyticsTrackerRuntimeConfig(
+        **{**_config().to_dict(), "class_aware": True, "compact_ids": True}
+    )
+    adapter = UltralyticsTrackerAdapter(config, tracker_factory=FakeClassAwareTracker)
+    detections = [
+        TrackerDetection.from_xyxy(
+            frame_index=1,
+            sequence_name="seq",
+            bbox_xyxy=BoundingBoxXYXY(1, 2, 11, 22),
+            confidence=0.8,
+            class_id=2,
+            class_name="car",
+        ),
+        TrackerDetection.from_xyxy(
+            frame_index=1,
+            sequence_name="seq",
+            bbox_xyxy=BoundingBoxXYXY(20, 2, 30, 22),
+            confidence=0.9,
+            class_id=5,
+            class_name="bus",
+        ),
+    ]
+
+    tracks = adapter.update(
+        1,
+        "seq",
+        detections,
+        frame=None,
+        image_width=100,
+        image_height=80,
+    )
+
+    assert [track.track_id for track in tracks] == [1, 2]
+    assert [track.class_name for track in tracks] == ["car", "bus"]
+    assert all(track.metadata["raw_track_id"] == 7 for track in tracks)
+    assert adapter.initialization_count == 2

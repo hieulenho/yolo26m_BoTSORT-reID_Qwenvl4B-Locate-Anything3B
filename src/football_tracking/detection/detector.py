@@ -37,6 +37,13 @@ KNOWN_ULTRALYTICS_CHECKPOINTS = {
     "yolo26m.pt",
     "yolo26l.pt",
     "yolo26x.pt",
+    "yoloe-26n-seg.pt",
+    "yoloe-26s-seg.pt",
+    "yoloe-26m-seg.pt",
+    "yoloe-26l-seg.pt",
+    "yoloe-26x-seg.pt",
+    "yoloe-26n-seg-pf.pt",
+    "yoloe-26s-seg-pf.pt",
 }
 
 
@@ -208,3 +215,61 @@ class YOLOv8Detector(UltralyticsDetector):
             backend="ultralytics",
             model_factory=model_factory,
         )
+
+
+class UltralyticsOpenVocabularyDetector(UltralyticsDetector):
+    """YOLOE detector configured once with a runtime text vocabulary."""
+
+    def __init__(
+        self,
+        weights: str | Path,
+        text_classes: Sequence[str],
+        device: str = "auto",
+        half: bool = False,
+        detector_name: str | None = None,
+        model_factory: Any | None = None,
+    ) -> None:
+        vocabulary = tuple(
+            dict.fromkeys(
+                str(item).strip() for item in text_classes if str(item).strip()
+            )
+        )
+        if not vocabulary:
+            raise DetectorError("YOLOE requires at least one non-empty text class.")
+        super().__init__(
+            weights=weights,
+            device=device,
+            half=half,
+            detector_name=detector_name or Path(str(weights)).stem,
+            backend="ultralytics_yoloe",
+            model_factory=model_factory,
+        )
+        self.text_classes = vocabulary
+
+    def metadata(self) -> dict[str, Any]:
+        return {**super().metadata(), "text_classes": list(self.text_classes)}
+
+    def load_model(self) -> Any:
+        if self.model is not None:
+            return self.model
+        validate_checkpoint(self.weights)
+        try:
+            if self.model_factory is not None:
+                self.model = self.model_factory(str(self.weights))
+            else:
+                from ultralytics import YOLOE  # type: ignore[import-not-found]
+
+                self.model = YOLOE(str(self.weights))
+            self.model.set_classes(list(self.text_classes))
+        except Exception as exc:  # noqa: BLE001
+            raise DetectorError(
+                f"Failed to load YOLOE model {self.weights} with vocabulary "
+                f"{list(self.text_classes)}: {exc}"
+            ) from exc
+        LOGGER.info(
+            "Loaded YOLOE model %s on %s with %d text classes",
+            self.weights,
+            self.device,
+            len(self.text_classes),
+        )
+        return self.model

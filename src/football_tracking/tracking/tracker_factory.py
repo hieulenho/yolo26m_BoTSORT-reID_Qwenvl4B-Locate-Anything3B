@@ -27,7 +27,18 @@ def create_tracker(name: str, config: str | Path, device: str = "auto") -> Any:
         return SortTrackerAdapter(runtime_config)
     if normalized == "deepsort":
         return DeepSortTrackerAdapter(runtime_config)
-    if normalized in {"botsort", "bot-sort", "botsort_reid", "botsort-reid"}:
+    if normalized in {
+        "botsort",
+        "bot-sort",
+        "botsort_reid",
+        "botsort-reid",
+        "ocsort",
+        "oc-sort",
+        "deepocsort",
+        "deep-oc-sort",
+        "deepocsort_reid",
+        "deepocsort-reid",
+    }:
         return UltralyticsTrackerAdapter(runtime_config)
     if normalized in {"bytetrack", "byte-track"}:
         return UltralyticsTrackerAdapter(runtime_config)
@@ -46,6 +57,15 @@ def load_tracker_config_object(
         return load_deepsort_config(config, device=device)
     if normalized in {"botsort", "bot-sort", "botsort_reid", "botsort-reid"}:
         return load_ultralytics_tracker_config(config, default_tracker_type="botsort")
+    if normalized in {"ocsort", "oc-sort"}:
+        return load_ultralytics_tracker_config(config, default_tracker_type="ocsort")
+    if normalized in {
+        "deepocsort",
+        "deep-oc-sort",
+        "deepocsort_reid",
+        "deepocsort-reid",
+    }:
+        return load_ultralytics_tracker_config(config, default_tracker_type="deepocsort")
     if normalized in {"bytetrack", "byte-track"}:
         return load_ultralytics_tracker_config(config, default_tracker_type="bytetrack")
     raise TrackerFactoryError(f"Unsupported tracker: {name}")

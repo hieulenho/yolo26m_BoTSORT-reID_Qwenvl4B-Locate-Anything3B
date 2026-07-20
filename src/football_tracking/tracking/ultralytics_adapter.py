@@ -39,6 +39,11 @@ class UltralyticsTrackerRuntimeConfig:
     max_time_since_update_for_output: int
     min_hits_for_output: int
     compact_ids: bool
+    delta_t: int = 3
+    inertia: float = 0.2
+    use_byte: bool = False
+    alpha_fixed_emb: float = 0.95
+    class_aware: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -57,6 +62,10 @@ class UltralyticsTrackerRuntimeConfig:
             appearance_thresh=self.appearance_thresh,
             with_reid=self.with_reid,
             model=self.model,
+            delta_t=self.delta_t,
+            inertia=self.inertia,
+            use_byte=self.use_byte,
+            alpha_fixed_emb=self.alpha_fixed_emb,
         )
 
 
@@ -108,13 +117,18 @@ def load_ultralytics_tracker_config(
         ),
         min_hits_for_output=int(output.get("min_hits_for_output", 1)),
         compact_ids=bool(output.get("compact_ids", False)),
+        delta_t=int(tracker.get("delta_t", 3)),
+        inertia=float(tracker.get("inertia", 0.2)),
+        use_byte=bool(tracker.get("use_byte", False)),
+        alpha_fixed_emb=float(tracker.get("alpha_fixed_emb", 0.95)),
+        class_aware=bool(tracker.get("class_aware", False)),
     )
     validate_ultralytics_tracker_config(config)
     return config
 
 
 def validate_ultralytics_tracker_config(config: UltralyticsTrackerRuntimeConfig) -> None:
-    if config.tracker_type not in {"botsort", "bytetrack"}:
+    if config.tracker_type not in {"botsort", "bytetrack", "ocsort", "deepocsort"}:
         raise UltralyticsTrackerConfigError(
             f"Unsupported Ultralytics tracker_type: {config.tracker_type}"
         )
@@ -137,6 +151,12 @@ def validate_ultralytics_tracker_config(config: UltralyticsTrackerRuntimeConfig)
         )
     if config.min_hits_for_output < 1:
         raise UltralyticsTrackerConfigError("min_hits_for_output must be >= 1.")
+    if config.delta_t < 1:
+        raise UltralyticsTrackerConfigError("delta_t must be >= 1.")
+    if not 0.0 <= config.inertia <= 1.0:
+        raise UltralyticsTrackerConfigError("inertia must be in [0, 1].")
+    if not 0.0 <= config.alpha_fixed_emb <= 1.0:
+        raise UltralyticsTrackerConfigError("alpha_fixed_emb must be in [0, 1].")
 
 
 class _TrackerResults:
@@ -201,13 +221,12 @@ class UltralyticsTrackerAdapter:
         self.config = config
         self.tracker_factory = tracker_factory
         self.tracker: Any | None = None
+        self._class_trackers: dict[int, Any] = {}
         self.initialization_count = 0
-        self._output_id_map: dict[int, int] = {}
+        self._output_id_map: dict[tuple[int | None, int], int] = {}
         self._next_output_id = 1
 
-    def initialize(self) -> Any:
-        if self.tracker is not None:
-            return self.tracker
+    def _resolve_tracker_factory(self) -> Any:
         if self.tracker_factory is None:
             try:
                 if self.config.tracker_type == "botsort":
@@ -216,30 +235,58 @@ class UltralyticsTrackerAdapter:
                     )
 
                     self.tracker_factory = BOTSORT
-                else:
+                elif self.config.tracker_type == "bytetrack":
                     from ultralytics.trackers.byte_tracker import (  # type: ignore[import-not-found]
                         BYTETracker,
                     )
 
                     self.tracker_factory = BYTETracker
+                elif self.config.tracker_type == "ocsort":
+                    from ultralytics.trackers.oc_sort import (  # type: ignore[import-not-found]
+                        OCSORT,
+                    )
+
+                    self.tracker_factory = OCSORT
+                else:
+                    from ultralytics.trackers.deep_oc_sort import (  # type: ignore[import-not-found]
+                        DeepOCSORT,
+                    )
+
+                    self.tracker_factory = DeepOCSORT
             except Exception as exc:  # noqa: BLE001
                 raise UltralyticsTrackerConfigError(
                     "Could not import Ultralytics tracker dependencies. "
                     "Install the tracker requirements used by Ultralytics, then retry."
                 ) from exc
-        self.tracker = self.tracker_factory(self.config.to_namespace())
+        return self.tracker_factory
+
+    def _new_tracker(self) -> Any:
+        factory = self._resolve_tracker_factory()
         self.initialization_count += 1
+        return factory(self.config.to_namespace())
+
+    def initialize(self) -> Any:
+        if self.tracker is not None:
+            return self.tracker
+        self.tracker = self._new_tracker()
         return self.tracker
 
     def reset(self) -> None:
-        tracker = self.initialize()
-        if hasattr(tracker, "reset"):
-            tracker.reset()
+        if self.config.class_aware:
+            for tracker in self._class_trackers.values():
+                if hasattr(tracker, "reset"):
+                    tracker.reset()
+            self._class_trackers.clear()
+        else:
+            tracker = self.initialize()
+            if hasattr(tracker, "reset"):
+                tracker.reset()
         self._output_id_map.clear()
         self._next_output_id = 1
 
     def close(self) -> None:
         self.tracker = None
+        self._class_trackers.clear()
 
     def get_runtime_config(self) -> dict[str, Any]:
         return self.config.to_dict()
@@ -253,7 +300,71 @@ class UltralyticsTrackerAdapter:
         image_width: int | None = None,
         image_height: int | None = None,
     ) -> list[TrackOutput]:
+        if self.config.class_aware:
+            return self._update_class_aware(
+                frame_index,
+                sequence_name,
+                detections,
+                frame,
+                image_width,
+                image_height,
+            )
         tracker = self.initialize()
+        return self._update_tracker(
+            tracker,
+            frame_index,
+            sequence_name,
+            detections,
+            frame,
+            image_width,
+            image_height,
+            id_scope=None,
+        )
+
+    def _update_class_aware(
+        self,
+        frame_index: int,
+        sequence_name: str,
+        detections: list[TrackerDetection],
+        frame: Any | None,
+        image_width: int | None,
+        image_height: int | None,
+    ) -> list[TrackOutput]:
+        detections_by_class: dict[int, list[TrackerDetection]] = {}
+        for detection in detections:
+            detections_by_class.setdefault(detection.class_id, []).append(detection)
+        class_ids = sorted(set(self._class_trackers) | set(detections_by_class))
+        outputs: list[TrackOutput] = []
+        for class_id in class_ids:
+            tracker = self._class_trackers.get(class_id)
+            if tracker is None:
+                tracker = self._new_tracker()
+                self._class_trackers[class_id] = tracker
+            outputs.extend(
+                self._update_tracker(
+                    tracker,
+                    frame_index,
+                    sequence_name,
+                    detections_by_class.get(class_id, []),
+                    frame,
+                    image_width,
+                    image_height,
+                    id_scope=class_id,
+                )
+            )
+        return sorted(outputs, key=lambda item: item.track_id)
+
+    def _update_tracker(
+        self,
+        tracker: Any,
+        frame_index: int,
+        sequence_name: str,
+        detections: list[TrackerDetection],
+        frame: Any | None,
+        image_width: int | None,
+        image_height: int | None,
+        id_scope: int | None,
+    ) -> list[TrackOutput]:
         results = _TrackerResults(detections)
         raw_tracks = tracker.update(results, frame)
         track_info = self._track_info_by_id(tracker)
@@ -269,6 +380,8 @@ class UltralyticsTrackerAdapter:
                     image_width,
                     image_height,
                     track_info.get(int(row[4])) if len(row) >= 5 else None,
+                    tracker,
+                    id_scope,
                 )
             )
             is not None
@@ -286,15 +399,16 @@ class UltralyticsTrackerAdapter:
             if getattr(track, "track_id", None) is not None
         }
 
-    def _visible_track_id(self, raw_track_id: int) -> int:
-        if not self.config.compact_ids:
+    def _visible_track_id(self, raw_track_id: int, id_scope: int | None) -> int:
+        if not self.config.compact_ids and id_scope is None:
             return raw_track_id
-        if raw_track_id not in self._output_id_map:
-            self._output_id_map[raw_track_id] = self._next_output_id
+        key = (id_scope, raw_track_id)
+        if key not in self._output_id_map:
+            self._output_id_map[key] = self._next_output_id
             self._next_output_id += 1
-        return self._output_id_map[raw_track_id]
+        return self._output_id_map[key]
 
-    def _should_emit_track(self, track: Any | None) -> bool:
+    def _should_emit_track(self, track: Any | None, tracker: Any) -> bool:
         if track is None:
             return True
         if self.config.output_confirmed_only and not bool(
@@ -302,7 +416,7 @@ class UltralyticsTrackerAdapter:
         ):
             return False
         if self.config.require_recent_update:
-            tracker_frame = int(getattr(self.tracker, "frame_id", 0) or 0)
+            tracker_frame = int(getattr(tracker, "frame_id", 0) or 0)
             track_frame = int(getattr(track, "frame_id", tracker_frame) or tracker_frame)
             if (
                 tracker_frame - track_frame
@@ -321,14 +435,16 @@ class UltralyticsTrackerAdapter:
         image_width: int | None,
         image_height: int | None,
         track: Any | None,
+        tracker: Any,
+        id_scope: int | None,
     ) -> TrackOutput | None:
         if len(row) < 7:
             return None
         x1, y1, x2, y2 = [float(value) for value in row[:4]]
         raw_track_id = int(row[4])
-        if not self._should_emit_track(track):
+        if not self._should_emit_track(track, tracker):
             return None
-        track_id = self._visible_track_id(raw_track_id)
+        track_id = self._visible_track_id(raw_track_id, id_scope)
         confidence = float(row[5]) if 0.0 <= float(row[5]) <= 1.0 else None
         class_id = int(row[6])
         class_name = f"class_{class_id}"
@@ -356,5 +472,6 @@ class UltralyticsTrackerAdapter:
                 "bbox_source": "ultralytics_tracker",
                 "with_reid": self.config.with_reid,
                 "raw_track_id": raw_track_id,
+                "class_aware": self.config.class_aware,
             },
         )

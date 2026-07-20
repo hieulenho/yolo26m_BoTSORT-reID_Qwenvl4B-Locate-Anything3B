@@ -69,7 +69,16 @@ def iter_prediction_rows(raw_prediction: Any) -> list[dict[str, Any]]:
     if boxes is not None:
         if isinstance(boxes, dict):
             return _rows_from_mapping(boxes)
-        return _rows_from_ultralytics_boxes(boxes)
+        rows = _rows_from_ultralytics_boxes(boxes)
+        names = getattr(raw_prediction, "names", None)
+        if isinstance(names, dict | list | tuple):
+            for row in rows:
+                class_id = int(float(row["class_id"]))
+                try:
+                    row["class_name"] = str(names[class_id])
+                except (IndexError, KeyError, TypeError):
+                    pass
+        return rows
     if isinstance(raw_prediction, Iterable) and not isinstance(raw_prediction, str | bytes):
         rows: list[dict[str, Any]] = []
         for item in raw_prediction:
@@ -124,9 +133,10 @@ def postprocess_detections(
         )
         if not is_valid_bbox(clipped):
             continue
-        source_class_name = class_names.get(
-            source_class_id,
-            "person" if source_class_id == coco_person_class_id else f"class_{source_class_id}",
+        source_class_name = str(
+            row.get("class_name")
+            or class_names.get(source_class_id)
+            or ("person" if source_class_id == coco_person_class_id else f"class_{source_class_id}")
         )
         emitted_class_id = source_class_id if preserve_source_class else target_class_id
         emitted_class_name = source_class_name if preserve_source_class else target_class_name

@@ -14,6 +14,7 @@ sampling:
   max_keyframes: 12
   max_tracks: 40
   max_crops_per_track: 3
+  max_model_images: 8
   crop_padding: 0.12
 
 model:

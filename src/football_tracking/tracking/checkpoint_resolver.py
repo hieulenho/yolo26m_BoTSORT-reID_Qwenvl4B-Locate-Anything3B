@@ -10,7 +10,13 @@ from typing import Any, Literal
 from football_tracking.detection.detector import KNOWN_ULTRALYTICS_CHECKPOINTS
 from football_tracking.paths import resolve_project_path
 
-CheckpointType = Literal["fine_tuned", "smoke", "pretrained_coco", "unknown"]
+CheckpointType = Literal[
+    "fine_tuned",
+    "smoke",
+    "pretrained_coco",
+    "pretrained_open_vocab",
+    "unknown",
+]
 
 
 class CheckpointResolutionError(RuntimeError):
@@ -53,6 +59,8 @@ def compute_checkpoint_hash(path: str | Path) -> str | None:
 def identify_checkpoint_type(checkpoint: str | Path) -> CheckpointType:
     text = str(checkpoint).replace("\\", "/").lower()
     name = Path(text).name
+    if name.startswith("yoloe-") and name in KNOWN_ULTRALYTICS_CHECKPOINTS:
+        return "pretrained_open_vocab"
     if name in KNOWN_ULTRALYTICS_CHECKPOINTS:
         return "pretrained_coco"
     if "smoke" in text:
@@ -106,7 +114,7 @@ def resolve_detector_checkpoint(
     if explicit_checkpoint is not None:
         checkpoint = _resolve_candidate(explicit_checkpoint, project_root)
         checkpoint_type = identify_checkpoint_type(checkpoint)
-        if checkpoint_type == "pretrained_coco":
+        if checkpoint_type in {"pretrained_coco", "pretrained_open_vocab"}:
             validate_detector_checkpoint(checkpoint, allow_pretrained=True)
         else:
             validate_detector_checkpoint(checkpoint, allow_pretrained=False)
@@ -211,7 +219,7 @@ def resolve_detector_checkpoint(
         checkpoint_type = identify_checkpoint_type(checkpoint)
         validate_detector_checkpoint(
             checkpoint,
-            allow_pretrained=checkpoint_type == "pretrained_coco",
+            allow_pretrained=checkpoint_type in {"pretrained_coco", "pretrained_open_vocab"},
         )
         warnings.append(f"Using pretrained fallback for plumbing only: {checkpoint}")
         return ResolvedCheckpoint(

@@ -121,7 +121,11 @@ def run_vlm_analysis(
         from football_tracking.vlm.qwen_runner import QwenRunnerError, run_qwen_vlm
 
         try:
-            image_paths = [Path(row["path"]) for row in keyframes]
+            image_paths = _model_image_paths(
+                keyframes,
+                crops,
+                max_images=config.max_model_images,
+            )
             model_result = run_qwen_vlm(config, prompt_text, image_paths)
         except QwenRunnerError as exc:
             model_result = {"status": "failed", "error": str(exc)}
@@ -169,6 +173,29 @@ def run_vlm_analysis(
             "answer_json": str(config.output_dir / "vlm_answer.json") if config.run_model else None,
         },
     }
+
+
+def _model_image_paths(
+    keyframes: list[dict[str, Any]],
+    crops: list[dict[str, Any]],
+    *,
+    max_images: int,
+) -> list[Path]:
+    """Use global context first, then add diverse track crops within the VRAM budget."""
+    selected = [Path(row["path"]) for row in keyframes[:max_images]]
+    remaining = max(max_images - len(selected), 0)
+    if remaining == 0:
+        return selected
+    seen_tracks: set[int] = set()
+    for row in crops:
+        track_id = int(row["track_id"])
+        if track_id in seen_tracks:
+            continue
+        selected.append(Path(row["path"]))
+        seen_tracks.add(track_id)
+        if len(selected) >= max_images:
+            break
+    return selected
 
 
 def read_mot_tracks(path: Path) -> list[MotTrackRow]:

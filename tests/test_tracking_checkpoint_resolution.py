@@ -20,6 +20,11 @@ def test_checkpoint_hash_and_type(tmp_path) -> None:
     assert identify_checkpoint_type(checkpoint) == "smoke"
 
 
+def test_checkpoint_type_distinguishes_yoloe_from_coco_yolo() -> None:
+    assert identify_checkpoint_type("yoloe-26s-seg.pt") == "pretrained_open_vocab"
+    assert identify_checkpoint_type("yolo26s.pt") == "pretrained_coco"
+
+
 def test_resolver_uses_smoke_only_when_allowed(tmp_path) -> None:
     project_root = tmp_path
     smoke_dir = project_root / "models" / "detector"

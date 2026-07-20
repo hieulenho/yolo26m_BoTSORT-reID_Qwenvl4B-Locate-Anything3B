@@ -1,0 +1,71 @@
+version: 1
+policy:
+  max_classes: 24
+  preserve_unknown_classes: true
+  unknown_rejection_threshold: 0.45
+
+classes:
+  - name: person
+    aliases: [people, pedestrian, human]
+    coco_class: person
+    default_action: track
+  - name: player
+    aliases: [footballer, athlete, soccer player, football player]
+    coco_class: person
+    default_action: track
+  - name: goalkeeper
+    aliases: [goalie, keeper]
+    coco_class: person
+    default_action: track
+  - name: referee
+    aliases: [official, match official]
+    coco_class: person
+    default_action: track
+  - name: car
+    aliases: [automobile, sedan]
+    coco_class: car
+    default_action: track
+  - name: motorcycle
+    aliases: [motorbike, scooter]
+    coco_class: motorcycle
+    default_action: track
+  - name: bicycle
+    aliases: [bike, cyclist]
+    coco_class: bicycle
+    default_action: track
+  - name: bus
+    aliases: [coach bus]
+    coco_class: bus
+    default_action: track
+  - name: truck
+    aliases: [lorry]
+    coco_class: truck
+    default_action: track
+  - name: sports ball
+    aliases: [football, soccer ball, basketball, ball]
+    coco_class: sports ball
+    default_action: detect
+  - name: student
+    aliases: [pupil, learner]
+    coco_class: person
+    default_action: track
+  - name: teacher
+    aliases: [lecturer, instructor]
+    coco_class: person
+    default_action: track
+  - name: patient
+    aliases: [hospital patient]
+    coco_class: person
+    default_action: track
+  - name: clinician
+    aliases: [doctor, nurse, surgeon, physician]
+    coco_class: person
+    default_action: track
+  - name: bed
+    aliases: [hospital bed]
+    coco_class: bed
+    default_action: detect
+  - name: screen
+    aliases: [monitor, television]
+    coco_class: tv
+    default_action: detect

@@ -9,7 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from football_tracking.detection.detector import DetectorError, UltralyticsDetector
+from football_tracking.detection.detector import (
+    DetectorError,
+    UltralyticsDetector,
+    UltralyticsOpenVocabularyDetector,
+)
 
 
 def detector_name_from_config(model_config: dict[str, Any], checkpoint: str | Path) -> str:
@@ -39,6 +43,18 @@ def create_detector(
     model_factory: Any | None = None,
 ) -> UltralyticsDetector:
     backend = detector_backend_from_config(model_config)
+    if backend in {"ultralytics_yoloe", "yoloe", "open_vocabulary"}:
+        text_classes = model_config.get("text_classes", model_config.get("vocabulary", []))
+        if not isinstance(text_classes, list | tuple):
+            raise DetectorError("model.text_classes must be a list for YOLOE.")
+        return UltralyticsOpenVocabularyDetector(
+            weights=checkpoint,
+            text_classes=[str(item) for item in text_classes],
+            device=device,
+            half=half,
+            detector_name=detector_name_from_config(model_config, checkpoint),
+            model_factory=model_factory,
+        )
     if backend != "ultralytics":
         raise DetectorError(f"Unsupported detector backend: {backend}")
     return UltralyticsDetector(

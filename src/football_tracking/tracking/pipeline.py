@@ -210,10 +210,7 @@ def load_tracking_config(
         target_class_id=int(detector.get("target_class_id", 0)),
         target_class_name=str(detector.get("target_class_name", "player")),
         preserve_source_classes=bool(detector.get("preserve_source_classes", False)),
-        source_class_names={
-            int(key): str(value)
-            for key, value in (detector.get("source_class_names", {}) or {}).items()
-        },
+        source_class_names=_source_class_names(model, detector),
         show_confidence=bool(render.get("show_confidence", True)),
         show_class=bool(render.get("show_class", True)),
         show_track_id=bool(render.get("show_track_id", True)),
@@ -281,6 +278,22 @@ def _apply_overrides(config: TrackingConfig, overrides: dict[str, Any]) -> Track
         if isinstance(raw, (list, tuple)) and raw:
             changes["class_ids"] = tuple(int(c) for c in raw)
     return replace(config, **changes) if changes else config
+
+
+def _source_class_names(
+    model: dict[str, Any],
+    detector: dict[str, Any],
+) -> dict[int, str]:
+    configured = {
+        int(key): str(value)
+        for key, value in (detector.get("source_class_names", {}) or {}).items()
+    }
+    if configured:
+        return configured
+    text_classes = model.get("text_classes", model.get("vocabulary", []))
+    if isinstance(text_classes, list | tuple):
+        return {index: str(value) for index, value in enumerate(text_classes)}
+    return {}
 
 
 
@@ -383,7 +396,7 @@ def _tracker_detections_from_raw(
     checkpoint_type: str,
     image_path: Path | None,
 ) -> list[TrackerDetection]:
-    keep_only_person = checkpoint_type == "pretrained_coco"
+    keep_only_person = checkpoint_type == "pretrained_coco" and config.class_ids == (0,)
     detections = postprocess_detections(
         raw_prediction,
         frame_index=frame_index,

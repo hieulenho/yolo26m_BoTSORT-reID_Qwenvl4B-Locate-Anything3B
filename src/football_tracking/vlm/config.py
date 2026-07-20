@@ -34,6 +34,7 @@ class VlmTrackingConfig:
     max_keyframes: int
     max_tracks: int
     max_crops_per_track: int
+    max_model_images: int
     crop_padding: float
     task_prompt: str
     model_id: str
@@ -140,6 +141,7 @@ def load_vlm_tracking_config(
         max_keyframes=int(sampling_cfg.get("max_keyframes", 12)),
         max_tracks=int(sampling_cfg.get("max_tracks", 40)),
         max_crops_per_track=int(sampling_cfg.get("max_crops_per_track", 3)),
+        max_model_images=int(sampling_cfg.get("max_model_images", 8)),
         crop_padding=float(sampling_cfg.get("crop_padding", 0.12)),
         task_prompt=task_prompt,
         model_id=str(model_cfg.get("model_id", DEFAULT_QWEN4B_MODEL_ID)),
@@ -187,6 +189,7 @@ def _apply_overrides(
         "max_keyframes",
         "max_tracks",
         "max_crops_per_track",
+        "max_model_images",
         "crop_padding",
         "model_id",
         "device",
@@ -225,7 +228,12 @@ def _load_task_prompt(prompt_cfg: dict[str, Any], project_root: Path) -> str:
 def _validate_config(config: VlmTrackingConfig) -> None:
     if config.keyframe_interval_seconds <= 0:
         raise VlmConfigError("sampling.keyframe_interval_seconds must be positive.")
-    for field_name in ("max_keyframes", "max_tracks", "max_crops_per_track"):
+    for field_name in (
+        "max_keyframes",
+        "max_tracks",
+        "max_crops_per_track",
+        "max_model_images",
+    ):
         if int(getattr(config, field_name)) <= 0:
             raise VlmConfigError(f"sampling.{field_name} must be positive.")
     if not 0.0 <= config.crop_padding <= 1.0:
