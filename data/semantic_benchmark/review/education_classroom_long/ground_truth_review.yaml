@@ -1,0 +1,27 @@
+sample_id: education_classroom_long
+domain: ''
+detector_route: ''
+objects:
+- canonical_name: chalkboard
+  action: detect
+- canonical_name: desk
+  action: detect
+- canonical_name: student
+  action: detect
+- canonical_name: teacher
+  action: detect
+- canonical_name: book
+  action: detect
+- canonical_name: door
+  action: context
+- canonical_name: window
+  action: context
+review:
+  status: draft
+  annotator: ''
+  reviewed_at: ''
+  method: manual_video_and_contact_sheet
+  notes: Review domain, complete object vocabulary, then label every CSV row.
+proposals_not_ground_truth:
+  domain: classroom
+  detector_route: coco_open_composite

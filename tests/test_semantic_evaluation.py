@@ -36,6 +36,10 @@ def test_semantic_evaluation_uses_human_gt_and_penalizes_unknown(tmp_path: Path)
             ]
         },
     )
+    route = _write(
+        tmp_path / "route.json",
+        {"route_name": "coco_pretrained"},
+    )
     report = _write(
         tmp_path / "report.json",
         {
@@ -55,11 +59,13 @@ def test_semantic_evaluation_uses_human_gt_and_penalizes_unknown(tmp_path: Path)
                         "sample_id": "traffic_1",
                         "artifacts": {
                             "discovery": str(discovery),
+                            "route": str(route),
                             "semantics": str(semantics),
                             "run_report": str(report),
                         },
                         "ground_truth": {
                             "domain": "traffic",
+                            "detector_route": "coco_pretrained",
                             "objects": [
                                 {"canonical_name": "car", "action": "track"},
                                 {"canonical_name": "road", "action": "context"},
@@ -83,10 +89,79 @@ def test_semantic_evaluation_uses_human_gt_and_penalizes_unknown(tmp_path: Path)
     )
 
     assert result["summary"]["domain_accuracy"] == 1.0
+    assert result["summary"]["router_accuracy"] == 1.0
+    assert result["summary"]["router_gt_sample_count"] == 1
     assert result["summary"]["class_f1"] == 1.0
     assert result["summary"]["semantic_track_accuracy"] == 0.5
     assert result["summary"]["semantic_coverage"] == 0.5
     assert result["summary"]["semantic_selective_accuracy"] == 1.0
+
+
+def test_semantic_evaluation_reports_fine_grained_accuracy(tmp_path: Path) -> None:
+    discovery = _write(
+        tmp_path / "discovery.json",
+        {"domain": "wildlife", "objects": [{"canonical_name": "bird", "action": "track"}]},
+    )
+    semantics = _write(
+        tmp_path / "semantics.json",
+        {
+            "tracks": [
+                {
+                    "track_id": 1,
+                    "class_label": "bird",
+                    "accepted": True,
+                    "fine_label": "common kingfisher",
+                    "fine_accepted": True,
+                },
+                {
+                    "track_id": 2,
+                    "class_label": "bird",
+                    "accepted": True,
+                    "fine_label": "unknown",
+                    "fine_accepted": False,
+                },
+            ]
+        },
+    )
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        yaml.safe_dump(
+            {
+                "samples": [
+                    {
+                        "sample_id": "birds",
+                        "artifacts": {
+                            "discovery": str(discovery),
+                            "semantics": str(semantics),
+                        },
+                        "ground_truth": {
+                            "domain": "wildlife",
+                            "objects": [{"canonical_name": "bird", "action": "track"}],
+                            "tracks": [
+                                {
+                                    "track_id": 1,
+                                    "class_label": "bird",
+                                    "fine_label": "common kingfisher",
+                                },
+                                {
+                                    "track_id": 2,
+                                    "class_label": "bird",
+                                    "fine_label": "common kingfisher",
+                                },
+                            ],
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = evaluate_semantic_manifest(manifest, tmp_path / "output", overwrite=True)
+
+    assert result["summary"]["fine_semantic_track_accuracy"] == 0.5
+    assert result["summary"]["fine_semantic_coverage"] == 0.5
+    assert result["summary"]["fine_semantic_selective_accuracy"] == 1.0
 
 
 def test_semantic_evaluation_reads_direct_performance_artifacts(tmp_path: Path) -> None:

@@ -3,10 +3,12 @@ samples:
   - sample_id: replace_with_video_id
     artifacts:
       discovery: outputs/adaptive_runs/replace_with_video_id/discovery/scene_discovery.json
+      route: outputs/adaptive_runs/replace_with_video_id/plan/detector_route.json
       semantics: outputs/adaptive_runs/replace_with_video_id/fused_track_semantics.json
       run_report: outputs/adaptive_runs/replace_with_video_id/adaptive_run_report.json
     ground_truth:
       domain: replace_with_human_domain
+      detector_route: replace_with_expected_route
       objects:
         - canonical_name: replace_with_visible_object_class
           action: track

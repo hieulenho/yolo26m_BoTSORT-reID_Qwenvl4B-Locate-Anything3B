@@ -17,7 +17,7 @@ param(
     [string]$OutputVideo = "",
     [string]$OutputRoot = "outputs\adaptive_runs",
 
-    [ValidateSet("realtime", "balanced", "accuracy")]
+    [ValidateSet("realtime", "realtime_stable", "balanced", "accuracy")]
     [string]$Profile = "realtime",
 
     [ValidateSet("auto", "none", "8bit", "4bit")]
@@ -26,9 +26,18 @@ param(
     [string]$Device = "cuda",
     [int]$MaxKeyframes = 4,
     [int]$MaxClasses = 24,
+    [ValidateRange(128, 1024)]
+    [int]$DiscoveryMaxNewTokens = 768,
     [int]$MaxFrames = 0,
-    [int]$SemanticMaxTracks = 20,
+    [ValidateRange(0, 100000)]
+    [int]$SemanticMaxTracks = 0,
+    [ValidateRange(2, 64)]
     [int]$SemanticMaxImages = 8,
+    [ValidateRange(1, 1000)]
+    [int]$LocateMaxTracks = 12,
+
+    [ValidateRange(0.0, 1.0)]
+    [double]$FineUnknownThreshold = 0.95,
 
     [bool]$RunLocateVerification = $true,
     [bool]$RunTrackSemantics = $true,
@@ -74,6 +83,7 @@ $LocateResult = Join-Path $GroundingRoot "grounding_verification.json"
 $QwenSemanticRoot = Join-Path $RunRoot "qwen_track_semantics"
 $QwenAnswer = Join-Path $QwenSemanticRoot "vlm_answer.json"
 $FusedSemantics = Join-Path $RunRoot "fused_track_semantics.json"
+$SemanticMemory = Join-Path $RunRoot "semantic_memory.json"
 if (-not $SemanticOutputVideo) {
     $SemanticOutputVideo = Join-Path $SourceDirectory ($Stem + "_adaptive_semantic.mp4")
 }
@@ -112,7 +122,8 @@ if (-not $SkipDiscovery) {
         "--quantization", $EffectiveQwenQuantization,
         "--device", $Device,
         "--max-keyframes", "$MaxKeyframes",
-        "--max-classes", "$MaxClasses"
+        "--max-classes", "$MaxClasses",
+        "--max-new-tokens", "$DiscoveryMaxNewTokens"
     )
     if ($RefreshSemanticCache) { $DiscoveryArgs += "--refresh-cache" }
     if ($Overwrite) { $DiscoveryArgs += "--overwrite" }
@@ -163,8 +174,14 @@ if ($RunTrackSemantics) {
     Write-Host ""
     Write-Host "[4/8] Qwen batched multi-time track semantics"
     $DiscoveryData = Get-Content -LiteralPath $DiscoveryPath -Raw | ConvertFrom-Json
-    $DiscoveredClasses = @($DiscoveryData.objects | ForEach-Object { $_.canonical_name }) -join ", "
-    $TaskPrompt = "Domain discovered as '$($DiscoveryData.domain.name)'. Candidate object vocabulary: $DiscoveredClasses. Independently label every visible track using visual evidence; preserve unseen classes and reject uncertainty."
+    $SemanticProfiles = @($DiscoveryData.objects | ForEach-Object {
+        $BaseClass = ([string]$_.canonical_name).Replace(" ", "_")
+        $Taxonomy = ([string]$_.taxonomy_hint).Replace(" ", "_")
+        $Facets = (@($_.semantic_facets) | ForEach-Object { ([string]$_).Replace(" ", "_") }) -join ","
+        $FineCandidates = (@($_.fine_grained_candidates) | ForEach-Object { ([string]$_).Replace(" ", "_") }) -join ","
+        "base=$BaseClass;taxonomy=$Taxonomy;facets=$Facets;fine=$FineCandidates"
+    }) -join " | "
+    $TaskPrompt = "Domain discovered as '$($DiscoveryData.domain.name)'. Non-binding semantic profiles: $SemanticProfiles. Independently label every visible track from visual evidence. Keep the base class stable, infer a fine label only from diagnostic crop evidence, preserve unseen classes, and reject uncertainty at each level."
     $QwenArgs = @(
         "-m", "football_tracking.cli", "analyze-tracking-vlm",
         "--config", "configs\vlm_dynamic_track_semantics.yaml",
@@ -198,7 +215,7 @@ $GroundingPlanArgs = @(
     "--discovery", $DiscoveryPath,
     "--output", $GroundingPlan,
     "--max-keyframes-per-class", "1",
-    "--max-expected-tracks-per-class", "$SemanticMaxTracks"
+    "--max-expected-tracks-per-class", "$LocateMaxTracks"
 )
 if ($RunTrackSemantics -and (Test-Path -LiteralPath $QwenAnswer -PathType Leaf)) {
     $GroundingPlanArgs += @("--qwen-answer", $QwenAnswer)
@@ -226,11 +243,20 @@ if ($RunLocateVerification) {
 
 Write-Host ""
 Write-Host "[7/8] Semantic fusion, unknown rejection, and final render"
+if ($Overwrite -and (Test-Path -LiteralPath $SemanticMemory -PathType Leaf)) {
+    # An offline overwrite is a fresh experiment. Reusing memory here would
+    # count evidence from previous runs more than once.
+    Remove-Item -LiteralPath $SemanticMemory -Force
+}
 $FusionArgs = @(
     "-m", "football_tracking.adaptive_tracking.cli", "fuse-semantics",
     "--output", $FusedSemantics,
+    "--semantic-memory", $SemanticMemory,
+    "--memory-context-id", $SourcePath,
     "--unknown-threshold", "0.45",
-    "--minimum-margin", "0.10"
+    "--minimum-margin", "0.10",
+    "--fine-unknown-threshold", "$FineUnknownThreshold",
+    "--fine-minimum-margin", "0.15"
 )
 if ($RunTrackSemantics -and (Test-Path -LiteralPath $QwenAnswer -PathType Leaf)) {
     $FusionArgs += @("--qwen-answer", $QwenAnswer)

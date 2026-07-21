@@ -43,14 +43,20 @@ def build_final_benchmark_report(
     runtime_entries = inputs.get("runtime_routes")
     if not isinstance(runtime_entries, list) or not runtime_entries:
         raise FinalReportError("inputs.runtime_routes must be a non-empty list.")
-    runtime_sources = [
-        {
-            "id": str(_mapping(item, "runtime route").get("id", "")).strip(),
-            "name": str(_mapping(item, "runtime route").get("name", "")).strip(),
-            "metrics": _resolve(_mapping(item, "runtime route").get("metrics"), root),
+    runtime_sources: list[dict[str, Any]] = []
+    for raw_item in runtime_entries:
+        item = _mapping(raw_item, "runtime route")
+        source = {
+            "id": str(item.get("id", "")).strip(),
+            "name": str(item.get("name", "")).strip(),
+            "metrics": _resolve(item.get("metrics"), root),
         }
-        for item in runtime_entries
-    ]
+        if item.get("validation") is None:
+            raise FinalReportError(
+                f"Runtime route {source['id'] or '<unnamed>'} requires validation."
+            )
+        source["validation"] = _resolve(item.get("validation"), root)
+        runtime_sources.append(source)
 
     detector = _read_json(paths["detector"])
     tracking = _read_json(paths["tracking"])
@@ -100,6 +106,23 @@ def build_final_benchmark_report(
     publish_root.mkdir(parents=True, exist_ok=True)
     publish_report_root.mkdir(parents=True, exist_ok=True)
 
+    source_records = {
+        key: {"path": str(path), "sha256": file_sha256(path)}
+        for key, path in paths.items()
+    }
+    for source in runtime_sources:
+        route = source["id"]
+        source_records[f"runtime_{route}_metrics"] = {
+            "path": str(source["metrics"]),
+            "sha256": file_sha256(source["metrics"]),
+        }
+        validation_path = source.get("validation")
+        if isinstance(validation_path, Path):
+            source_records[f"runtime_{route}_validation"] = {
+                "path": str(validation_path),
+                "sha256": file_sha256(validation_path),
+            }
+
     payload = {
         "schema_version": 1,
         "created_at": datetime.now(UTC).isoformat(),
@@ -115,20 +138,20 @@ def build_final_benchmark_report(
             "detector": "SportsMOT val, 2,900 images, 640 px, same GPU",
             "tracking": "SportsMOT 30 sequences, 20,171 frames, shared detections",
             "semantic": "31 human-reviewed tracks from one football video",
-            "realtime": "120-frame file-source smoke, rendering and MP4 writing enabled",
+            "realtime": (
+                "120-frame file-source run, 640 px, adaptive routed tracker, "
+                "rendering and MP4 writing enabled"
+            ),
             "idsw_taxonomy": "heuristic diagnostic categories; official IDSW is TrackEval",
         },
-        "sources": {
-            key: {"path": str(path), "sha256": file_sha256(path)}
-            for key, path in paths.items()
-        },
+        "sources": source_records,
     }
     audit = {
         "status": "ok",
         "error_count": 0,
         "warning_count": len([item for item in issues if item["severity"] == "WARNING"]),
         "issues": issues,
-        "source_count": len(paths) + len(runtime_sources),
+        "source_count": len(source_records),
     }
     _write_json(output_paths["json"], payload)
     _write_json(output_paths["audit_json"], audit)
@@ -324,10 +347,31 @@ def _validate_semantic(
 def _runtime_row(source: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
     if not source["id"] or not source["name"]:
         raise FinalReportError("Each runtime route requires id and name.")
+    validation_path = source.get("validation")
+    if not isinstance(validation_path, Path):
+        raise FinalReportError(
+            f"Runtime route {source['id']} requires a validation JSON path."
+        )
     payload = _read_json(source["metrics"])
     timing = _mapping(payload.get("timing"), f"runtime {source['id']}.timing")
     hardware = _mapping(payload.get("hardware"), f"runtime {source['id']}.hardware")
+    cuda_memory = _mapping(
+        payload.get("cuda_memory"),
+        f"runtime {source['id']}.cuda_memory",
+    )
     detector_summary = _runtime_detector_summary(payload.get("detector"))
+    validation = _read_json(validation_path)
+    track_length = validation.get("track_length")
+    if not isinstance(track_length, dict):
+        track_length = {}
+    track_gaps = validation.get("track_gaps")
+    if not isinstance(track_gaps, dict):
+        track_gaps = {}
+    validation_warnings = validation.get("warnings")
+    if not isinstance(validation_warnings, list):
+        validation_warnings = []
+    peak_allocated_bytes = int(cuda_memory.get("peak_allocated_bytes") or 0)
+    peak_reserved_bytes = int(cuda_memory.get("peak_reserved_bytes") or 0)
     return {
         "route": source["id"],
         "name": source["name"],
@@ -345,12 +389,31 @@ def _runtime_row(source: dict[str, Any], expected: dict[str, Any]) -> dict[str, 
         "steady_state_processing_fps": timing.get("steady_state_processing_fps"),
         "latency_ms_p95": timing.get("frame_latency_ms_p95"),
         "startup_seconds": timing.get("startup_seconds"),
+        "detector_fps": timing.get("detector_fps"),
+        "tracker_fps": timing.get("tracker_fps"),
+        "render_fps": timing.get("render_fps"),
+        "peak_cuda_allocated_bytes": peak_allocated_bytes,
+        "peak_cuda_reserved_bytes": peak_reserved_bytes,
+        "peak_cuda_allocated_mib": peak_allocated_bytes / (1024**2),
+        "peak_cuda_reserved_mib": peak_reserved_bytes / (1024**2),
+        "frames_with_tracks": validation.get("frames_with_tracks"),
+        "frame_track_coverage_percent": validation.get(
+            "frame_track_coverage_percent"
+        ),
+        "median_track_length": track_length.get("median"),
+        "shorter_than_30_percent": track_length.get("shorter_than_30_percent"),
+        "tracks_with_gaps": track_gaps.get("tracks_with_gaps"),
+        "validation_warning_count": len(validation_warnings),
+        "validation_warnings": validation_warnings,
         **detector_summary,
         "gpu_name": hardware.get("gpu_name"),
         "gpu_memory_total_bytes": hardware.get("gpu_memory_total_bytes"),
         "system_memory_total_bytes": hardware.get("system_memory_total_bytes"),
         "source": str(source["metrics"]),
         "source_sha256": file_sha256(source["metrics"]),
+        "validation_source": str(validation_path),
+        "validation_source_sha256": file_sha256(validation_path),
+        "validation_frame_count": validation.get("frame_count"),
         "hardware": hardware,
         "expected_frames": int(expected.get("runtime_frames", 0)),
     }
@@ -361,6 +424,7 @@ def _runtime_detector_summary(value: Any) -> dict[str, Any]:
         return {
             "detector_backend": "not_recorded",
             "primary_detector": "not_recorded",
+            "detector_stack": "not_recorded",
             "supplemental_schedule": "none",
             "supplemental_inference_calls": 0,
         }
@@ -377,6 +441,7 @@ def _runtime_detector_summary(value: Any) -> dict[str, Any]:
     if not isinstance(supplemental, list):
         supplemental = []
     schedules: list[str] = []
+    supplemental_names: list[str] = []
     inference_calls = 0
     for item in supplemental:
         if not isinstance(item, dict):
@@ -384,11 +449,13 @@ def _runtime_detector_summary(value: Any) -> dict[str, Any]:
         interval = max(1, int(item.get("every_n_frames", 1)))
         calls = max(0, int(item.get("inference_calls", 0)))
         name = str(item.get("checkpoint_name") or item.get("detector_name") or "supplemental")
+        supplemental_names.append(name)
         schedules.append(f"{name}: every {interval} frame(s), {calls} call(s)")
         inference_calls += calls
     return {
         "detector_backend": backend,
         "primary_detector": primary_name,
+        "detector_stack": " + ".join((primary_name, *supplemental_names)),
         "supplemental_schedule": "; ".join(schedules) if schedules else "none",
         "supplemental_inference_calls": inference_calls,
     }
@@ -423,9 +490,40 @@ def _validate_runtime(
             "end_to_end_fps",
             "processing_fps",
             "steady_state_processing_fps",
+            "detector_fps",
+            "tracker_fps",
+            "render_fps",
             "startup_seconds",
+            "peak_cuda_allocated_bytes",
+            "peak_cuda_reserved_bytes",
         ):
             _positive_metric(issues, row.get(metric), f"runtime.{row['route']}.{metric}")
+        validation_frames = row.get("validation_frame_count")
+        if validation_frames is not None and int(validation_frames) != int(
+            row.get("frames") or -1
+        ):
+            _issue(
+                issues,
+                "ERROR",
+                "runtime_validation_frames",
+                f"Route {row['route']} validation frame count does not match metrics.",
+            )
+        coverage = row.get("frame_track_coverage_percent")
+        if coverage is not None and not 0.0 <= float(coverage) <= 100.0:
+            _issue(
+                issues,
+                "ERROR",
+                "runtime_track_coverage",
+                f"Route {row['route']} track coverage is outside [0, 100].",
+            )
+        short_percent = row.get("shorter_than_30_percent")
+        if short_percent is not None and not 0.0 <= float(short_percent) <= 100.0:
+            _issue(
+                issues,
+                "ERROR",
+                "runtime_short_track_percent",
+                f"Route {row['route']} short-track percentage is outside [0, 100].",
+            )
 
 
 def _validate_source_hashes(
@@ -466,13 +564,17 @@ def _known_limitations() -> list[dict[str, Any]]:
         {
             "severity": "WARNING",
             "code": "runtime_scope",
-            "message": "Realtime route timings use a 120-frame local file, not a live camera.",
+            "message": (
+                "Route-to-route timings use a 120-frame local file; the separate 35-second "
+                "stress test still replays a file rather than a physical camera."
+            ),
         },
         {
             "severity": "WARNING",
             "code": "cross_domain_gt_pending",
             "message": (
-                "Traffic, medical, and education routes need human GT before accuracy claims."
+                "Wildlife, traffic, and education routes need reviewed per-track GT before "
+                "semantic accuracy claims."
             ),
         },
         {
@@ -553,23 +655,43 @@ def _markdown(payload: dict[str, Any], audit: dict[str, Any], figures: list[Path
             "",
             "## Realtime routes",
             "",
-            "| Route | Detector | Detections | Detect-only | E2E FPS | Steady FPS | "
-            "P95 latency | Startup |",
-            "|---|---|---:|---:|---:|---:|---:|---:|",
+            "| Route | Detector | Detections | Detect-only | E2E FPS | Detector FPS | "
+            "Tracker FPS | Steady FPS | P95 latency | Startup | Peak CUDA |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in runtime:
         lines.append(
-            f"| {row['name']} | {Path(str(row['checkpoint'])).name} | "
+            f"| {row['name']} | {row['detector_stack']} | "
             f"{row['detections']} | {row['detection_only_boxes']} | "
-            f"{row['end_to_end_fps']:.2f} | {row['steady_state_processing_fps']:.2f} | "
-            f"{row['latency_ms_p95']:.2f} ms | {row['startup_seconds']:.2f} s |"
+            f"{row['end_to_end_fps']:.2f} | {row['detector_fps']:.2f} | "
+            f"{row['tracker_fps']:.2f} | {row['steady_state_processing_fps']:.2f} | "
+            f"{row['latency_ms_p95']:.2f} ms | {row['startup_seconds']:.2f} s | "
+            f"{row['peak_cuda_allocated_mib']:.1f} MiB |"
         )
     lines.extend(["", "Detector scheduling:"])
     for row in runtime:
         lines.append(
             f"- {row['name']}: `{row['primary_detector']}` every frame; "
             f"supplemental = {row['supplemental_schedule']}."
+        )
+    lines.extend(
+        [
+            "",
+            "Track diagnostics on the same 120-frame source:",
+            "",
+            "| Route | Frames with tracks | Coverage | Unique IDs | Median length | "
+            "Tracks <30f | Tracks with gaps | Warnings |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in runtime:
+        lines.append(
+            f"| {row['name']} | {row['frames_with_tracks']} / {row['frames']} | "
+            f"{float(row['frame_track_coverage_percent']):.2f}% | "
+            f"{row['unique_tracks']} | {float(row['median_track_length']):.1f} | "
+            f"{float(row['shorter_than_30_percent']):.1f}% | "
+            f"{row['tracks_with_gaps']} | {row['validation_warning_count']} |"
         )
     lines.extend(
         [
@@ -700,6 +822,41 @@ def _write_figures(payload: dict[str, Any], output_dir: Path) -> list[Path]:
     path = output_dir / "realtime_route_fps.png"
     performance.savefig(path, dpi=180, bbox_inches="tight", facecolor="white")
     plt.close(performance)
+    figures.append(path)
+
+    resource_figure, resource_axes = plt.subplots(1, 2, figsize=(12.5, 5.2))
+    stage_width = 0.26
+    for offset, key, label, color in (
+        (-stage_width, "detector_fps", "Detector", "#2F5597"),
+        (0.0, "tracker_fps", "Tracker", "#70AD47"),
+        (stage_width, "render_fps", "Render", "#ED7D31"),
+    ):
+        values = [float(row[key]) for row in runtime]
+        bars = resource_axes[0].bar(
+            positions + offset,
+            values,
+            stage_width,
+            label=label,
+            color=color,
+        )
+        resource_axes[0].bar_label(bars, fmt="%.1f", padding=2, fontsize=8)
+    resource_axes[0].set_xticks(positions, labels)
+    resource_axes[0].set_ylabel("Stage throughput (FPS)")
+    resource_axes[0].set_title("Throughput by pipeline stage")
+    resource_axes[0].grid(axis="y", alpha=0.25)
+    resource_axes[0].legend()
+
+    memory_values = [float(row["peak_cuda_allocated_mib"]) for row in runtime]
+    memory_bars = resource_axes[1].bar(positions, memory_values, color="#A64D79")
+    resource_axes[1].bar_label(memory_bars, fmt="%.1f", padding=2, fontsize=8)
+    resource_axes[1].set_xticks(positions, labels)
+    resource_axes[1].set_ylabel("Peak CUDA allocated (MiB)")
+    resource_axes[1].set_title("Peak PyTorch CUDA allocation")
+    resource_axes[1].grid(axis="y", alpha=0.25)
+    resource_figure.tight_layout()
+    path = output_dir / "realtime_stage_resources.png"
+    resource_figure.savefig(path, dpi=180, bbox_inches="tight", facecolor="white")
+    plt.close(resource_figure)
     figures.append(path)
 
     trackers = payload["trackers"]

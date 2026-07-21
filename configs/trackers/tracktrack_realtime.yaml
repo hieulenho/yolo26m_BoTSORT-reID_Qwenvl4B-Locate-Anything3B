@@ -19,7 +19,7 @@ tracker:
   gmc_method: sparseOptFlow
   with_reid: false
   model: auto
-  class_aware: true
+  class_aware: false
 
 output:
   confirmed_only: true

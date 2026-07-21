@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "status": "manual_review_required",
+  "created_at": "2026-07-21T08:10:07.006695+00:00",
+  "sample_id": "education_classroom_long",
+  "track_count": 206,
+  "observation_count": 7966,
+  "inputs": {
+    "source_video": {
+      "path": "F:\\Tracking\\data\\samples\\multidomain\\education_classroom_long.webm",
+      "sha256": "e7334234a8b10c5766b150a4d490b32309b7c6c80019434c3a36b3386bd571d0"
+    },
+    "tracks": {
+      "path": "F:\\Tracking\\outputs\\videos\\multidomain_long\\education_classroom_long_tracking.txt",
+      "sha256": "bafbadbe0add62b98b08ba72f01e99d372af21f98fd219155035967c02ef58b1"
+    },
+    "discovery": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\education_classroom_long\\discovery\\scene_discovery.json",
+      "sha256": "4cb29fdb89d5f2f6bef6a6f599e53fa0c68353549c41e642687feae2174d9ca9"
+    },
+    "route": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\education_classroom_long\\plan\\detector_route.json",
+      "sha256": "2e0d5d9b24c79793fde827596e4f2d12e301fdf8a72df80139b84e53e2384f63"
+    },
+    "semantics": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\education_classroom_long\\fused_track_semantics.json",
+      "sha256": "766a35728045d377ae85a74e50ce7121d2984bfca675010775510e713482c6a8"
+    },
+    "run_report": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\education_classroom_long\\adaptive_run_report.json",
+      "sha256": "688b834290473a47db17c89190e6deacb710391f30b67adb77d40ad614306ddb"
+    }
+  },
+  "outputs": {
+    "track_csv": "F:\\Tracking\\data\\semantic_benchmark\\review\\education_classroom_long\\track_annotations.csv",
+    "review_yaml": "F:\\Tracking\\data\\semantic_benchmark\\review\\education_classroom_long\\ground_truth_review.yaml",
+    "draft_manifest": "F:\\Tracking\\data\\semantic_benchmark\\review\\education_classroom_long\\manifest.draft.yaml",
+    "package_json": "F:\\Tracking\\data\\semantic_benchmark\\review\\education_classroom_long\\annotation_package.json",
+    "readme": "F:\\Tracking\\data\\semantic_benchmark\\review\\education_classroom_long\\README.md"
+  }
+}

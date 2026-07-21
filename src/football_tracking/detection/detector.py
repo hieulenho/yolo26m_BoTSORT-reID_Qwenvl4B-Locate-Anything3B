@@ -10,6 +10,10 @@ from typing import Any
 
 LOGGER = logging.getLogger(__name__)
 
+YOLOE_MOBILECLIP2_ASSET = (
+    "https://github.com/ultralytics/assets/releases/download/v8.4.0/mobileclip2_b.ts"
+)
+
 
 KNOWN_ULTRALYTICS_CHECKPOINTS = {
     "yolov8n.pt",
@@ -261,6 +265,7 @@ class UltralyticsOpenVocabularyDetector(UltralyticsDetector):
                 from ultralytics import YOLOE  # type: ignore[import-not-found]
 
                 self.model = YOLOE(str(self.weights))
+                _ensure_yoloe_text_encoder(self.model)
             self.model.set_classes(list(self.text_classes))
         except Exception as exc:  # noqa: BLE001
             raise DetectorError(
@@ -274,6 +279,30 @@ class UltralyticsOpenVocabularyDetector(UltralyticsDetector):
             len(self.text_classes),
         )
         return self.model
+
+
+def _ensure_yoloe_text_encoder(model: Any) -> None:
+    """Preflight the auxiliary encoder omitted by some Ultralytics asset registries."""
+    inner_model = getattr(model, "model", None)
+    text_model = str(getattr(inner_model, "text_model", ""))
+    if not text_model.startswith("mobileclip2"):
+        return
+    local_path = Path("mobileclip2_b.ts")
+    if local_path.is_file():
+        return
+    try:
+        from ultralytics.utils.downloads import attempt_download_asset
+
+        downloaded = Path(attempt_download_asset(YOLOE_MOBILECLIP2_ASSET))
+    except Exception as exc:  # noqa: BLE001
+        raise DetectorError(
+            "YOLOE requires mobileclip2_b.ts. Automatic download from the official "
+            f"Ultralytics release failed: {exc}"
+        ) from exc
+    if not downloaded.is_file():
+        raise DetectorError(
+            "YOLOE text encoder download did not produce mobileclip2_b.ts."
+        )
 
 
 @dataclass(frozen=True)

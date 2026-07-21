@@ -23,11 +23,12 @@ Useful controls:
 
 | Parameter | Meaning |
 |---|---|
-| `-Profile realtime` | OC-SORT and small detector routes |
-| `-Profile balanced` | TrackTrack and medium routes |
-| `-Profile accuracy` | identity-stable BoT-SORT ReID |
+| `-Profile realtime` | class-routed OC-SORT; special motion config for small fast objects |
+| `-Profile realtime_stable` | YOLO26n/640 plus TrackTrack; fewer fragmented IDs at lower FPS |
+| `-Profile balanced` | class-routed TrackTrack; OC-SORT for small fast objects |
+| `-Profile accuracy` | class-routed identity-stable BoT-SORT ReID |
 | `-MaxFrames 120` | bounded smoke run |
-| `-SemanticMaxTracks 4` | limit expensive Qwen track analysis |
+| `-SemanticMaxTracks 0` | analyze all tracks; use a positive value only for a bounded smoke run |
 | `-RunTrackSemantics $false` | skip downstream Qwen track labeling |
 | `-RunLocateVerification $false` | skip LocateAnything verification |
 | `-RefreshSemanticCache` | rerun discovery for the same source |
@@ -39,13 +40,35 @@ Useful controls:
   -Source 0 `
   -RunName webcam_01 `
   -CalibrationSeconds 8 `
+  -DiscoveryKeyframes 2 `
   -QwenQuantization 4bit `
   -Device cuda `
   -Overwrite
 ```
 
 The script captures a short calibration clip, discovers the vocabulary once, builds a realtime
-plan, and starts the camera/RTSP/file stream. Use `-NoWindow` for headless measurement.
+plan, and starts the camera/RTSP/file stream. Track crops are written to a non-blocking semantic
+queue. Use `-NoWindow` for headless measurement.
+
+`-DiscoveryKeyframes 2` is the 8 GB GPU default. Increase it only for videos with several
+visually different shots. `-DiscoveryMaxNewTokens 768` protects complete structured JSON; the
+semantic cache makes this cold cost one-time for a matching source and configuration.
+
+On an 8 GB GPU, process the queue after the realtime session so Qwen does not compete with the
+detector for VRAM:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_realtime_semantic_worker.py `
+  --queue-dir outputs\adaptive_realtime\webcam_01\semantic_queue `
+  --vlm-config configs\vlm_dynamic_track_semantics.yaml `
+  --semantic-output outputs\adaptive_realtime\webcam_01\semantic_cache.json `
+  --memory outputs\adaptive_realtime\webcam_01\semantic_memory.json `
+  --max-events 8
+```
+
+The worker atomically claims each event. A model/runtime exception returns the event to
+`pending/`; an invalid answer is moved to `failed/` with its failure reason instead of being
+retried forever. Run only one worker per queue on a single-GPU machine.
 
 ## Benchmarking
 
@@ -69,6 +92,49 @@ Consolidate existing full benchmark sources:
 
 The final command validates source hashes, counts, ranges, hardware compatibility, semantic GT
 scope, and writes report-ready figures.
+
+Licensed public multi-domain trial:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\download_multidomain_samples.py
+.\.venv\Scripts\python.exe scripts\build_multidomain_trial_report.py `
+  --manifest data\samples\multidomain\samples_manifest.json `
+  --run-root outputs\adaptive_runs\multidomain_long `
+  --output-dir outputs\adaptive_runs\multidomain_long\summary `
+  --overwrite
+```
+
+The canonical wildlife, traffic, and classroom clips are 37.9, 35.0, and 84.3 seconds. Run
+`run_adaptive_tracking.ps1` on each clip before building the report. Video-level domain/class
+discovery is kept separate from per-track semantic accuracy, which needs human annotation.
+
+Prepare the human-review package, then finalize and merge the reviewed manifests:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\prepare_semantic_gt.py finalize `
+  --package-dir data\semantic_benchmark\review\traffic_street
+
+.\.venv\Scripts\python.exe scripts\prepare_semantic_gt.py merge `
+  --manifest data\semantic_benchmark\review\wildlife_black_noddies\manifest.reviewed.yaml `
+  --manifest data\semantic_benchmark\review\traffic_street\manifest.reviewed.yaml `
+  --manifest data\semantic_benchmark\review\education_classroom_long\manifest.reviewed.yaml `
+  --output-manifest data\semantic_benchmark\multidomain.reviewed.yaml `
+  --overwrite
+```
+
+`finalize` intentionally fails until every track row and the video-level review block have been
+marked as reviewed by a named annotator.
+
+Build the measured long-stream realtime comparison:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_realtime_benchmark.py `
+  --run baseline_fp32=outputs\adaptive_realtime\traffic_long\realtime_metrics.json `
+  --run optimized_no_drop=outputs\adaptive_realtime\traffic_final\realtime_metrics.json `
+  --run bounded_live=outputs\adaptive_realtime\traffic_bounded\realtime_metrics.json `
+  --output-dir outputs\benchmarks\realtime\traffic_35s `
+  --overwrite
+```
 
 ## Validation
 

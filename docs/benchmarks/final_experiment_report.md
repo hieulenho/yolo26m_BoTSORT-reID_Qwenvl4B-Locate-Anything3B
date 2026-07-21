@@ -43,16 +43,24 @@ Recommended profiles: OC-SORT for realtime, TrackTrack for balanced quality, and
 
 ## Realtime routes
 
-| Route | Detector | Detections | Detect-only | E2E FPS | Steady FPS | P95 latency | Startup |
-|---|---|---:|---:|---:|---:|---:|---:|
-| Football fine-tuned | yolo26m_best.pt | 2824 | 22 | 28.57 | 58.29 | 26.92 ms | 0.54 s |
-| COCO pretrained | yolo26n.pt | 2536 | 75 | 26.97 | 62.21 | 20.60 ms | 0.58 s |
-| Open vocabulary | yoloe-26n-seg.pt | 2604 | 0 | 21.25 | 42.49 | 34.69 ms | 2.62 s |
+| Route | Detector | Detections | Detect-only | E2E FPS | Detector FPS | Tracker FPS | Steady FPS | P95 latency | Startup | Peak CUDA |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Football fine-tuned | yolo26m_best.pt + yolo26n.pt | 2703 | 0 | 24.75 | 42.47 | 257.17 | 40.40 | 35.06 ms | 0.62 s | 187.1 MiB |
+| COCO pretrained | yolo26n.pt | 2322 | 69 | 34.30 | 58.97 | 373.07 | 46.63 | 25.09 ms | 0.47 s | 63.6 MiB |
+| Open vocabulary | yolo26n.pt + yoloe-26s-seg.pt | 2253 | 0 | 19.46 | 30.72 | 217.58 | 29.60 | 47.39 ms | 11.75 s | 165.2 MiB |
 
 Detector scheduling:
 - Football fine-tuned: `yolo26m_best.pt` every frame; supplemental = yolo26n.pt: every 6 frame(s), 20 call(s).
 - COCO pretrained: `yolo26n.pt` every frame; supplemental = none.
-- Open vocabulary: `yoloe-26n-seg.pt` every frame; supplemental = none.
+- Open vocabulary: `yolo26n.pt` every frame; supplemental = yoloe-26s-seg.pt: every 6 frame(s), 20 call(s).
+
+Track diagnostics on the same 120-frame source:
+
+| Route | Frames with tracks | Coverage | Unique IDs | Median length | Tracks <30f | Tracks with gaps | Warnings |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Football fine-tuned | 119 / 120 | 99.17% | 37 | 61.0 | 32.4% | 12 | 0 |
+| COCO pretrained | 119 / 120 | 99.17% | 50 | 21.0 | 54.0% | 25 | 2 |
+| Open vocabulary | 119 / 120 | 99.17% | 50 | 21.0 | 54.0% | 25 | 2 |
 
 ## IDSW diagnostic taxonomy
 
@@ -81,6 +89,7 @@ Counts below are recomputed diagnostic events. Percentages partition each tracke
 
 - `..\assets\benchmarks\adaptive_architecture.png`
 - `..\assets\benchmarks\realtime_route_fps.png`
+- `..\assets\benchmarks\realtime_stage_resources.png`
 - `..\assets\benchmarks\tracker_quality_speed.png`
 - `..\assets\benchmarks\detector_quality_speed.png`
 - `..\assets\benchmarks\semantic_quality_cost.png`

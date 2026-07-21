@@ -56,6 +56,15 @@ class VocabularyRegistry:
             for alias in (entry.canonical_name, *entry.aliases):
                 normalized = normalize_phrase(alias)
                 if normalized:
+                    previous = aliases.get(normalized)
+                    if (
+                        previous is not None
+                        and previous.canonical_name != entry.canonical_name
+                    ):
+                        raise VocabularyRegistryError(
+                            f"Alias '{normalized}' maps to both "
+                            f"'{previous.canonical_name}' and '{entry.canonical_name}'."
+                        )
                     aliases[normalized] = entry
         self._aliases = aliases
 
@@ -73,12 +82,21 @@ class VocabularyRegistry:
             name = normalize_phrase(str(row["name"]))
             coco_name = normalize_phrase(str(row.get("coco_class", "")))
             coco_id = COCO_ID_BY_NAME.get(coco_name)
+            if coco_name and coco_id is None:
+                raise VocabularyRegistryError(
+                    f"Unknown COCO class '{coco_name}' for registry class '{name}'."
+                )
+            default_action = str(row.get("default_action", "track")).strip().lower()
+            if default_action not in {"track", "detect", "context"}:
+                raise VocabularyRegistryError(
+                    f"Invalid default_action '{default_action}' for registry class '{name}'."
+                )
             entries.append(
                 RegistryEntry(
                     canonical_name=name,
                     aliases=tuple(str(item) for item in row.get("aliases", ())),
                     coco_id=coco_id,
-                    default_action=str(row.get("default_action", "track")),
+                    default_action=default_action,
                 )
             )
         return cls(tuple(entries))
@@ -163,6 +181,11 @@ def normalize_objects(
             coco_id=coco_id,
             open_vocabulary=coco_id is None,
             source_names=(raw_name,),
+            fine_grained_candidates=tuple(
+                str(item) for item in row.get("fine_grained_candidates", ())
+            ),
+            semantic_facets=tuple(str(item) for item in row.get("semantic_facets", ())),
+            taxonomy_hint=str(row.get("taxonomy_hint", "")),
         )
         existing = merged.get(canonical)
         if existing is None:
@@ -181,6 +204,18 @@ def normalize_objects(
             source_names=tuple(
                 dict.fromkeys((*existing.source_names, *candidate.source_names))
             ),
+            fine_grained_candidates=tuple(
+                dict.fromkeys(
+                    (
+                        *existing.fine_grained_candidates,
+                        *candidate.fine_grained_candidates,
+                    )
+                )
+            ),
+            semantic_facets=tuple(
+                dict.fromkeys((*existing.semantic_facets, *candidate.semantic_facets))
+            ),
+            taxonomy_hint=existing.taxonomy_hint or candidate.taxonomy_hint,
         )
     action_rank = {"track": 0, "detect": 1, "context": 2}
     ordered = sorted(

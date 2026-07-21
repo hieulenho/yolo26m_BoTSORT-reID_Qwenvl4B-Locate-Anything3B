@@ -63,10 +63,14 @@ mobileclip*.ts
 *.avi
 *.mov
 *.mkv
+*.webm
 *.zip
 *.tar
 *.tar.gz
 *.7z
+
+data/samples/multidomain/samples_manifest.json
+data/semantic_benchmark/review/**/contact_sheets/
 
 .env
 .vscode/

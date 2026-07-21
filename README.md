@@ -11,7 +11,7 @@ video / webcam
   -> Qwen3-VL-4B scene and class discovery
   -> normalized vocabulary and detector routing
   -> YOLO26 / YOLOE detection
-  -> profile-selected multi-object tracker
+  -> class-routed multi-object trackers with one global ID namespace
   -> track crops and event-triggered semantic analysis
   -> unknown rejection, MP4, MOT TXT, JSON, and metrics
 ```
@@ -35,11 +35,17 @@ responsive and makes every semantic claim auditable.
    count, and maps known classes to COCO IDs.
 5. The detector router selects a checkpoint per class group.
 
+The discovery contract is hierarchical rather than a fixed class list. It stores a stable
+base class plus a taxonomy facet and candidate subtypes. Track-level Qwen inference can then
+produce labels such as `bird > common kingfisher`. A fine label is accepted only when it is
+supported across independent track crops and its fused confidence is at least `0.95`; otherwise
+the base class remains valid and the subtype is `unknown`.
+
 | Route | Detector | Use |
 |---|---|---|
 | Football | fine-tuned YOLO26m | people on football footage |
 | COCO | YOLO26n/s pretrained | known general objects |
-| Open vocabulary | YOLOE-26n/s | classes outside the COCO vocabulary |
+| Open vocabulary | YOLOE-26s | classes outside the COCO vocabulary |
 
 Football uses a hybrid route: the fine-tuned model tracks people, while a small COCO detector
 samples detect-only classes such as the ball. The realtime profile runs this supplemental
@@ -49,9 +55,9 @@ detector every six frames and never reuses stale box coordinates.
 
 | Profile | Tracker | Intended use |
 |---|---|---|
-| `realtime` | OC-SORT | live streams and lowest end-to-end latency |
-| `balanced` | TrackTrack | strongest measured HOTA with moderate speed |
-| `accuracy` | BoT-SORT ReID stable | lowest official IDSW among the evaluated identity trackers |
+| `realtime` | routed OC-SORT | live streams; separate motion tuning for small fast objects |
+| `balanced` | routed TrackTrack + OC-SORT | stronger association with a dedicated small-object route |
+| `accuracy` | routed BoT-SORT ReID + OC-SORT | appearance-aware identities with a small-object route |
 
 OC-SORT is the realtime default because the local 30-sequence benchmark places it ahead of
 the other low-latency candidates on the measured quality-speed trade-off. Appearance-CNN
@@ -106,6 +112,9 @@ Full adaptive path on `F:\videos\1.mp4`:
 
 Change only `-SourceVideo` and output names for `2.mp4`, `3.webm`, traffic footage, classroom
 footage, or another domain. Do not reuse a discovery cache across different source videos.
+On the RTX 4060 Laptop GPU, the measured cold Qwen discovery for two traffic keyframes took
+about 171 seconds including model loading. The result is cached by video hash, model, prompt,
+sampling, precision, and token budget; a matching repeat does not load Qwen again.
 
 For a short plumbing check:
 
@@ -123,15 +132,17 @@ For a short plumbing check:
 
 ## Run A Webcam
 
-The camera is calibrated for a few seconds, Qwen creates one vocabulary cache, and the stream
-then runs with detector plus tracker only. Deep semantics can be triggered asynchronously in a
-future deployment.
+The camera is calibrated for a few seconds and Qwen creates one vocabulary cache. During the
+stream, detector and tracker never wait for the VLM: representative track crops enter an atomic
+queue, while an optional worker updates temporal memory and a semantic cache. On an 8 GB GPU,
+run that worker after capture or on another GPU/server to avoid model contention.
 
 ```powershell
 .\scripts\run_realtime_adaptive.ps1 `
   -Source 0 `
   -RunName webcam_01 `
   -CalibrationSeconds 8 `
+  -DiscoveryKeyframes 2 `
   -QwenQuantization 4bit `
   -Device cuda `
   -Overwrite
@@ -148,9 +159,11 @@ are stored under `outputs/adaptive_runs/<video_stem>/`:
 discovery/scene_discovery.json       domain, objects, actions, evidence
 plan/adaptive_plan.json              detector route and tracker profile
 plan/tracking.generated.yaml         exact generated runtime config
+plan/tracker_routing.generated.yaml  per-class tracker routes and configs
 qwen_track_semantics/                keyframes, crops, prompt, model answer
 locate_verification/                 event plan and grounding result
 fused_track_semantics.json           accepted labels and unknown decisions
+semantic_memory.json                 bounded multi-time evidence for every track
 adaptive_run_report.json             timings, VRAM, coverage, and provenance
 ```
 
@@ -209,17 +222,71 @@ The current semantic GT contains 31 manually reviewed tracks from one football v
 
 ### Realtime Routes
 
-| Route | E2E FPS | Steady processing FPS | Startup |
-|---|---:|---:|---:|
-| Football hybrid | 28.57 | 58.29 | 0.54 s |
-| COCO pretrained | 26.97 | 62.21 | 0.58 s |
-| Open vocabulary | 21.25 | 42.49 | 2.62 s |
+| Route | Detector stack | E2E FPS | Steady FPS | P95 | Startup | Peak CUDA |
+|---|---|---:|---:|---:|---:|---:|
+| Football hybrid | YOLO26m + sampled YOLO26n | 24.75 | 40.40 | 35.06 ms | 0.62 s | 187.1 MiB |
+| COCO pretrained | YOLO26n | 34.30 | 46.63 | 25.09 ms | 0.47 s | 63.6 MiB |
+| Open vocabulary | YOLO26n + sampled YOLOE-26s | 19.46 | 29.60 | 47.39 ms | 11.75 s | 165.2 MiB |
+
+### 35-Second Realtime Stress Test
+
+The traffic clip was also replayed end to end at 30 FPS on the RTX 4060 Laptop GPU. The
+optimized no-drop mode preserves every frame for offline evaluation. The bounded live mode
+drops a late frame when necessary, so camera lag stays bounded instead of growing over time.
+
+| Mode | Process FPS | Source progress FPS | P95 latency | Late-frame drop | Peak RAM |
+|---|---:|---:|---:|---:|---:|
+| FP32 baseline | 21.04 | 20.37 | 77.1 ms | 0.0% | 1.67 GiB |
+| Optimized, no drop | 27.35 | 26.10 | 45.1 ms | 0.0% | 2.01 GiB |
+| Bounded live | 27.88 | 29.98 | 44.0 ms | 11.3% | 2.03 GiB |
+
+![Long realtime FPS](docs/assets/benchmarks/realtime_long_fps.png)
+
+![Long realtime latency](docs/assets/benchmarks/realtime_long_latency_drop.png)
+
+### Public Multi-Domain Trial
+
+Three licensed Wikimedia Commons videos, each at least 30 seconds long, exercise wildlife,
+urban traffic, and education.
+Qwen generated the domain and vocabulary before detection; the router then selected COCO,
+YOLOE, or a composite detector. All runs used sequential 4-bit Qwen and 8-bit LocateAnything
+processes on the RTX 4060 Laptop GPU (8 GB).
+
+| Sample | Length | Domain match | Class recall | Tracks | Steady FPS | Short-track proxy |
+|---|---:|---:|---:|---:|---:|---:|
+| Black noddy flock | 37.9 s | yes | 100% | 36 | 27.21 | 52.8% |
+| Street traffic | 35.0 s | yes | 80% | 153 | 32.12 | 64.1% |
+| Classroom | 84.3 s | yes | 100% | 206 | 30.28 | 64.6% |
+
+These are video-level discovery checks, not per-track semantic accuracy. The report deliberately
+leaves semantic accuracy null until every evaluated track has a human base/fine annotation.
+Fine-grained hypotheses below the conservative 0.95 threshold remain `unknown`; this prevents
+unsupported species and vehicle subtypes from being rendered as facts. See the
+[multi-domain trial report](outputs/adaptive_runs/multidomain_long/summary/multidomain_trial_report.md)
+for timings, VRAM, coverage, licenses, CSV, JSON, and charts.
+
+On the same traffic video and detector outputs, `realtime_stable` (TrackTrack) reduced predicted
+IDs from 153 to 87 and tracks shorter than one second from 64.1% to 31.0%. Throughput fell from
+32.12 to 22.84 FPS. These are GT-free continuity proxies, not official IDSW; the SportsMOT table
+above remains the identity benchmark.
 
 ![Realtime route benchmark](docs/assets/benchmarks/realtime_route_fps.png)
 
-`E2E FPS` includes video open/write overhead. `Steady processing FPS` excludes startup and the
-first five warm-up frames. These are short file-source measurements, not long-duration webcam
-claims.
+![Realtime stage and memory benchmark](docs/assets/benchmarks/realtime_stage_resources.png)
+
+Track continuity on that same 120-frame football clip:
+
+| Route | Frames with tracks | Median track length | Tracks shorter than 30 frames |
+|---|---:|---:|---:|
+| Football hybrid | 119/120 | 61 | 32.4% |
+| COCO pretrained | 119/120 | 21 | 54.0% |
+| Open vocabulary | 119/120 | 21 | 54.0% |
+
+`E2E FPS` includes frame decode, detection, tracking, drawing, MOT output, and MP4 writing;
+model loading is reported separately as `Startup`. `Steady FPS` excludes the first five warm-up
+frames. `Peak CUDA` is peak PyTorch-allocated memory. These are 120-frame file-source runs, not
+long-duration webcam claims. The COCO and open-vocabulary rows are routing/runtime stress tests on
+football footage; they are not cross-domain accuracy claims.
 
 ## Reproduce And Verify
 
@@ -232,18 +299,20 @@ claims.
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-The verified local state is `379 passed`. Canonical reports:
+The verified local state is `419 passed`. Canonical reports:
 
 - [Final report](docs/benchmarks/final_experiment_report.md)
 - [Artifact audit](docs/benchmarks/artifact_audit.json)
 - [Runtime CSV](docs/benchmarks/realtime_route_summary.csv)
+- [Long realtime benchmark](docs/benchmarks/realtime_long_benchmark.md)
 - [Five-pass engineering audit](docs/benchmarks/five_pass_audit.md)
 - [All terminal commands](commands.txt)
 
 ## Measurement Limits
 
-- Cross-domain routing is implemented and runtime-tested, but traffic, medical, and education
-  accuracy require new human ground truth before a valid accuracy claim can be made.
+- Cross-domain routing is implemented and runtime-tested. Review packages now cover 395 tracks
+  and 18,814 observations across wildlife, traffic, and education, but their labels still need
+  human confirmation before a valid accuracy claim can be made.
 - Semantic accuracy currently covers 31 tracks from one football video.
 - The five IDSW categories are deterministic diagnostic heuristics. Official tracker ranking
   uses TrackEval IDSW, HOTA, AssA, and IDF1.

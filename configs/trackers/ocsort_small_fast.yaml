@@ -1,0 +1,28 @@
+tracker:
+  name: ocsort_small_fast
+  tracker_type: ocsort
+  track_high_thresh: 0.18
+  track_low_thresh: 0.04
+  new_track_thresh: 0.22
+  track_buffer: 24
+  match_thresh: 0.72
+  fuse_score: true
+  delta_t: 2
+  inertia: 0.12
+  use_byte: true
+  gmc_method: none
+  proximity_thresh: 0.35
+  appearance_thresh: 0.90
+  with_reid: false
+  model: auto
+  class_aware: false
+
+output:
+  confirmed_only: true
+  require_recent_update: true
+  max_time_since_update_for_output: 0
+  min_hits_for_output: 1
+  compact_ids: true
+
+runtime:
+  log_level: INFO

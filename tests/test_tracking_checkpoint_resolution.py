@@ -25,6 +25,21 @@ def test_checkpoint_type_distinguishes_yoloe_from_coco_yolo() -> None:
     assert identify_checkpoint_type("yolo26s.pt") == "pretrained_coco"
 
 
+def test_configured_pretrained_checkpoint_is_not_reported_as_fallback(tmp_path) -> None:
+    resolved = resolve_detector_checkpoint(
+        {
+            "checkpoint": "yolo26n.pt",
+            "allow_pretrained_fallback": True,
+        },
+        tmp_path,
+    )
+
+    assert resolved.checkpoint == "yolo26n.pt"
+    assert resolved.source == "config.checkpoint"
+    assert resolved.fallback_used is False
+    assert resolved.warnings == []
+
+
 def test_resolver_uses_smoke_only_when_allowed(tmp_path) -> None:
     project_root = tmp_path
     smoke_dir = project_root / "models" / "detector"

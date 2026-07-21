@@ -65,6 +65,9 @@ def build_adaptive_run_report(
         "route": route,
         "tracking": {
             "tracker": tracking.get("tracker"),
+            "output_mot": tracking.get("output_mot"),
+            "output_video": tracking.get("output_video"),
+            "tracker_diagnostics": tracking.get("tracker_diagnostics"),
             "frame_count": tracking.get("frame_count"),
             "detection_count": tracking.get("detection_count"),
             "unique_track_count": tracking.get("unique_track_count"),
@@ -182,6 +185,7 @@ def _markdown(report: dict[str, Any]) -> str:
     locate = report["locateanything_verification"]
     fusion = report["semantic_fusion"]
     timing = tracking.get("timing", {})
+    diagnostics = tracking.get("tracker_diagnostics") or {}
     return "\n".join(
         [
             "# Adaptive tracking run",
@@ -191,6 +195,9 @@ def _markdown(report: dict[str, Any]) -> str:
             f"- Dynamic classes: **{scene.get('discovered_class_count')}**",
             f"- Detector route: **{report['route'].get('route_name')}**",
             f"- Tracker: **{tracking.get('tracker')}**",
+            "- Raw/stable class switches: "
+            f"**{diagnostics.get('raw_class_switches', 0)} / "
+            f"{diagnostics.get('stable_class_switches', 0)}**",
             f"- Frames: **{tracking.get('frame_count')}**",
             f"- Detector FPS: **{_fmt(timing.get('detector_fps'))}**",
             f"- Tracker FPS: **{_fmt(timing.get('tracker_fps'))}**",

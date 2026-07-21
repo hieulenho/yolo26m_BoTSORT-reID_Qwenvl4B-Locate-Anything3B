@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "status": "manual_review_required",
+  "created_at": "2026-07-21T08:08:35.129593+00:00",
+  "sample_id": "wildlife_black_noddies",
+  "track_count": 36,
+  "observation_count": 2599,
+  "inputs": {
+    "source_video": {
+      "path": "F:\\Tracking\\data\\samples\\multidomain\\wildlife_black_noddies.webm",
+      "sha256": "acb7fdfef33675f2eb899778dddd9bab12a2a89945d57b6269281d91b35adb69"
+    },
+    "tracks": {
+      "path": "F:\\Tracking\\outputs\\videos\\multidomain_long\\wildlife_black_noddies_tracking.txt",
+      "sha256": "f4501135c78c7b328084994e897da9e515fd8eb1b7a068af4577968ffd4c8dc8"
+    },
+    "discovery": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\wildlife_black_noddies\\discovery\\scene_discovery.json",
+      "sha256": "3276f76d81dd108dd4877d17a665c5848319fa983d6311855a2bcb0f451515c8"
+    },
+    "route": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\wildlife_black_noddies\\plan\\detector_route.json",
+      "sha256": "d4f4b38130b3ad1c7bc1deb74c75c65708fc5eccf31f040bec82982b4604f85c"
+    },
+    "semantics": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\wildlife_black_noddies\\fused_track_semantics.json",
+      "sha256": "6343ccea4cc0adb575367052af5056a4e2322043a178c5eebc8bb1aa793add45"
+    },
+    "run_report": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\wildlife_black_noddies\\adaptive_run_report.json",
+      "sha256": "4c65fd65118dfa6584309a90b609800639b46311e0a657faeb84f889a6a5e1a8"
+    }
+  },
+  "outputs": {
+    "track_csv": "F:\\Tracking\\data\\semantic_benchmark\\review\\wildlife_black_noddies\\track_annotations.csv",
+    "review_yaml": "F:\\Tracking\\data\\semantic_benchmark\\review\\wildlife_black_noddies\\ground_truth_review.yaml",
+    "draft_manifest": "F:\\Tracking\\data\\semantic_benchmark\\review\\wildlife_black_noddies\\manifest.draft.yaml",
+    "package_json": "F:\\Tracking\\data\\semantic_benchmark\\review\\wildlife_black_noddies\\annotation_package.json",
+    "readme": "F:\\Tracking\\data\\semantic_benchmark\\review\\wildlife_black_noddies\\README.md"
+  }
+}

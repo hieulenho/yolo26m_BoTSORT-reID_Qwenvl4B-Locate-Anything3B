@@ -1,84 +1,94 @@
 # Five-Pass Engineering Audit
 
-Date: 2026-07-20
+Date: 2026-07-21
 
-This audit records five independent review passes. A pass was accepted only after its discovered
-issues were fixed and the relevant checks were rerun.
+Each pass ended with a focused regression run. The fifth pass reran the complete repository.
 
-## Pass 1 - Architecture And Data Contracts
+## Pass 1 - Detector Routing, Identity, And Class Stability
 
-Checked scene discovery schemas, ontology normalization, detector routing, class-ID remapping,
-tracker class filtering, and generated YAML.
+Reviewed dynamic vocabulary routing, generated tracker routes, per-class adapters, output ID
+mapping, and frame-level class labels. The root cause of many class-triggered ID changes was one
+tracker instance per class. A temporary `car -> truck` detector error therefore created another
+identity.
 
-Found and fixed:
+Regular persistent classes now share one class-agnostic tracker. Only genuinely different motion
+regimes, such as a small fast ball, use a separate delegate. A decayed temporal vote stabilizes
+the displayed class and requires six observations plus a clear score margin before a correction.
+Unit tests cover both a transient class error and a persistently wrong initial class.
 
-- football supplemental COCO classes were initially remapped to class `0`;
-- detection-only classes were filtered out before rendering;
-- detection-only boxes could accidentally cross the tracker boundary.
+## Pass 2 - Long Multi-Domain Inputs And Routing Fallbacks
 
-Result: source class IDs are preserved, tracker inputs are partitioned explicitly, and
-detection-only objects render without a fake `track_id`.
+Replaced short smoke clips with three licensed public videos: wildlife (37.9 s, 908 frames),
+traffic (35.0 s, 1,051 frames), and classroom (84.3 s, 2,530 frames). The downloader probes every
+file and rejects invalid or sub-30-second inputs.
 
-## Pass 2 - Tracker And Ground-Truth Integrity
+The classroom run exposed a fallback bug: when Qwen returned only `detect` actions, the router
+selected a high-confidence desk instead of people. Fallback promotion now selects persistent
+entities such as students, teachers, people, vehicles, and animals before considering furniture.
+All three videos now produce non-empty tracks and semantic renders.
 
-Checked the shared detector cache, 30-sequence/20,171-frame contract, TrackEval summaries,
-per-sequence rows, tracker config hashes, and IDSW diagnostic partitions.
+## Pass 3 - Qwen Output, Memory, And Unknown Rejection
 
-Result: eight trackers are comparable under the same detector cache. Official ranking uses HOTA,
-AssA, IDF1, and TrackEval IDSW. The five IDSW categories are reported separately as diagnostic
-heuristics and sum to 100% for each tracker.
+The original verbose Qwen schema exceeded 768 output tokens on classroom batches. The dynamic
+schema now returns only the fields needed for fusion; all 3/3 classroom batches parse and all 8/8
+selected tracks receive a model prediction.
 
-## Pass 3 - Realtime Routes And Hardware
+Repeated offline runs also reused semantic memory, which duplicated prior evidence. `-Overwrite`
+now removes that run's generated memory before fusion. Fine-grained labels use a conservative
+0.95 threshold: unsupported bird species and vehicle subtypes remain visible in the audit JSON
+but render as `unknown` instead of being presented as facts.
 
-Checked football fine-tuned, COCO pretrained, and YOLOE open-vocabulary routes on the same RTX
-4060 Laptop GPU. Each route processed and rendered 120 frames.
+## Pass 4 - Realtime Latency, Scene Cuts, And Identity Stability
 
-Found and fixed:
+The `realtime` profile keeps OC-SORT. A new `realtime_stable` profile keeps the same YOLO26n
+detector, 640-pixel input, vocabulary, and video, but uses TrackTrack. Tracker state is now reset
+at shot boundaries while the global output-ID counter remains monotonic, preventing identities
+from being associated across unrelated camera cuts.
 
-- the first hybrid football implementation ran both detectors every frame and reduced speed;
-- caching a sampled ball box caused a visible stale/ghost box between inference frames;
-- older route metrics did not record the concrete detector backend/checkpoint.
+| Traffic profile | E2E FPS | Predicted IDs | Tracks <1 s | Median track | Stable class changes |
+|---|---:|---:|---:|---:|---:|
+| realtime / OC-SORT | 32.12 | 153 | 64.1% | 11 frames | 25 |
+| realtime_stable / TrackTrack | 22.84 | 87 | 31.0% | 58 frames | 20 |
 
-Result: the realtime football route runs the primary detector every frame and the supplemental
-COCO detector every six frames (`20` calls over `120` frames). Stale geometry is never reused.
-All three MP4 files probe as `120` frames, `1280x720`, `30 FPS`.
+These raw-video values are continuity proxies, not IDSW. The official 30-sequence SportsMOT GT
+comparison remains: TrackTrack HOTA 71.058, IDSW 1,042; OC-SORT HOTA 59.379, IDSW 2,186;
+BoT-SORT ReID HOTA 68.503, IDSW 895 at 11.66 cached-pipeline FPS.
 
-## Pass 4 - Semantic Quality And VRAM
+The live loop now prewarms the detector, writes video asynchronously, bounds the semantic queue,
+reports p50/p95/p99 latency, and can drop a late input frame instead of accumulating camera lag.
+On the 35-second 30 FPS traffic stream, the no-drop profile processed 27.35 FPS at 45.1 ms p95.
+The bounded-latency profile advanced through the source at 29.98 FPS with 44.0 ms p95 while
+dropping 11.3% of late frames. Offline accuracy runs never enable this frame dropping.
 
-Checked Qwen-only (A), Locate-only (B), and event-verified fusion (C) against the same 31 manually
-reviewed tracks. Checked accepted count, coverage, end-to-end accuracy, selective accuracy, Macro
-F1, cold wall time, and measured peak VRAM.
+## Pass 5 - Reports, Runtime Artifacts, And Repository Validation
 
-Result: Pipeline C has the strongest measured semantic accuracy (`64.52%`) and Macro F1
-(`81.87%`). Qwen and LocateAnything execute sequentially, so peak VRAM is the maximum component
-peak (`4.46 GiB`), not the sum. The report explicitly limits this conclusion to one football
-video; cross-domain accuracy remains pending human GT.
+The multi-domain report now records source duration/resolution, FPS, raw/stable class changes,
+semantic coverage, VRAM, median track lifetime, short-track ratio, and within-ID gap events. It
+labels all prediction-only continuity metrics explicitly so they cannot be confused with GT IDSW.
 
-## Pass 5 - Repository And Reproducibility
-
-Checked source formatting, the complete test suite, PowerShell syntax, README links, report source
-hashes, generated charts, and local video readability.
-
-Final checks:
+The semantic GT workflow now generates three-time contact sheets and one review row for every
+predicted track. It covers 395 tracks and 18,814 observations across the three public videos.
+Finalization rejects model proposals, draft rows, unnamed reviewers, and duplicate sample IDs;
+only human-reviewed manifests can enter semantic accuracy evaluation.
 
 ```text
 ruff check src scripts tests: PASS
-pytest: 379 passed
+compileall src scripts tests: PASS
+pytest: 419 passed
+YAML parse: 129/129 passed
 PowerShell parser: 11/11 scripts passed
-README local links: 15/15 passed
-final artifact audit: PASS with 4 declared scope warnings
-runtime MP4 probe: 3/3 opened and complete
+runtime MP4 probe: 4/4 opened, nonblank, and complete
+Qwen compact batches: 9/9 parsed across three domains
 ```
 
-Cleanup removed two obsolete root archives (about 2.3 GiB), old Ultralytics `runs/` validation
-outputs, Python caches, and the superseded hard-coded figure generator. Dataset files, promoted
-checkpoints, reviewed GT, shared detector caches, raw tracker predictions, and canonical benchmark
-sources were preserved.
+The tested hardware was an NVIDIA GeForce RTX 4060 Laptop GPU with 8 GB VRAM, 16 GB system RAM,
+PyTorch 2.11.0+cu128, Ultralytics 8.4.82, and Python 3.12.10.
 
-## Remaining Work Before A Cross-Domain Accuracy Claim
+## Remaining Accuracy Work
 
-1. Collect traffic, medical, education, and non-football sports videos with licensing metadata.
-2. Annotate domain, object vocabulary, bounding boxes, identities, and semantic labels with a
-   second-person review.
-3. Run the same frozen router/profile on every domain and report per-domain confidence intervals.
-4. Run a long webcam/RTSP soak test; the current realtime figures are 120-frame file-source runs.
+1. Complete human review of the prepared 395-track cross-domain annotation package.
+2. Add MOT identity GT for the raw traffic/classroom clips before calling continuity proxies IDSW.
+3. Calibrate base/fine unknown thresholds by domain instead of treating model confidence as a
+   probability.
+4. Run a multi-hour webcam/RTSP soak test; the current long-stream result is a 35-second file
+   replay using the same bounded-latency loop.

@@ -15,7 +15,9 @@ tracker:
   appearance_thresh: 0.90
   with_reid: false
   model: auto
-  class_aware: true
+  # Association is class-agnostic. RoutedTracker stabilizes the displayed class
+  # over time, so a temporary car/truck label flip does not create a new ID.
+  class_aware: false
 
 output:
   confirmed_only: true

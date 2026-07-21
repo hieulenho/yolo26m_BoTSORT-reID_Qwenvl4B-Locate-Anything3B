@@ -61,6 +61,8 @@ class TrackingConfig:
     tracker_config: Path
     source_type: str
     source_path: Path | None
+    shot_starts: tuple[int, ...]
+    reset_tracker_on_shot_change: bool
     mot_root: Path | None
     split: str | None
     seqmap: Path | None
@@ -154,11 +156,19 @@ def load_tracking_config(
         source_map = _mapping(source, "source")
         source_type = str(source_map.get("type", "video"))
         source_path = _resolve_path(source_map.get("path"), project_root, "source.path")
+        shot_starts = tuple(sorted({int(value) for value in source_map.get("shot_starts", [])}))
+        reset_tracker_on_shot_change = bool(
+            source_map.get("reset_tracker_on_shot_change", False)
+        )
         mot_root = None
         split = None
         seqmap = None
     else:
         raise TrackingPipelineError("Tracking config must define dataset or source.")
+
+    if dataset is not None:
+        shot_starts = ()
+        reset_tracker_on_shot_change = False
 
     render_video = bool(output.get("render_video", render.get("enabled", False)))
     class_values = detector.get("class_ids", [0])
@@ -177,6 +187,8 @@ def load_tracking_config(
         tracker_config=_resolve_path(tracker.get("config"), project_root, "tracker.config"),
         source_type=source_type,
         source_path=source_path,
+        shot_starts=shot_starts,
+        reset_tracker_on_shot_change=reset_tracker_on_shot_change,
         mot_root=mot_root,
         split=split,
         seqmap=seqmap,
@@ -338,6 +350,8 @@ def _validate_tracking_config(config: TrackingConfig) -> None:
         raise TrackingPipelineError("runtime.max_sequences must be positive when set.")
     if config.max_frames_per_sequence is not None and config.max_frames_per_sequence <= 0:
         raise TrackingPipelineError("runtime.max_frames_per_sequence must be positive when set.")
+    if any(value < 1 for value in config.shot_starts):
+        raise TrackingPipelineError("source.shot_starts must contain positive frame indices.")
 
 
 def _discover_sources(config: TrackingConfig) -> list[SequenceSource]:
@@ -709,6 +723,8 @@ def _run_sequence(
     detection_only_count = 0
     emitted_track_count = 0
     unique_tracks: set[int] = set()
+    shot_index = 0
+    shot_resets: list[int] = []
     frame_count = 0
     warnings = list(source.warnings)
     errors: list[str] = []
@@ -722,6 +738,21 @@ def _run_sequence(
             frame_started = time.perf_counter()
             frame = frame_item.image
             height, width = frame.shape[:2]
+            if (
+                config.reset_tracker_on_shot_change
+                and frame_item.frame_index in config.shot_starts
+                and frame_item.frame_index != config.start_frame
+            ):
+                if hasattr(adapter, "reset_scene"):
+                    adapter.reset_scene()
+                else:
+                    adapter.reset()
+                trajectory = TrajectoryStore(
+                    trajectory_length=config.trajectory_length,
+                    enabled=config.show_trajectory,
+                )
+                shot_index += 1
+                shot_resets.append(frame_item.frame_index)
             with timed_section(timing, "detector_seconds", config.device, synchronize_cuda=True):
                 raw_prediction = _predict_frame(detector, frame, config)
             with timed_section(timing, "detector_postprocess_seconds"):
@@ -749,6 +780,13 @@ def _run_sequence(
                     width,
                     height,
                 )
+                tracks = [
+                    replace(
+                        track,
+                        metadata={**track.metadata, "shot_index": shot_index},
+                    )
+                    for track in tracks
+                ]
             detection_count += len(all_detections)
             tracker_detection_count += len(detections)
             detection_only_count += len(detection_only)
@@ -806,6 +844,9 @@ def _run_sequence(
             except Exception:  # noqa: BLE001
                 pass
     timing.total_pipeline_seconds = time.perf_counter() - sequence_started
+    tracker_diagnostics = (
+        adapter.get_diagnostics() if hasattr(adapter, "get_diagnostics") else None
+    )
     if writer is not None:
         writer.write()
     sequence_timing = timing.to_dict()
@@ -841,6 +882,13 @@ def _run_sequence(
             "preserve_source_classes": config.preserve_source_classes,
         },
         "tracker": config.tracker_name,
+        "tracker_diagnostics": tracker_diagnostics,
+        "shot_handling": {
+            "enabled": config.reset_tracker_on_shot_change,
+            "configured_starts": list(config.shot_starts),
+            "reset_frames": shot_resets,
+            "reset_count": len(shot_resets),
+        },
         "tracker_config": (
             tracker_runtime_config.to_dict()
             if hasattr(tracker_runtime_config, "to_dict")

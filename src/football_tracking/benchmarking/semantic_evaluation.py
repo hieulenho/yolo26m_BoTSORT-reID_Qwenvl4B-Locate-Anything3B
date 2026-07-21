@@ -12,6 +12,10 @@ from typing import Any
 
 import yaml
 
+from football_tracking.benchmarking.semantic_annotation import (
+    SemanticAnnotationError,
+    validate_review_metadata,
+)
 from football_tracking.detection.serialization import file_sha256
 from football_tracking.paths import get_project_root
 
@@ -40,6 +44,7 @@ def evaluate_semantic_manifest(
         raise SemanticEvaluationError(
             "Artifact overrides require a manifest with exactly one sample."
         )
+    require_review_metadata = bool(manifest.get("require_review_metadata", False))
 
     rows: list[dict[str, Any]] = []
     class_counts = Counter()
@@ -66,8 +71,19 @@ def evaluate_semantic_manifest(
         ground_truth = _mapping(
             value.get("ground_truth"), f"samples[{index}].ground_truth"
         )
+        if require_review_metadata:
+            try:
+                validate_review_metadata(
+                    ground_truth.get("review"),
+                    f"samples[{index}].ground_truth.review",
+                )
+            except SemanticAnnotationError as exc:
+                raise SemanticEvaluationError(str(exc)) from exc
         discovery_path = _resolve_artifact(
             artifacts.get("discovery"), manifest_file.parent, "discovery"
+        )
+        route_path = _resolve_artifact(
+            artifacts.get("route"), manifest_file.parent, "route", required=False
         )
         semantics_path = _resolve_artifact(
             artifacts.get("semantics"), manifest_file.parent, "semantics"
@@ -94,6 +110,7 @@ def evaluate_semantic_manifest(
             required=False,
         )
         discovery = _read_json(discovery_path)
+        route = _read_json(route_path) if route_path is not None else {}
         semantics = _read_json(semantics_path)
         run_report = _read_json(report_path) if report_path is not None else {}
         run_report = _merge_direct_performance_artifacts(
@@ -119,9 +136,11 @@ def evaluate_semantic_manifest(
         row, sample_pairs, sample_actions, sample_class_counts = _evaluate_sample(
             sample_id=sample_id,
             discovery=discovery,
+            route=route,
             semantics=semantics,
             run_report=run_report,
             gt_domain=_canonical(ground_truth.get("domain", "unknown")),
+            gt_route=_canonical(ground_truth.get("detector_route", "")),
             gt_objects=gt_objects,
             gt_tracks=gt_tracks,
         )
@@ -131,6 +150,7 @@ def evaluate_semantic_manifest(
         class_counts.update(sample_class_counts)
         for name, path in (
             ("discovery", discovery_path),
+            ("route", route_path),
             ("semantics", semantics_path),
             ("run_report", report_path),
             ("tracking_metadata", tracking_metadata_path),
@@ -158,7 +178,7 @@ def evaluate_semantic_manifest(
         )
     output_root.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at": datetime.now(UTC).isoformat(),
         "manifest": str(manifest_file),
         "manifest_sha256": file_sha256(manifest_file),
@@ -171,6 +191,10 @@ def evaluate_semantic_manifest(
             "coverage_definition": "accepted non-unknown predictions / GT tracks",
             "selective_accuracy_definition": "correct predictions / accepted predictions",
             "unknown_predictions_count_as_errors": True,
+            "fine_label_definition": (
+                "human-annotated subtype/species/breed/role/make/model; evaluated only "
+                "for GT tracks that provide fine_label"
+            ),
         },
     }
     _write_json_atomic(paths["summary_json"], payload)
@@ -216,13 +240,17 @@ def _evaluate_sample(
     *,
     sample_id: str,
     discovery: dict[str, Any],
+    route: dict[str, Any],
     semantics: dict[str, Any],
     run_report: dict[str, Any],
     gt_domain: str,
+    gt_route: str,
     gt_objects: dict[str, str],
-    gt_tracks: dict[int, str],
+    gt_tracks: dict[int, dict[str, str]],
 ) -> tuple[dict[str, Any], list[tuple[str, str, bool]], list[tuple[str, str]], Counter]:
     predicted_domain = _domain_name(discovery.get("domain"))
+    predicted_route = _canonical(route.get("route_name", ""))
+    route_evaluated = bool(gt_route)
     predicted_objects = {
         _canonical(row.get("canonical_name", row.get("name", ""))): str(
             row.get("action", "detect")
@@ -253,7 +281,12 @@ def _evaluate_sample(
     semantic_pairs: list[tuple[str, str, bool]] = []
     accepted_count = 0
     correct_count = 0
-    for track_id, expected in sorted(gt_tracks.items()):
+    fine_total = 0
+    fine_accepted = 0
+    fine_correct = 0
+    fine_accepted_correct = 0
+    for track_id, expected_labels in sorted(gt_tracks.items()):
+        expected = expected_labels["class_label"]
         prediction = prediction_by_track.get(track_id, {})
         accepted = bool(prediction.get("accepted", False))
         predicted = (
@@ -264,6 +297,22 @@ def _evaluate_sample(
         accepted_count += int(accepted and predicted != "unknown")
         correct_count += int(predicted == expected)
         semantic_pairs.append((expected, predicted, accepted and predicted != "unknown"))
+        expected_fine = expected_labels.get("fine_label", "")
+        if expected_fine:
+            predicted_fine_accepted = bool(
+                accepted and prediction.get("fine_accepted", False)
+            )
+            predicted_fine = (
+                _canonical(prediction.get("fine_label", "unknown"))
+                if predicted_fine_accepted
+                else "unknown"
+            )
+            fine_total += 1
+            fine_accepted += int(predicted_fine_accepted and predicted_fine != "unknown")
+            fine_correct += int(predicted_fine == expected_fine)
+            fine_accepted_correct += int(
+                predicted_fine_accepted and predicted_fine == expected_fine
+            )
 
     semantic_total = len(gt_tracks)
     end_to_end_fps = _nested(run_report, "tracking", "timing", "end_to_end_fps")
@@ -312,6 +361,10 @@ def _evaluate_sample(
             "gt_domain": gt_domain,
             "predicted_domain": predicted_domain,
             "domain_correct": int(predicted_domain == gt_domain),
+            "gt_detector_route": gt_route or None,
+            "predicted_detector_route": predicted_route or None,
+            "router_evaluated": int(route_evaluated),
+            "router_correct": int(route_evaluated and predicted_route == gt_route),
             "gt_class_count": len(gt_classes),
             "predicted_class_count": len(predicted_classes),
             "class_tp": true_positive,
@@ -338,6 +391,20 @@ def _evaluate_sample(
                     accepted_count,
                 ),
                 6,
+            ),
+            "fine_semantic_correct": fine_correct,
+            "fine_semantic_total": fine_total,
+            "fine_semantic_accuracy": (
+                round(_safe_div(fine_correct, fine_total), 6) if fine_total else None
+            ),
+            "fine_semantic_accepted": fine_accepted,
+            "fine_semantic_coverage": (
+                round(_safe_div(fine_accepted, fine_total), 6) if fine_total else None
+            ),
+            "fine_semantic_selective_accuracy": (
+                round(_safe_div(fine_accepted_correct, fine_accepted), 6)
+                if fine_accepted
+                else None
             ),
             "tracking_end_to_end_fps": end_to_end_fps,
             "qwen_model_load_seconds": qwen_load_seconds,
@@ -407,10 +474,31 @@ def _aggregate(
             "locate_peak_allocated_bytes",
         )
     }
+    router_rows = [row for row in rows if row.get("router_evaluated")]
+    fine_total = sum(int(row.get("fine_semantic_total", 0)) for row in rows)
+    fine_correct = sum(int(row.get("fine_semantic_correct", 0)) for row in rows)
+    fine_accepted = sum(int(row.get("fine_semantic_accepted", 0)) for row in rows)
+    fine_accepted_correct = sum(
+        int(row.get("fine_semantic_correct", 0))
+        for row in rows
+        if row.get("fine_semantic_accepted", 0)
+    )
     return {
         "domain_accuracy": round(
             _safe_div(sum(row["domain_correct"] for row in rows), len(rows)), 6
         ),
+        "router_accuracy": (
+            round(
+                _safe_div(
+                    sum(row["router_correct"] for row in router_rows),
+                    len(router_rows),
+                ),
+                6,
+            )
+            if router_rows
+            else None
+        ),
+        "router_gt_sample_count": len(router_rows),
         "class_precision": round(class_precision, 6),
         "class_recall": round(class_recall, 6),
         "class_f1": round(_f1(class_precision, class_recall), 6),
@@ -433,6 +521,19 @@ def _aggregate(
         ),
         "semantic_gt_track_count": len(semantic_pairs),
         "semantic_accepted_track_count": len(accepted_pairs),
+        "fine_semantic_track_accuracy": (
+            round(_safe_div(fine_correct, fine_total), 6) if fine_total else None
+        ),
+        "fine_semantic_coverage": (
+            round(_safe_div(fine_accepted, fine_total), 6) if fine_total else None
+        ),
+        "fine_semantic_selective_accuracy": (
+            round(_safe_div(fine_accepted_correct, fine_accepted), 6)
+            if fine_accepted
+            else None
+        ),
+        "fine_semantic_gt_track_count": fine_total,
+        "fine_semantic_accepted_track_count": fine_accepted,
         "per_class": per_class,
         "performance_means": numeric_means,
     }
@@ -452,11 +553,13 @@ def _ground_truth_objects(data: dict[str, Any], sample_id: str) -> dict[str, str
     return result
 
 
-def _ground_truth_tracks(data: dict[str, Any], sample_id: str) -> dict[int, str]:
+def _ground_truth_tracks(
+    data: dict[str, Any], sample_id: str
+) -> dict[int, dict[str, str]]:
     rows = data.get("tracks", [])
     if not isinstance(rows, list):
         raise SemanticEvaluationError(f"Sample '{sample_id}' ground_truth.tracks must be a list.")
-    result: dict[int, str] = {}
+    result: dict[int, dict[str, str]] = {}
     for row in rows:
         if not isinstance(row, dict) or bool(row.get("ignore", False)):
             continue
@@ -470,7 +573,10 @@ def _ground_truth_tracks(data: dict[str, Any], sample_id: str) -> dict[int, str]
             raise SemanticEvaluationError(
                 f"Sample '{sample_id}' duplicates GT track_id={track_id}."
             )
-        result[track_id] = label
+        result[track_id] = {
+            "class_label": label,
+            "fine_label": _canonical(row.get("fine_label", "")),
+        }
     return result
 
 
@@ -585,12 +691,27 @@ def _markdown(payload: dict[str, Any]) -> str:
             "",
             f"- Human-annotated samples: **{payload['sample_count']}**",
             f"- Domain accuracy: **{summary['domain_accuracy']:.3f}**",
+            "- Detector router accuracy: **{}**".format(
+                f"{summary['router_accuracy']:.3f}"
+                if summary["router_accuracy"] is not None
+                else "n/a (no route GT)"
+            ),
             f"- Dynamic class F1: **{summary['class_f1']:.3f}**",
             f"- Detect/track/context action accuracy: **{summary['action_accuracy']:.3f}**",
             f"- Semantic track accuracy: **{summary['semantic_track_accuracy']:.3f}**",
             f"- Semantic macro-F1: **{summary['semantic_macro_f1']:.3f}**",
             f"- Semantic coverage: **{summary['semantic_coverage']:.3f}**",
             f"- Selective accuracy: **{summary['semantic_selective_accuracy']:.3f}**",
+            "- Fine-grained track accuracy: **{}**".format(
+                f"{summary['fine_semantic_track_accuracy']:.3f}"
+                if summary["fine_semantic_track_accuracy"] is not None
+                else "n/a (no fine-label GT)"
+            ),
+            "- Fine-grained coverage: **{}**".format(
+                f"{summary['fine_semantic_coverage']:.3f}"
+                if summary["fine_semantic_coverage"] is not None
+                else "n/a (no fine-label GT)"
+            ),
             "",
             "Unknown or rejected predictions count as errors in semantic track accuracy. "
             "Selective accuracy is reported separately and must be read together with coverage.",
@@ -615,6 +736,15 @@ def _write_figures(summary: dict[str, Any], directory: Path) -> list[Path]:
         "Coverage": summary["semantic_coverage"],
         "Selective acc.": summary["semantic_selective_accuracy"],
     }
+    if summary["router_accuracy"] is not None:
+        values = {
+            "Domain acc.": summary["domain_accuracy"],
+            "Router acc.": summary["router_accuracy"],
+            **{key: value for key, value in values.items() if key != "Domain acc."},
+        }
+    if summary["fine_semantic_track_accuracy"] is not None:
+        values["Fine acc."] = summary["fine_semantic_track_accuracy"]
+        values["Fine coverage"] = summary["fine_semantic_coverage"]
     path = directory / "semantic_quality.png"
     figure, axis = plt.subplots(figsize=(10, 5.5))
     bars = axis.bar(values.keys(), values.values(), color="#2f5d2a")

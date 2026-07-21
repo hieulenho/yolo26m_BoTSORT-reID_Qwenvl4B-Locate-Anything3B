@@ -258,12 +258,13 @@ def _validate_config(config: VlmTrackingConfig) -> None:
         raise VlmConfigError("sampling.keyframe_interval_seconds must be positive.")
     for field_name in (
         "max_keyframes",
-        "max_tracks",
         "max_crops_per_track",
         "max_model_images",
     ):
         if int(getattr(config, field_name)) <= 0:
             raise VlmConfigError(f"sampling.{field_name} must be positive.")
+    if config.max_tracks < 0:
+        raise VlmConfigError("sampling.max_tracks must be zero (all tracks) or positive.")
     if not 0.0 <= config.crop_padding <= 1.0:
         raise VlmConfigError("sampling.crop_padding must be in [0, 1].")
     if not 64 <= config.crop_output_size <= 1024:

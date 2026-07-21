@@ -12,7 +12,7 @@ output:
 sampling:
   keyframe_interval_seconds: 2.0
   max_keyframes: 2
-  max_tracks: 20
+  max_tracks: 0
   max_crops_per_track: 2
   max_model_images: 8
   crop_padding: 0.25
@@ -32,8 +32,10 @@ model:
 prompt:
   output_schema: dynamic
   task: >-
-    Assign an open semantic class and visible attributes to each selected track.
-    Use global keyframes for context and track crops for appearance. Reject uncertain labels.
+    Assign an open hierarchical semantic label to each selected track: a stable base class
+    plus a visually supported fine-grained subtype/species/make/model when possible.
+    Use global keyframes for context and multi-time crops for identity. Reject uncertain
+    base and fine labels independently.
 
 runtime:
   overwrite: false

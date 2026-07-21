@@ -7,6 +7,26 @@ reviewing the source video, discovery keyframes, and representative track crops.
 class vocabulary relevant to the task, with `action` set to `track`, `detect`, or
 `context`. `tracks` maps actual MOT IDs from the evaluated run to human semantic
 labels. Set `ignore: true` only when a track cannot be judged from the video.
+`detector_route` is the expected routing family: `football_finetuned`,
+`coco_pretrained`, `open_vocabulary`, or `coco_open_composite`.
+
+For the requested cross-domain study, start from
+`multidomain_manifest.template.yaml` and replace all four sample placeholders.
+Do not score a domain until a human has reviewed every listed object class and
+track label. A model-generated label is a prediction, not ground truth.
+
+Prepare one review package per video with `scripts/prepare_semantic_gt.py prepare`. After a
+reviewer has completed every CSV row and `ground_truth_review.yaml`, run `finalize`. Merge the
+reviewed video manifests into one benchmark without editing YAML by hand:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\prepare_semantic_gt.py merge `
+  --manifest data\semantic_benchmark\review\wildlife_black_noddies\manifest.reviewed.yaml `
+  --manifest data\semantic_benchmark\review\traffic_street\manifest.reviewed.yaml `
+  --manifest data\semantic_benchmark\review\education_classroom_long\manifest.reviewed.yaml `
+  --output-manifest data\semantic_benchmark\multidomain.reviewed.yaml `
+  --overwrite
+```
 
 Run:
 

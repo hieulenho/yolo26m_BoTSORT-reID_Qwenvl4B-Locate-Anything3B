@@ -11,12 +11,12 @@
     {
       "severity": "WARNING",
       "code": "runtime_scope",
-      "message": "Realtime route timings use a 120-frame local file, not a live camera."
+      "message": "Route-to-route timings use a 120-frame local file; the separate 35-second stress test still replays a file rather than a physical camera."
     },
     {
       "severity": "WARNING",
       "code": "cross_domain_gt_pending",
-      "message": "Traffic, medical, and education routes need human GT before accuracy claims."
+      "message": "Wildlife, traffic, and education routes need reviewed per-track GT before semantic accuracy claims."
     },
     {
       "severity": "WARNING",
@@ -24,5 +24,5 @@
       "message": "IDSW categories are diagnostic heuristics, not official TrackEval metrics."
     }
   ],
-  "source_count": 9
+  "source_count": 12
 }

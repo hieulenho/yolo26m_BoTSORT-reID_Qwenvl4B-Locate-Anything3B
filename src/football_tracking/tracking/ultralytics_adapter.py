@@ -313,8 +313,9 @@ class UltralyticsTrackerAdapter:
         self.tracker: Any | None = None
         self._class_trackers: dict[int, Any] = {}
         self.initialization_count = 0
-        self._output_id_map: dict[tuple[int | None, int], int] = {}
+        self._output_id_map: dict[tuple[int, int | None, int], int] = {}
         self._next_output_id = 1
+        self._scene_epoch = 0
 
     def _resolve_tracker_factory(self) -> Any:
         if self.tracker_factory is None:
@@ -389,13 +390,27 @@ class UltralyticsTrackerAdapter:
                 tracker.reset()
         self._output_id_map.clear()
         self._next_output_id = 1
+        self._scene_epoch = 0
+
+    def reset_scene(self) -> None:
+        """Reset association state but never reuse a visible ID after a hard cut."""
+        if self.config.class_aware:
+            for tracker in self._class_trackers.values():
+                if hasattr(tracker, "reset"):
+                    tracker.reset()
+            self._class_trackers.clear()
+        else:
+            tracker = self.initialize()
+            if hasattr(tracker, "reset"):
+                tracker.reset()
+        self._scene_epoch += 1
 
     def close(self) -> None:
         self.tracker = None
         self._class_trackers.clear()
 
     def get_runtime_config(self) -> dict[str, Any]:
-        return self.config.to_dict()
+        return {**self.config.to_dict(), "scene_epoch": self._scene_epoch}
 
     def update(
         self,
@@ -506,9 +521,10 @@ class UltralyticsTrackerAdapter:
         }
 
     def _visible_track_id(self, raw_track_id: int, id_scope: int | None) -> int:
-        if not self.config.compact_ids and id_scope is None:
+        if not self.config.compact_ids and id_scope is None and self._scene_epoch == 0:
+            self._next_output_id = max(self._next_output_id, raw_track_id + 1)
             return raw_track_id
-        key = (id_scope, raw_track_id)
+        key = (self._scene_epoch, id_scope, raw_track_id)
         if key not in self._output_id_map:
             self._output_id_map[key] = self._next_output_id
             self._next_output_id += 1

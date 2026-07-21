@@ -1,0 +1,15 @@
+sample_id: wildlife_black_noddies
+domain: ''
+detector_route: ''
+objects:
+- canonical_name: seabird
+  action: detect
+review:
+  status: draft
+  annotator: ''
+  reviewed_at: ''
+  method: manual_video_and_contact_sheet
+  notes: Review domain, complete object vocabulary, then label every CSV row.
+proposals_not_ground_truth:
+  domain: wildlife_observation
+  detector_route: open_vocabulary

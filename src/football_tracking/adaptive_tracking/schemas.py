@@ -37,6 +37,9 @@ class DiscoveredObject:
     coco_id: int | None = None
     open_vocabulary: bool = False
     source_names: tuple[str, ...] = ()
+    fine_grained_candidates: tuple[str, ...] = ()
+    semantic_facets: tuple[str, ...] = ()
+    taxonomy_hint: str = ""
 
     def __post_init__(self) -> None:
         canonical = str(self.canonical_name).strip().lower()
@@ -55,6 +58,28 @@ class DiscoveredObject:
         object.__setattr__(self, "aliases", tuple(str(item) for item in self.aliases))
         object.__setattr__(self, "attributes", tuple(str(item) for item in self.attributes))
         object.__setattr__(self, "source_names", tuple(str(item) for item in self.source_names))
+        fine_candidates = tuple(
+            dict.fromkeys(
+                value
+                for item in self.fine_grained_candidates
+                if (value := str(item).strip().lower().replace("_", " "))
+                and value != canonical
+            )
+        )[:8]
+        semantic_facets = tuple(
+            dict.fromkeys(
+                value
+                for item in self.semantic_facets
+                if (value := str(item).strip().lower().replace(" ", "_"))
+            )
+        )[:8]
+        object.__setattr__(self, "fine_grained_candidates", fine_candidates)
+        object.__setattr__(self, "semantic_facets", semantic_facets)
+        object.__setattr__(
+            self,
+            "taxonomy_hint",
+            str(self.taxonomy_hint).strip().lower().replace(" ", "_"),
+        )
         object.__setattr__(self, "coco_id", int(coco_id) if coco_id is not None else None)
 
     def to_dict(self) -> dict[str, Any]:
@@ -72,6 +97,9 @@ class DiscoveredObject:
             coco_id=data.get("coco_id"),
             open_vocabulary=bool(data.get("open_vocabulary", False)),
             source_names=tuple(data.get("source_names", ())),
+            fine_grained_candidates=tuple(data.get("fine_grained_candidates", ())),
+            semantic_facets=tuple(data.get("semantic_facets", ())),
+            taxonomy_hint=str(data.get("taxonomy_hint", "")),
         )
 
 
@@ -86,8 +114,9 @@ class SceneDiscovery:
     objects: tuple[DiscoveredObject, ...]
     background_regions: tuple[str, ...] = ()
     keyframes: tuple[dict[str, Any], ...] = ()
+    shot_starts: tuple[int, ...] = ()
     model_id: str = "Qwen/Qwen3-VL-4B-Instruct"
-    prompt_version: str = "dynamic-v2"
+    prompt_version: str = "dynamic-v3-hierarchical"
     raw_response: str = ""
     created_at: str = ""
     warnings: tuple[str, ...] = ()
@@ -105,6 +134,10 @@ class SceneDiscovery:
             tuple(str(item) for item in self.background_regions),
         )
         object.__setattr__(self, "keyframes", tuple(dict(item) for item in self.keyframes))
+        shot_starts = tuple(sorted({int(value) for value in self.shot_starts}))
+        if any(value < 1 for value in shot_starts):
+            raise ValueError("shot_starts must contain positive frame indices.")
+        object.__setattr__(self, "shot_starts", shot_starts)
         object.__setattr__(self, "warnings", tuple(str(item) for item in self.warnings))
         object.__setattr__(self, "metadata", dict(self.metadata))
 
@@ -118,7 +151,7 @@ class SceneDiscovery:
 
     def to_dict(self, *, include_legacy: bool = True) -> dict[str, Any]:
         payload = {
-            "schema_version": "2.0",
+            "schema_version": "2.2",
             "source_video": self.source_video,
             "domain": {
                 "name": self.domain,
@@ -128,6 +161,7 @@ class SceneDiscovery:
             "objects": [item.to_dict() for item in self.objects],
             "background_regions": list(self.background_regions),
             "keyframes": [dict(item) for item in self.keyframes],
+            "shot_starts": list(self.shot_starts),
             "model_id": self.model_id,
             "prompt_version": self.prompt_version,
             "raw_response": self.raw_response,
@@ -190,6 +224,7 @@ class SceneDiscovery:
             objects=tuple(DiscoveredObject.from_dict(item) for item in objects_data),
             background_regions=tuple(data.get("background_regions", ())),
             keyframes=tuple(data.get("keyframes", ())),
+            shot_starts=tuple(data.get("shot_starts", ())),
             model_id=str(data.get("model_id", "Qwen/Qwen3-VL-4B-Instruct")),
             prompt_version=str(data.get("prompt_version", "legacy")),
             raw_response=str(data.get("raw_response", "")),

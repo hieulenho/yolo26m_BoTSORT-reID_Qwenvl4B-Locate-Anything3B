@@ -8,12 +8,15 @@ scene_discovery:
   quantization: 4bit
   quantization_by_profile:
     realtime: 4bit
+    realtime_stable: 4bit
     balanced: 4bit
     accuracy: 4bit
   max_keyframes: 4
   sample_fps: 2.0
   transition_threshold: 0.45
   max_classes: 24
+  max_new_tokens: 768
+  realtime_max_keyframes: 2
   registry: configs/ontology/vocabulary_registry.yaml
   cache_root: outputs/cache/semantic_discovery
 
@@ -21,26 +24,41 @@ detector_router:
   football: models/detector/football/yolo26m_best.pt
   coco_realtime: yolo26n.pt
   coco_balanced: yolo26s.pt
-  open_realtime: yoloe-26n-seg.pt
+  open_realtime: yoloe-26s-seg.pt
   open_balanced: yoloe-26s-seg.pt
 
 tracking:
+  router: adaptive_routed
+  isolate_track_ids_by_class: false
+  global_output_id_namespace: true
   profiles:
     realtime:
-      tracker: ocsort
-      config: configs/trackers/ocsort_realtime.yaml
+      default_tracker: ocsort
+      small_fast_tracker: ocsort
+      small_fast_config: configs/trackers/ocsort_small_fast.yaml
+      appearance_verification: asynchronous
+    realtime_stable:
+      default_tracker: tracktrack
+      small_fast_tracker: ocsort
+      small_fast_config: configs/trackers/ocsort_small_fast.yaml
+      appearance_verification: asynchronous
     balanced:
-      tracker: tracktrack
-      config: configs/trackers/tracktrack_realtime.yaml
+      default_tracker: tracktrack
+      small_fast_tracker: ocsort
     accuracy:
-      tracker: botsort_reid
-      config: configs/trackers/botsort_reid_identity_stable.yaml
-  class_aware: true
+      default_tracker: botsort_reid
+      small_fast_tracker: ocsort
+  class_aware: false
 
 semantic:
   qwen_track_labeling: event_triggered
   locateanything_grounding: event_triggered
   unknown_rejection_threshold: 0.45
+  fine_unknown_rejection_threshold: 0.95
+  fine_minimum_margin: 0.15
+  temporal_memory: true
+  realtime_queue: non_blocking
+  max_tracks: 0
 
 runtime:
   sequential_gpu_stages: true

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "status": "manual_review_required",
+  "created_at": "2026-07-21T08:09:31.142300+00:00",
+  "sample_id": "traffic_street",
+  "track_count": 153,
+  "observation_count": 8249,
+  "inputs": {
+    "source_video": {
+      "path": "F:\\Tracking\\data\\samples\\multidomain\\traffic_street.webm",
+      "sha256": "dde92cafa500b057d5fb1769622f496dff333c0f2b570fb9bd30a8ceaeeb3932"
+    },
+    "tracks": {
+      "path": "F:\\Tracking\\outputs\\videos\\multidomain_long\\traffic_street_tracking.txt",
+      "sha256": "d4ea86292986edd8cfbbd18ac33ca1b9b229077fa5ef02d344289dd77605a993"
+    },
+    "discovery": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\traffic_street\\discovery\\scene_discovery.json",
+      "sha256": "44dbd62e757ef2506b5c47cf1e6470b45d7c050fafd4237d913e1e966d74f3de"
+    },
+    "route": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\traffic_street\\plan\\detector_route.json",
+      "sha256": "dbed0c68e97098ba7ed2dc2258ef3c9026502b85f849d125edfb47e824981f2d"
+    },
+    "semantics": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\traffic_street\\fused_track_semantics.json",
+      "sha256": "6a6452d66082a4943442aeed550c298e66ef7f323335800c38d3640a43bf5117"
+    },
+    "run_report": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_long\\traffic_street\\adaptive_run_report.json",
+      "sha256": "638f2f43b384639de48b538b565c47ef14cbc765088605b1dffe6272b774aa7f"
+    }
+  },
+  "outputs": {
+    "track_csv": "F:\\Tracking\\data\\semantic_benchmark\\review\\traffic_street\\track_annotations.csv",
+    "review_yaml": "F:\\Tracking\\data\\semantic_benchmark\\review\\traffic_street\\ground_truth_review.yaml",
+    "draft_manifest": "F:\\Tracking\\data\\semantic_benchmark\\review\\traffic_street\\manifest.draft.yaml",
+    "package_json": "F:\\Tracking\\data\\semantic_benchmark\\review\\traffic_street\\annotation_package.json",
+    "readme": "F:\\Tracking\\data\\semantic_benchmark\\review\\traffic_street\\README.md"
+  }
+}

@@ -25,6 +25,8 @@ def build_grounding_plan(
     qwen_answer: str | Path | None = None,
     semantic_context: str | Path | None = None,
     verify_track_ids: list[int] | tuple[int, ...] | None = None,
+    reacquisition_min_gap_frames: int = 15,
+    max_reacquisition_tracks: int = 3,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     candidates: dict[str, dict[str, Any]] = {}
@@ -43,11 +45,16 @@ def build_grounding_plan(
         }
     if max_expected_tracks_per_class <= 0:
         raise ValueError("max_expected_tracks_per_class must be positive.")
+    if reacquisition_min_gap_frames < 1:
+        raise ValueError("reacquisition_min_gap_frames must be positive.")
+    if max_reacquisition_tracks < 0:
+        raise ValueError("max_reacquisition_tracks must be non-negative.")
     uncertain_track_ids = {int(track_id) for track_id in verify_track_ids or ()}
     if any(track_id <= 0 for track_id in uncertain_track_ids):
         raise ValueError("verify_track_ids must contain positive track IDs.")
     semantic_keyframes: list[dict[str, Any]] = []
     semantic_crops: list[dict[str, Any]] = []
+    fragmented_tracks: list[dict[str, Any]] = []
     context_path = Path(semantic_context) if semantic_context is not None else None
     if context_path is not None:
         if not context_path.is_file():
@@ -55,6 +62,13 @@ def build_grounding_plan(
         context_payload = json.loads(context_path.read_text(encoding="utf-8"))
         semantic_keyframes = [dict(row) for row in context_payload.get("keyframes", [])]
         semantic_crops = [dict(row) for row in context_payload.get("crops", [])]
+        fragmented_tracks = [
+            dict(row)
+            for row in context_payload.get("tracking_diagnostics", {}).get(
+                "fragmented_tracks", []
+            )
+        ]
+    qwen_labels_by_track: dict[int, str] = {}
     if qwen_answer is not None and Path(qwen_answer).is_file():
         qwen_path = Path(qwen_answer)
         qwen_payload = json.loads(qwen_path.read_text(encoding="utf-8"))
@@ -65,10 +79,17 @@ def build_grounding_plan(
                 dict(row) for row in context_payload.get("keyframes", [])
             ]
             semantic_crops = [dict(row) for row in context_payload.get("crops", [])]
+            fragmented_tracks = [
+                dict(row)
+                for row in context_payload.get("tracking_diagnostics", {}).get(
+                    "fragmented_tracks", []
+                )
+            ]
         for evidence in parse_qwen_answer(qwen_payload):
             if evidence.class_label == "unknown":
                 uncertain_track_ids.add(evidence.track_id)
                 continue
+            qwen_labels_by_track[evidence.track_id] = evidence.class_label
             if evidence.confidence >= confidence_trigger:
                 continue
             candidate = candidates.setdefault(
@@ -81,6 +102,32 @@ def build_grounding_plan(
                 },
             )
             candidate["expected_track_ids"].append(evidence.track_id)
+    reacquisition_track_ids = {
+        int(row["track_id"])
+        for row in fragmented_tracks
+        if int(row.get("track_id", 0)) > 0
+        and int(row.get("max_gap_frames", 0)) >= reacquisition_min_gap_frames
+    }
+    reacquisition_track_ids = set(
+        sorted(reacquisition_track_ids)[:max_reacquisition_tracks]
+    )
+    for track_id in reacquisition_track_ids:
+        labels = (
+            [qwen_labels_by_track[track_id]]
+            if track_id in qwen_labels_by_track
+            else [item.canonical_name for item in discovery.tracking_objects]
+        )
+        for label in labels:
+            candidate = candidates.setdefault(
+                label,
+                {
+                    "class_label": label,
+                    "display_name": label,
+                    "trigger": "identity_reacquisition",
+                    "expected_track_ids": [],
+                },
+            )
+            candidate["expected_track_ids"].append(track_id)
     if uncertain_track_ids:
         for item in discovery.tracking_objects:
             candidate = candidates.setdefault(
@@ -112,9 +159,11 @@ def build_grounding_plan(
             "request_count": len(requests),
             "uncertain_track_count": len(uncertain_track_ids),
             "explicit_track_count": len(set(verify_track_ids or ())),
+            "reacquisition_track_count": len(reacquisition_track_ids),
             "skipped": not requests,
             "skip_reason": (
-                "No open class, low-confidence class, or unknown Qwen track needs grounding."
+                "No open class, low-confidence class, unknown Qwen track, or long "
+                "tracking gap needs grounding."
                 if not requests
                 else None
             ),

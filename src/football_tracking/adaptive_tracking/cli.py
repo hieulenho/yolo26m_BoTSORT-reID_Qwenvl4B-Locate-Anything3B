@@ -94,7 +94,7 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--output-video", type=Path, required=True)
     plan.add_argument(
         "--profile",
-        choices=("realtime", "balanced", "accuracy"),
+        choices=("realtime", "realtime_stable", "balanced", "accuracy"),
         default="realtime",
     )
     plan.add_argument(
@@ -128,6 +128,8 @@ def _parser() -> argparse.ArgumentParser:
     grounding_plan.add_argument("--max-classes", type=int, default=4)
     grounding_plan.add_argument("--max-keyframes-per-class", type=int, default=2)
     grounding_plan.add_argument("--max-expected-tracks-per-class", type=int, default=3)
+    grounding_plan.add_argument("--reacquisition-min-gap-frames", type=int, default=15)
+    grounding_plan.add_argument("--max-reacquisition-tracks", type=int, default=3)
     grounding_plan.add_argument("--qwen-answer", type=Path, default=None)
     grounding_plan.add_argument(
         "--semantic-context",
@@ -174,6 +176,11 @@ def _parser() -> argparse.ArgumentParser:
     fusion.add_argument("--output", type=Path, required=True)
     fusion.add_argument("--unknown-threshold", type=float, default=0.45)
     fusion.add_argument("--minimum-margin", type=float, default=0.10)
+    fusion.add_argument("--fine-unknown-threshold", type=float, default=0.85)
+    fusion.add_argument("--fine-minimum-margin", type=float, default=0.15)
+    fusion.add_argument("--semantic-memory", type=Path, default=None)
+    fusion.add_argument("--memory-context-id", default=None)
+    fusion.add_argument("--max-memory-observations", type=int, default=32)
     fusion.add_argument(
         "--registry",
         type=Path,
@@ -216,6 +223,9 @@ def _discover(args: argparse.Namespace) -> dict:
         "sample_fps": args.sample_fps,
         "transition_threshold": args.transition_threshold,
         "max_classes": args.max_classes,
+        "max_new_tokens": args.max_new_tokens,
+        "quantization": args.quantization,
+        "torch_dtype": args.torch_dtype,
         "registry_sha256": file_sha256(registry_path),
     }
     cache_key = discovery_cache_key(
@@ -303,6 +313,9 @@ def _discovery_matches_request(
         and discovery.model_id == args.model_id
         and discovery.prompt_version == PROMPT_VERSION
         and int(metadata.get("max_classes", -1)) == args.max_classes
+        and int(metadata.get("max_new_tokens", -1)) == args.max_new_tokens
+        and metadata.get("quantization") == args.quantization
+        and metadata.get("torch_dtype") == args.torch_dtype
         and float(metadata.get("sample_fps", -1.0)) == args.sample_fps
         and float(metadata.get("transition_threshold", -1.0))
         == args.transition_threshold
@@ -435,6 +448,8 @@ def _build_grounding_plan(args: argparse.Namespace) -> dict:
         qwen_answer=args.qwen_answer,
         semantic_context=args.semantic_context,
         verify_track_ids=args.verify_track_ids,
+        reacquisition_min_gap_frames=args.reacquisition_min_gap_frames,
+        max_reacquisition_tracks=args.max_reacquisition_tracks,
         overwrite=args.overwrite,
     )
 
@@ -464,7 +479,12 @@ def _fuse_semantics(args: argparse.Namespace) -> dict:
         output_path=args.output,
         unknown_threshold=args.unknown_threshold,
         minimum_margin=args.minimum_margin,
+        fine_unknown_threshold=args.fine_unknown_threshold,
+        fine_minimum_margin=args.fine_minimum_margin,
         registry_path=args.registry,
+        memory_path=args.semantic_memory,
+        memory_context_id=args.memory_context_id,
+        max_memory_observations_per_track=args.max_memory_observations,
         overwrite=args.overwrite,
     )
 

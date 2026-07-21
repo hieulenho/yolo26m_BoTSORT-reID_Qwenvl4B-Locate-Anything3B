@@ -85,7 +85,7 @@ def create_detector(
                 value,
                 supplement_checkpoint,
                 device=device,
-                half=half,
+                half=bool(value.get("half", half)),
                 model_factory=model_factory,
             )
             if not isinstance(supplement, UltralyticsDetector):

@@ -133,6 +133,21 @@ def resolve_detector_checkpoint(
         )
 
     configured = model_config.get("checkpoint")
+    if configured is not None and str(configured) in KNOWN_ULTRALYTICS_CHECKPOINTS:
+        if not allow_pretrained:
+            raise CheckpointResolutionError(
+                f"Pretrained checkpoint requires fallback permission: {configured}"
+            )
+        checkpoint_type = identify_checkpoint_type(configured)
+        return ResolvedCheckpoint(
+            checkpoint=str(configured),
+            checkpoint_type=checkpoint_type,
+            checkpoint_hash=compute_checkpoint_hash(configured),
+            source="config.checkpoint",
+            fallback_used=False,
+            smoke_only=False,
+            warnings=warnings,
+        )
     configured_path = _existing_local(configured, project_root)
     if configured_path is not None:
         checkpoint_type = identify_checkpoint_type(configured_path)

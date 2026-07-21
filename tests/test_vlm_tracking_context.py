@@ -106,6 +106,24 @@ def test_vlm_config_loads_qwen4b_defaults(tmp_path, monkeypatch) -> None:
     assert config.crop_output_size == 128
 
 
+def test_zero_max_tracks_means_all_tracks(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FOOTBALL_TRACKING_ROOT", str(tmp_path))
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
+    video = _write_video(tmp_path / "video.mp4")
+    tracks = _write_tracks(tmp_path / "tracks.txt")
+    metadata = tmp_path / "tracks.metadata.json"
+    metadata.write_text("{}", encoding="utf-8")
+    config_path = _write_config(tmp_path, video, tracks, metadata)
+
+    result = run_vlm_analysis(
+        config_path,
+        overrides={"max_tracks": 0, "output_dir": tmp_path / "outputs" / "all"},
+    )
+
+    assert result["summary"]["track_count"] == 2
+    assert result["summary"]["selected_track_count"] == 2
+
+
 def test_read_mot_tracks_sorts_rows(tmp_path) -> None:
     tracks = tmp_path / "tracks.txt"
     tracks.write_text(
@@ -177,6 +195,36 @@ def test_run_vlm_analysis_dry_run_does_not_write_outputs(tmp_path, monkeypatch) 
     assert not (tmp_path / "outputs" / "vlm" / "vlm_context.json").exists()
 
 
+def test_dynamic_prompt_scopes_batch_ids_and_requires_independent_fine_evidence(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FOOTBALL_TRACKING_ROOT", str(tmp_path))
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
+    video = _write_video(tmp_path / "video.mp4")
+    tracks = _write_tracks(tmp_path / "tracks.txt")
+    metadata = tmp_path / "tracks.metadata.json"
+    metadata.write_text("{}", encoding="utf-8")
+    config_path = _write_config(tmp_path, video, tracks, metadata)
+
+    result = run_vlm_analysis(
+        config_path,
+        overrides={
+            "track_ids": "1",
+            "max_tracks": 1,
+            "output_schema": "dynamic",
+            "output_dir": tmp_path / "outputs" / "dynamic",
+        },
+    )
+
+    prompt = Path(result["paths"]["prompt_md"]).read_text(encoding="utf-8")
+    assert "exactly these track IDs: [1]" in prompt
+    assert "no entries for any other visible ID" in prompt
+    assert "at least two independent appearance crops" in prompt
+    assert "fine_label=unknown" in prompt
+    assert "Do not return observations" in prompt
+    assert '"evidence_frames":[5,20]' in prompt
+
+
 def test_explicit_track_ids_override_automatic_ranking(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FOOTBALL_TRACKING_ROOT", str(tmp_path))
     (tmp_path / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
@@ -215,9 +263,7 @@ def test_model_batches_cover_every_selected_track_with_bounded_images(tmp_path) 
     batches = _build_model_batches(context, keyframes, crops, max_images=5)
 
     assert len(batches) == 3
-    assert {track_id for batch in batches for track_id in batch["track_ids"]} == set(
-        range(1, 6)
-    )
+    assert {track_id for batch in batches for track_id in batch["track_ids"]} == set(range(1, 6))
     assert all(len(batch["image_paths"]) <= 5 for batch in batches)
     assert all(len(batch["image_labels"]) == len(batch["image_paths"]) for batch in batches)
     assert any("track ID 1" in label for label in batches[0]["image_labels"])

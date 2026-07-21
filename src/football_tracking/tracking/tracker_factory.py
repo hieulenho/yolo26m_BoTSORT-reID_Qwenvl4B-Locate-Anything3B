@@ -9,6 +9,10 @@ from football_tracking.tracking.deepsort_adapter import (
     DeepSortTrackerAdapter,
     load_deepsort_config,
 )
+from football_tracking.tracking.routed_tracker import (
+    RoutedTrackerAdapter,
+    load_routed_tracker_config,
+)
 from football_tracking.tracking.sort_adapter import SortTrackerAdapter, load_sort_config
 from football_tracking.tracking.ultralytics_adapter import (
     UltralyticsTrackerAdapter,
@@ -23,6 +27,8 @@ class TrackerFactoryError(RuntimeError):
 def create_tracker(name: str, config: str | Path, device: str = "auto") -> Any:
     runtime_config = load_tracker_config_object(name, config, device=device)
     normalized = name.lower().strip()
+    if normalized in {"adaptive_routed", "adaptive-routed", "routed"}:
+        return RoutedTrackerAdapter(runtime_config, device=device)
     if normalized == "sort":
         return SortTrackerAdapter(runtime_config)
     if normalized == "deepsort":
@@ -55,6 +61,8 @@ def load_tracker_config_object(
     device: str = "auto",
 ) -> Any:
     normalized = name.lower().strip()
+    if normalized in {"adaptive_routed", "adaptive-routed", "routed"}:
+        return load_routed_tracker_config(config)
     if normalized == "sort":
         return load_sort_config(config)
     if normalized == "deepsort":

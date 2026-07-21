@@ -1,0 +1,22 @@
+schema_version: 1
+samples:
+- sample_id: wildlife_black_noddies
+  artifacts:
+    discovery: F:\Tracking\outputs\adaptive_runs\multidomain_long\wildlife_black_noddies\discovery\scene_discovery.json
+    route: F:\Tracking\outputs\adaptive_runs\multidomain_long\wildlife_black_noddies\plan\detector_route.json
+    semantics: F:\Tracking\outputs\adaptive_runs\multidomain_long\wildlife_black_noddies\fused_track_semantics.json
+    run_report: F:\Tracking\outputs\adaptive_runs\multidomain_long\wildlife_black_noddies\adaptive_run_report.json
+  ground_truth:
+    domain: ''
+    detector_route: ''
+    objects:
+    - canonical_name: seabird
+      action: detect
+    tracks: []
+    review:
+      status: draft
+      annotator: ''
+      reviewed_at: ''
+      method: manual_video_and_contact_sheet
+      notes: Review domain, complete object vocabulary, then label every CSV row.
+require_review_metadata: true

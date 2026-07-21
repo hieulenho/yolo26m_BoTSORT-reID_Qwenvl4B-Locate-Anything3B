@@ -81,20 +81,33 @@ def render_semantic_video(
             ok, frame = capture.read()
             if not ok:
                 break
-            for row in rows_by_frame.get(frame_index, []):
+            frame_rows = rows_by_frame.get(frame_index, [])
+            crowded_frame = len(frame_rows) >= 4
+            for row in frame_rows:
                 semantic = labels.get(row.track_id, {})
                 accepted = bool(semantic.get("accepted", False))
-                label = str(semantic.get("class_label", "unknown")) if accepted else "unknown"
+                label = (
+                    str(semantic.get("display_label", semantic.get("class_label", "unknown")))
+                    if accepted
+                    else "unknown"
+                )
                 confidence = float(semantic.get("confidence", 0.0))
                 color = _track_color(row.track_id, accepted=accepted)
                 x1, y1, x2, y2 = _clip_bbox(row.bbox_xyxy(), width, height)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
-                text = f"ID {row.track_id} | {label}"
+                base_text = f"ID {row.track_id} | {_truncate_label(label)}"
                 attributes = _short_attributes(semantic.get("attributes", {}))
-                if attributes:
-                    text += f" | {attributes}"
-                if show_confidence and accepted:
-                    text += f" {confidence:.2f}"
+                confidence_text = (
+                    f" {confidence:.2f}" if show_confidence and accepted else ""
+                )
+                candidates = []
+                if attributes and not crowded_frame:
+                    candidates.append(f"{base_text} | {attributes}{confidence_text}")
+                candidates.extend((f"{base_text}{confidence_text}", base_text))
+                text = _select_fitting_text(
+                    candidates,
+                    max_width=max(min(width - 12, int(width * 0.55)), 24),
+                )
                 _draw_label(frame, text, x1, y1, color)
                 box_count += 1
                 accepted_boxes += int(accepted)
@@ -190,6 +203,32 @@ def _short_attributes(attributes: Any) -> str:
     return ",".join(pieces)
 
 
+def _truncate_label(label: str, *, max_characters: int = 42) -> str:
+    value = " ".join(str(label).split())
+    if len(value) <= max_characters:
+        return value
+    return value[: max_characters - 3].rstrip() + "..."
+
+
+def _select_fitting_text(candidates: list[str], *, max_width: int) -> str:
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.48
+    thickness = 1
+    for candidate in candidates:
+        text_width = cv2.getTextSize(candidate, font, scale, thickness)[0][0]
+        if text_width + 8 <= max_width:
+            return candidate
+    value = candidates[-1] if candidates else ""
+    suffix = "..."
+    while value:
+        candidate = value.rstrip() + suffix
+        text_width = cv2.getTextSize(candidate, font, scale, thickness)[0][0]
+        if text_width + 8 <= max_width:
+            return candidate
+        value = value[:-1]
+    return suffix
+
+
 def _draw_label(
     frame: Any,
     text: str,
@@ -201,15 +240,16 @@ def _draw_label(
     scale = 0.48
     thickness = 1
     (text_width, text_height), baseline = cv2.getTextSize(text, font, scale, thickness)
+    left = min(max(x, 0), max(frame.shape[1] - text_width - 8, 0))
     top = max(y - text_height - baseline - 6, 0)
-    right = min(x + text_width + 8, frame.shape[1] - 1)
-    cv2.rectangle(frame, (x, top), (right, y), color, -1)
+    right = min(left + text_width + 8, frame.shape[1] - 1)
+    cv2.rectangle(frame, (left, top), (right, y), color, -1)
     luminance = 0.114 * color[0] + 0.587 * color[1] + 0.299 * color[2]
     text_color = (0, 0, 0) if luminance > 150 else (255, 255, 255)
     cv2.putText(
         frame,
         text,
-        (x + 4, max(y - baseline - 3, text_height)),
+        (left + 4, max(y - baseline - 3, text_height)),
         font,
         scale,
         text_color,

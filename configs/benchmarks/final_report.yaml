@@ -8,13 +8,16 @@ inputs:
   runtime_routes:
     - id: football
       name: Football fine-tuned
-      metrics: outputs/benchmarks/runtime/football_120/metrics.json
+      metrics: outputs/benchmarks/runtime/adaptive_routes/football_120/metrics.json
+      validation: outputs/benchmarks/runtime/adaptive_routes/football_120/validation.json
     - id: coco
       name: COCO pretrained
-      metrics: outputs/benchmarks/runtime/coco_120/metrics.json
+      metrics: outputs/benchmarks/runtime/adaptive_routes/coco_120/metrics.json
+      validation: outputs/benchmarks/runtime/adaptive_routes/coco_120/validation.json
     - id: open
       name: Open vocabulary
-      metrics: outputs/benchmarks/runtime/open_vocab_120/metrics.json
+      metrics: outputs/benchmarks/runtime/adaptive_routes/open_vocab_120/metrics.json
+      validation: outputs/benchmarks/runtime/adaptive_routes/open_vocab_120/validation.json
 
 expected:
   tracker_count: 8

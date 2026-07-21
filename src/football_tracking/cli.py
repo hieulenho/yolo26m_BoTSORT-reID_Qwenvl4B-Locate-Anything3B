@@ -256,7 +256,12 @@ def _add_vlm_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--keyframe-interval", type=float, default=None)
     parser.add_argument("--max-keyframes", type=int, default=None)
-    parser.add_argument("--max-tracks", type=int, default=None)
+    parser.add_argument(
+        "--max-tracks",
+        type=int,
+        default=None,
+        help="Maximum semantic tracks; use 0 to process every track in bounded batches.",
+    )
     parser.add_argument(
         "--track-ids",
         default=None,

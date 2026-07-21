@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "run_count": 3,
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "gpu_memory_gb": 7.9956,
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "logical_cpu_count": 20
+  },
+  "best_source_progress_run": "bounded_live",
+  "mean_processing_fps": 25.425469538983762,
+  "runs": [
+    {
+      "name": "baseline_fp32",
+      "path": "F:\\Tracking\\outputs\\adaptive_realtime\\traffic_long\\realtime_metrics.json",
+      "frames_processed": 1050,
+      "source_frames_consumed": 1050,
+      "dropped_late_frames": 0,
+      "drop_rate": 0.0,
+      "processing_fps": 21.043829414353926,
+      "steady_state_fps": 22.18633447551883,
+      "source_progress_fps": 20.371532043519544,
+      "source_fps": 30.0,
+      "p50_latency_ms": 40.59610000695102,
+      "p95_latency_ms": 77.09960002102889,
+      "p99_latency_ms": 87.63009999529459,
+      "startup_seconds": 5.582568200014066,
+      "detector_fps": 31.972455406843803,
+      "tracker_fps": 238.29618502240953,
+      "peak_ram_gb": 1.6746,
+      "peak_vram_gb": 0.1614,
+      "hardware": {
+        "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+        "gpu_memory_gb": 7.9956,
+        "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+        "logical_cpu_count": 20
+      }
+    },
+    {
+      "name": "optimized_no_drop",
+      "path": "F:\\Tracking\\outputs\\adaptive_realtime\\traffic_final\\realtime_metrics.json",
+      "frames_processed": 1050,
+      "source_frames_consumed": 1050,
+      "dropped_late_frames": 0,
+      "drop_rate": 0.0,
+      "processing_fps": 27.348364609135356,
+      "steady_state_fps": 27.377854566332463,
+      "source_progress_fps": 26.097558744134503,
+      "source_fps": 30.0,
+      "p50_latency_ms": 35.14259998337366,
+      "p95_latency_ms": 45.12660001637414,
+      "p99_latency_ms": 75.78099999227561,
+      "startup_seconds": 10.601689500006614,
+      "detector_fps": 37.524016308289205,
+      "tracker_fps": 235.16529710542227,
+      "peak_ram_gb": 2.0092,
+      "peak_vram_gb": 0.1575,
+      "hardware": {
+        "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+        "gpu_memory_gb": 7.9956,
+        "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+        "logical_cpu_count": 20
+      }
+    },
+    {
+      "name": "bounded_live",
+      "path": "F:\\Tracking\\outputs\\adaptive_realtime\\traffic_bounded\\realtime_metrics.json",
+      "frames_processed": 931,
+      "source_frames_consumed": 1050,
+      "dropped_late_frames": 119,
+      "drop_rate": 0.11333333333333333,
+      "processing_fps": 27.884214593462,
+      "steady_state_fps": 27.96315978696423,
+      "source_progress_fps": 29.98257027524677,
+      "source_fps": 30.0,
+      "p50_latency_ms": 34.513099992182106,
+      "p95_latency_ms": 44.04999999678694,
+      "p99_latency_ms": 72.08610000088811,
+      "startup_seconds": 11.50719350000145,
+      "detector_fps": 37.782970300643456,
+      "tracker_fps": 251.87975754097457,
+      "peak_ram_gb": 2.0278,
+      "peak_vram_gb": 0.1531,
+      "hardware": {
+        "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+        "gpu_memory_gb": 7.9956,
+        "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+        "logical_cpu_count": 20
+      }
+    }
+  ],
+  "notes": [
+    "processing_fps measures processed frames only",
+    "source_progress_fps includes intentionally dropped late frames",
+    "frame dropping bounds live latency but is not appropriate for offline evaluation"
+  ]
+}

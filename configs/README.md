@@ -10,7 +10,7 @@ run directory and should not be edited by hand.
 - Qwen discovery model, 4-bit quantization, shot sampling, and class limit;
 - ontology registry and semantic cache root;
 - football, COCO, and open-vocabulary detector checkpoints;
-- realtime, balanced, and accuracy tracker profiles;
+- realtime, realtime_stable, balanced, and accuracy tracker profiles;
 - event-triggered Qwen/Locate policy and unknown threshold;
 - sequential GPU execution for an 8 GB device.
 

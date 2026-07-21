@@ -45,9 +45,11 @@ outputs/benchmarks/detection/        canonical detector comparison
 outputs/benchmarks/tracking/         canonical tracking and IDSW comparison
 outputs/benchmarks/semantic/         reviewed semantic A/B/C ablation
 outputs/benchmarks/runtime/          route-level realtime measurements
+outputs/benchmarks/realtime/         long-stream latency/drop/resource comparisons
 outputs/benchmarks/final/            consolidated local report
 outputs/cache/semantic_discovery/    reusable discovery cache keyed by source/config
 outputs/detections/cache/            shared detections for fair tracker comparison
+data/semantic_benchmark/review/      human-review CSV, provenance, and contact sheets
 ```
 
 Publishable lightweight results live under `docs/benchmarks/` and

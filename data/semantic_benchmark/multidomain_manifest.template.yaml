@@ -1,0 +1,95 @@
+schema_version: 1
+require_review_metadata: true
+samples:
+  - sample_id: football_video_id
+    artifacts:
+      discovery: outputs/adaptive_runs/football_video_id/discovery/scene_discovery.json
+      route: outputs/adaptive_runs/football_video_id/plan/detector_route.json
+      semantics: outputs/adaptive_runs/football_video_id/fused_track_semantics.json
+      run_report: outputs/adaptive_runs/football_video_id/adaptive_run_report.json
+    ground_truth:
+      review:
+        status: reviewed
+        annotator: REPLACE_WITH_HUMAN_REVIEWER
+        reviewed_at: REPLACE_WITH_ISO_DATE
+        method: manual_video_and_contact_sheet
+      domain: football
+      detector_route: football_finetuned
+      objects:
+        - canonical_name: player
+          action: track
+        - canonical_name: sports ball
+          action: track
+      tracks:
+        - track_id: 1
+          class_label: player
+          fine_label: goalkeeper
+
+  - sample_id: traffic_video_id
+    artifacts:
+      discovery: outputs/adaptive_runs/traffic_video_id/discovery/scene_discovery.json
+      route: outputs/adaptive_runs/traffic_video_id/plan/detector_route.json
+      semantics: outputs/adaptive_runs/traffic_video_id/fused_track_semantics.json
+      run_report: outputs/adaptive_runs/traffic_video_id/adaptive_run_report.json
+    ground_truth:
+      review:
+        status: reviewed
+        annotator: REPLACE_WITH_HUMAN_REVIEWER
+        reviewed_at: REPLACE_WITH_ISO_DATE
+        method: manual_video_and_contact_sheet
+      domain: traffic
+      detector_route: coco_pretrained
+      objects:
+        - canonical_name: car
+          action: track
+        - canonical_name: traffic light
+          action: detect
+      tracks:
+        - track_id: 1
+          class_label: car
+          fine_label: sedan
+
+  - sample_id: medical_video_id
+    artifacts:
+      discovery: outputs/adaptive_runs/medical_video_id/discovery/scene_discovery.json
+      route: outputs/adaptive_runs/medical_video_id/plan/detector_route.json
+      semantics: outputs/adaptive_runs/medical_video_id/fused_track_semantics.json
+      run_report: outputs/adaptive_runs/medical_video_id/adaptive_run_report.json
+    ground_truth:
+      review:
+        status: reviewed
+        annotator: REPLACE_WITH_HUMAN_REVIEWER
+        reviewed_at: REPLACE_WITH_ISO_DATE
+        method: manual_video_and_contact_sheet
+      domain: medical
+      detector_route: open_vocabulary
+      objects:
+        - canonical_name: surgical instrument
+          action: track
+      tracks:
+        - track_id: 1
+          class_label: surgical instrument
+
+  - sample_id: education_video_id
+    artifacts:
+      discovery: outputs/adaptive_runs/education_video_id/discovery/scene_discovery.json
+      route: outputs/adaptive_runs/education_video_id/plan/detector_route.json
+      semantics: outputs/adaptive_runs/education_video_id/fused_track_semantics.json
+      run_report: outputs/adaptive_runs/education_video_id/adaptive_run_report.json
+    ground_truth:
+      review:
+        status: reviewed
+        annotator: REPLACE_WITH_HUMAN_REVIEWER
+        reviewed_at: REPLACE_WITH_ISO_DATE
+        method: manual_video_and_contact_sheet
+      domain: education
+      detector_route: coco_open_composite
+      objects:
+        - canonical_name: person
+          action: track
+        - canonical_name: laboratory apparatus
+          action: detect
+      tracks:
+        - track_id: 1
+          class_label: student
+          fine_label: university student

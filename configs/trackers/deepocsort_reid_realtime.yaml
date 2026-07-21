@@ -16,7 +16,7 @@ tracker:
   alpha_fixed_emb: 0.95
   with_reid: true
   model: yolo26n-cls.pt
-  class_aware: true
+  class_aware: false
 
 output:
   confirmed_only: true

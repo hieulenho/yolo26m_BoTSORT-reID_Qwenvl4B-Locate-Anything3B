@@ -158,8 +158,17 @@ def run_vlm_analysis(
                         "prompt_path": str(batch_prompt_path),
                     }
                 )
-            raw_batches = run_qwen_vlm_batches(config, jobs)
-            model_result = _merge_qwen_batch_results(raw_batches, jobs)
+            if jobs:
+                raw_batches = run_qwen_vlm_batches(config, jobs)
+                model_result = _merge_qwen_batch_results(raw_batches, jobs)
+            else:
+                model_result = {
+                    "status": "skipped_no_tracks",
+                    "reason": "No tracked object was available for semantic inference.",
+                    "batch_count": 0,
+                    "image_count": 0,
+                    "track_predictions": [],
+                }
         except QwenRunnerError as exc:
             model_result = {"status": "failed", "error": str(exc)}
         answer_path = config.output_dir / "vlm_answer.md"
@@ -228,7 +237,11 @@ def _select_track_summaries(
     config: VlmTrackingConfig,
 ) -> list[dict[str, Any]]:
     if config.track_ids is None:
-        return all_track_summaries[: config.max_tracks]
+        return (
+            all_track_summaries
+            if config.max_tracks == 0
+            else all_track_summaries[: config.max_tracks]
+        )
     by_id = {int(row["track_id"]): row for row in all_track_summaries}
     missing = [track_id for track_id in config.track_ids if track_id not in by_id]
     if missing:
@@ -497,6 +510,13 @@ def read_mot_tracks(path: Path) -> list[MotTrackRow]:
 
 
 def build_prompt(config: VlmTrackingConfig, context: dict[str, Any]) -> str:
+    requested_rows = context.get("selected_tracks") or context.get("tracks") or []
+    requested_track_ids = sorted(
+        int(row["track_id"] if "track_id" in row else row["id"])
+        for row in requested_rows
+        if isinstance(row, dict) and ("track_id" in row or "id" in row)
+    )
+    requested_ids_text = ", ".join(str(track_id) for track_id in requested_track_ids)
     context_json = json.dumps(
         _compact_prompt_context(context),
         ensure_ascii=False,
@@ -508,6 +528,9 @@ def build_prompt(config: VlmTrackingConfig, context: dict[str, Any]) -> str:
             config.task_prompt,
             "",
             "Use only track IDs that appear in the metadata below.",
+            f"This batch requests exactly these track IDs: [{requested_ids_text}].",
+            "Return exactly one track_predictions entry for each requested ID and no "
+            "entries for any other visible ID.",
             "Use visual evidence from keyframes and crops. Do not infer a semantic "
             "label from track duration, confidence, or motion alone.",
             "When visual evidence is insufficient, return unknown.",
@@ -522,16 +545,32 @@ def build_prompt(config: VlmTrackingConfig, context: dict[str, Any]) -> str:
     if config.output_schema == "dynamic":
         lines.extend(
             [
-                "Infer a short, singular class_label from visual evidence; do not use a "
-                "fixed football label list.",
-                "Keep color, clothing, state, role, and action in attributes instead of "
-                "the base class.",
-                "Return one JSON object only, without Markdown fences or prose:",
+                "Use a two-level open vocabulary. class_label is the stable base class "
+                "used by detection/tracking; fine_label is the most specific visually "
+                "supported subtype, species, breed, role, make, or model.",
+                "The candidate vocabulary in the task is a non-binding hint. Preserve a "
+                "visually supported class that is absent from it.",
+                "Keep color, clothing, state, and action in attributes. A role belongs in "
+                "fine_label only when it is the requested taxonomy facet.",
+                "Never infer species, breed, brand, model, medical diagnosis, or personal "
+                "identity from context alone. Prefer fine_label=unknown over guessing.",
+                "A fine label needs a discriminative visual cue visible in at least two "
+                "independent appearance crops of that requested track. Repeated global "
+                "keyframes do not count as independent fine-label evidence. If this "
+                "condition is not met, set fine_label=unknown and fine_confidence=0.",
+                "Set class_label=unknown only when the base class is unclear. A clear base "
+                "class may coexist with fine_label=unknown.",
+                "Keep the response compact so JSON is never truncated. Do not return "
+                "observations, taxonomy_path, alternatives, notes, or prose evidence.",
+                "Return one compact JSON object only, without Markdown fences or prose:",
                 '{"track_predictions":[{"track_id":7,"class_label":"car",'
+                '"fine_label":"sedan",'
                 '"attributes":{"color":"red"},"confidence":0.85,'
-                '"evidence_frames":[5],"evidence":"short visual reason",'
-                '"unknown_reason":null}],"notes":[]}',
-                "Use class_label=unknown and explain unknown_reason when evidence is weak.",
+                '"fine_confidence":0.72,"evidence_frames":[5,20],'
+                '"unknown_reason":null,"fine_unknown_reason":null}]}',
+                "Explain unknown_reason and fine_unknown_reason whenever their corresponding "
+                "label is unknown, using at most 12 words per reason.",
+                "Use evidence_frames to list every visually usable supplied crop in frame order.",
                 "Include every selected track that has usable visual evidence.",
                 "",
             ]

@@ -1,0 +1,27 @@
+sample_id: traffic_street
+domain: ''
+detector_route: ''
+objects:
+- canonical_name: bus
+  action: track
+- canonical_name: car
+  action: track
+- canonical_name: truck
+  action: track
+- canonical_name: person
+  action: track
+- canonical_name: traffic light
+  action: detect
+- canonical_name: sign
+  action: detect
+- canonical_name: tram
+  action: detect
+review:
+  status: draft
+  annotator: ''
+  reviewed_at: ''
+  method: manual_video_and_contact_sheet
+  notes: Review domain, complete object vocabulary, then label every CSV row.
+proposals_not_ground_truth:
+  domain: urban_transport
+  detector_route: coco_open_composite

@@ -25,7 +25,7 @@ from football_tracking.paths import get_project_root, resolve_project_path
 from football_tracking.vlm.model_loader import first_model_device
 
 LOGGER = logging.getLogger(__name__)
-PROMPT_VERSION = "dynamic-v2"
+PROMPT_VERSION = "dynamic-v3-hierarchical"
 DEFAULT_REGISTRY = Path("configs/ontology/vocabulary_registry.yaml")
 
 DISCOVERY_PROMPT = """You analyze a small set of representative shots from one video.
@@ -34,15 +34,21 @@ Infer the domain from visual evidence. Do not assume football, traffic, medicine
 or any fixed dataset. Build a compact object vocabulary that a detector and tracker should use.
 
 Rules:
-1. Separate a base object class from attributes. Example: class="car", attributes=["red"],
-   not class="red car".
+1. Separate a stable base object class from attributes and fine-grained identity. Example:
+   canonical_name="car", attributes=["red"], fine_grained_candidates=["sedan"].
 2. Use action="track" for persistent moving entities, "detect" for useful objects that do not
    need identity over time, and "context" for background regions.
 3. Include classes outside COCO when they are visually supported. Do not force an unknown class
    into a COCO label.
 4. Merge synonyms and use a singular, short English canonical_name.
 5. Do not include speculative or invisible objects. Return at most {max_classes} object entries.
-6. Confidence is a number from 0 to 1.
+6. For each detected class, describe the useful semantic facet (for example species,
+   vehicle_subtype, make_model, instrument_type, or role) and list at most six visually
+   plausible fine-grained candidates. Candidates guide later crop analysis; they are not
+   final predictions and may be empty.
+7. Never invent a species, breed, brand, model, medical diagnosis, or personal identity.
+   Add a fine candidate only when the representative shots contain supporting visual cues.
+8. Confidence is a number from 0 to 1.
 
 Return one valid JSON object only:
 {{
@@ -57,6 +63,9 @@ Return one valid JSON object only:
       "display_name": "readable label",
       "action": "track|detect|context",
       "attributes": ["visible attribute"],
+      "taxonomy_hint": "species|vehicle_subtype|make_model|role|other",
+      "semantic_facets": ["species", "color"],
+      "fine_grained_candidates": ["visually plausible subtype"],
       "confidence": 0.0
     }}
   ],
@@ -207,6 +216,7 @@ def discover_scene(
         objects=objects,
         background_regions=tuple(str(item) for item in background),
         keyframes=tuple(item.to_dict() for item in sampled),
+        shot_starts=probe.shot_starts,
         model_id=model_id,
         prompt_version=PROMPT_VERSION,
         raw_response=raw_response,
@@ -219,9 +229,11 @@ def discover_scene(
                 "fps": probe.fps,
                 "frame_count": probe.frame_count,
                 "duration_seconds": probe.duration_seconds,
+                "shot_count": len(probe.shot_starts),
             },
             "inference_seconds": latency,
             "max_classes": max_classes,
+            "max_new_tokens": max_new_tokens,
             "sample_fps": sample_fps,
             "transition_threshold": transition_threshold,
             "registry_sha256": file_sha256(resolve_project_path(registry_path)),

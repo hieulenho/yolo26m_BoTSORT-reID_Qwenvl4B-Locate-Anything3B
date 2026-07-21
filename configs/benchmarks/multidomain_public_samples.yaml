@@ -1,0 +1,33 @@
+schema_version: 1
+provider: Wikimedia Commons
+download_root: data/samples/multidomain
+target_width: 960
+minimum_duration_seconds: 30
+samples:
+  - sample_id: wildlife_black_noddies
+    file_title: Black noddies (Anous minutus).webm
+    output_name: wildlife_black_noddies.webm
+    source_page: https://commons.wikimedia.org/wiki/File:Black_noddies_(Anous_minutus).webm
+    selection_reason: flock scene with many simultaneously visible birds
+    ground_truth:
+      domain: wildlife
+      base_classes: [bird]
+      fine_labels: [black noddy]
+  - sample_id: traffic_street
+    file_title: Street traffic.webm
+    output_name: traffic_street.webm
+    source_page: https://commons.wikimedia.org/wiki/File:Street_traffic.webm
+    selection_reason: dense mixed road traffic with frequent occlusion
+    ground_truth:
+      domain: traffic
+      base_classes: [car, bus, truck, motorcycle, person]
+      fine_labels: [sedan, bus, truck, motorcycle, pedestrian]
+  - sample_id: education_classroom_long
+    file_title: Students being tutored by a teacher in a dilapidated classroom.webm
+    output_name: education_classroom_long.webm
+    source_page: https://commons.wikimedia.org/wiki/File:Students_being_tutored_by_a_teacher_in_a_dilapidated_classroom.webm
+    selection_reason: teacher and multiple students with repeated overlap
+    ground_truth:
+      domain: education
+      base_classes: [person]
+      fine_labels: [student, teacher]
