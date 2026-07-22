@@ -16,6 +16,14 @@ param(
     [int]$SemanticEventIntervalFrames = 90,
     [int]$SemanticEventsPerFrame = 2,
     [int]$SemanticMaxPendingEvents = 256,
+    [ValidateSet("deferred", "live", "disabled")]
+    [string]$SemanticWorkerMode = "deferred",
+    [ValidateRange(1, 64)]
+    [int]$SemanticWorkerBatchSize = 8,
+    [ValidateRange(0, 1000000)]
+    [int]$SemanticWorkerMaxEvents = 64,
+    [ValidateRange(1, 3600)]
+    [int]$SemanticWorkerShutdownTimeoutSeconds = 600,
     [double]$SceneCutThreshold = 0.65,
     [int]$SceneCutMinGapFrames = 15,
     [int]$SceneCutCheckIntervalFrames = 5,
@@ -45,7 +53,17 @@ $Metadata = Join-Path $RunRoot "realtime_metrics.json"
 $SemanticQueue = Join-Path $RunRoot "semantic_queue"
 $SemanticCache = Join-Path $RunRoot "semantic_cache.json"
 $SemanticMemory = Join-Path $RunRoot "semantic_memory.json"
+$SemanticWorkerStop = Join-Path $RunRoot "semantic_worker.stop"
+$SemanticWorkerReport = Join-Path $RunRoot "semantic_worker_report.json"
+$SemanticWorkerStdout = Join-Path $RunRoot "semantic_worker.stdout.log"
+$SemanticWorkerStderr = Join-Path $RunRoot "semantic_worker.stderr.log"
 New-Item -ItemType Directory -Force -Path $RunRoot | Out-Null
+if ($DisableSemanticQueue) { $SemanticWorkerMode = "disabled" }
+if ($Overwrite) {
+    foreach ($Path in @($SemanticWorkerStop, $SemanticWorkerReport, $SemanticWorkerStdout, $SemanticWorkerStderr)) {
+        if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
+    }
+}
 
 Write-Host "[1/4] Capture $CalibrationSeconds-second calibration clip"
 $CaptureArgs = @(
@@ -87,6 +105,30 @@ if ($Overwrite) { $PlanArgs += "--overwrite" }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "[4/4] Start realtime stream"
+$SemanticWorker = $null
+$WorkerArgs = @(
+    "scripts\runtime\run_realtime_semantic_worker.py",
+    "--queue-dir", $SemanticQueue,
+    "--vlm-config", "configs\semantics\dynamic_track.yaml",
+    "--semantic-output", $SemanticCache,
+    "--memory", $SemanticMemory,
+    "--max-events", "$SemanticWorkerBatchSize",
+    "--report", $SemanticWorkerReport
+)
+if ($SemanticWorkerMode -eq "live") {
+    Write-Host "==> Starting non-blocking semantic worker"
+    $LiveWorkerArgs = @($WorkerArgs) + @(
+        "--watch",
+        "--stop-file", $SemanticWorkerStop
+    )
+    $SemanticWorker = Start-Process `
+        -FilePath $Python `
+        -ArgumentList $LiveWorkerArgs `
+        -RedirectStandardOutput $SemanticWorkerStdout `
+        -RedirectStandardError $SemanticWorkerStderr `
+        -WindowStyle Hidden `
+        -PassThru
+}
 $RealtimeArgs = @(
     "scripts\runtime\run_realtime_adaptive.py",
     "--config", $GeneratedConfig,
@@ -95,7 +137,7 @@ $RealtimeArgs = @(
     "--output-mot", $OutputMot,
     "--metadata", $Metadata
 )
-if (-not $DisableSemanticQueue) {
+if ($SemanticWorkerMode -ne "disabled") {
     $RealtimeArgs += @(
         "--semantic-queue-dir", $SemanticQueue,
         "--semantic-cache", $SemanticCache,
@@ -120,8 +162,29 @@ if ($NoWindow) { $RealtimeArgs += "--no-window" }
 if ($Overwrite) { $RealtimeArgs += "--overwrite" }
 & $Python @RealtimeArgs
 $RealtimeExitCode = $LASTEXITCODE
-if ($RealtimeExitCode -eq 0 -and -not $DisableSemanticQueue) {
-    Write-Host "Semantic events are queued without blocking tracking. Process one bounded batch with:"
-    Write-Host ".\.venv\Scripts\python.exe scripts\runtime\run_realtime_semantic_worker.py --queue-dir `"$SemanticQueue`" --vlm-config configs\semantics\dynamic_track.yaml --semantic-output `"$SemanticCache`" --memory `"$SemanticMemory`" --max-events 8"
+if ($SemanticWorkerMode -eq "live" -and $null -ne $SemanticWorker) {
+    New-Item -ItemType File -Force -Path $SemanticWorkerStop | Out-Null
+    try {
+        Wait-Process -Id $SemanticWorker.Id -Timeout $SemanticWorkerShutdownTimeoutSeconds -ErrorAction Stop
+    }
+    catch {
+        Write-Warning "Semantic worker did not stop within the timeout; stopping child process."
+        Stop-Process -Id $SemanticWorker.Id -Force -ErrorAction SilentlyContinue
+    }
+    $SemanticWorker.Refresh()
+    if ($SemanticWorker.HasExited -and $SemanticWorker.ExitCode -ne 0) {
+        Write-Warning "Semantic worker exited with code $($SemanticWorker.ExitCode). See $SemanticWorkerStderr"
+    }
+}
+elseif ($RealtimeExitCode -eq 0 -and $SemanticWorkerMode -eq "deferred") {
+    Write-Host "==> Draining the semantic queue after capture (GPU-safe default)"
+    $DrainWorkerArgs = @($WorkerArgs) + @(
+        "--max-total-events", "$SemanticWorkerMaxEvents",
+        "--drain"
+    )
+    & $Python @DrainWorkerArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Deferred semantic worker failed. Queued events were kept for retry."
+    }
 }
 exit $RealtimeExitCode

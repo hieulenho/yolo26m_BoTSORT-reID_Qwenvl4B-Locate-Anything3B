@@ -6,12 +6,13 @@ from football_tracking.config import ConfigError, load_config
 from football_tracking.paths import get_project_root
 
 
-def test_loads_base_config_and_resolves_paths() -> None:
+def test_loads_project_config_and_resolves_paths() -> None:
     root = get_project_root()
 
     config = load_config()
 
-    assert config.project["name"] == "football-player-tracking"
+    assert config.config_path == root / "configs" / "project.yaml"
+    assert config.project["name"] == "adaptive-multi-domain-tracking"
     assert config.paths["data_dir"] == root / "data"
     assert config.paths["logs_dir"] == root / "outputs" / "logs"
 

@@ -23,6 +23,89 @@ class SemanticAnnotationError(RuntimeError):
     """Raised when an annotation package is incomplete or inconsistent."""
 
 
+def audit_annotation_package(package_dir: str | Path) -> dict[str, Any]:
+    """Report human-review progress without accepting model proposals as GT."""
+
+    root = Path(package_dir).resolve()
+    csv_path = root / "track_annotations.csv"
+    review_path = root / "ground_truth_review.yaml"
+    issues: list[str] = []
+    rows: list[dict[str, str]] = []
+    review: dict[str, Any] = {}
+
+    if csv_path.is_file():
+        with csv_path.open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+    else:
+        issues.append(f"missing track annotation CSV: {csv_path}")
+    if review_path.is_file():
+        loaded = yaml.safe_load(review_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            review = loaded
+        else:
+            issues.append("ground_truth_review.yaml must be a mapping")
+    else:
+        issues.append(f"missing review metadata: {review_path}")
+
+    reviewed_rows = [
+        row for row in rows if str(row.get("review_status", "")).strip().lower() == "reviewed"
+    ]
+    def is_ignored(row: dict[str, str]) -> bool:
+        return str(row.get("ignore", "")).strip().lower() in {"1", "true", "yes"}
+
+    ignored_rows = [row for row in rows if is_ignored(row)]
+    accepted_rows = [row for row in reviewed_rows if not is_ignored(row)]
+    labeled_rows = [row for row in accepted_rows if str(row.get("class_label", "")).strip()]
+    attributed_rows = [row for row in reviewed_rows if str(row.get("annotator", "")).strip()]
+
+    review_metadata = review.get("review") if isinstance(review, dict) else None
+    metadata_reviewed = (
+        isinstance(review_metadata, dict)
+        and str(review_metadata.get("status", "")).strip().lower() == "reviewed"
+        and all(
+            str(review_metadata.get(key, "")).strip()
+            for key in ("annotator", "reviewed_at", "method")
+        )
+    )
+    domain_reviewed = bool(str(review.get("domain", "")).strip())
+    objects_reviewed = isinstance(review.get("objects"), list) and bool(review.get("objects"))
+
+    if reviewed_rows and len(attributed_rows) != len(reviewed_rows):
+        issues.append("one or more reviewed tracks have no annotator")
+    if len(labeled_rows) != len(accepted_rows):
+        issues.append("one or more reviewed, non-ignored tracks have no class_label")
+    if not metadata_reviewed:
+        issues.append("sample review metadata is incomplete or still draft")
+    if not domain_reviewed:
+        issues.append("domain has not been reviewed")
+    if not objects_reviewed:
+        issues.append("object vocabulary has not been reviewed")
+
+    total = len(rows)
+    ready = (
+        total > 0
+        and len(reviewed_rows) == total
+        and len(labeled_rows) == len(accepted_rows)
+        and metadata_reviewed
+        and domain_reviewed
+        and objects_reviewed
+    )
+    return {
+        "package_dir": str(root),
+        "ready_to_finalize": ready,
+        "track_count": total,
+        "reviewed_track_count": len(reviewed_rows),
+        "labeled_track_count": len(labeled_rows),
+        "ignored_track_count": len(ignored_rows),
+        "remaining_track_count": max(total - len(reviewed_rows), 0),
+        "review_percent": round(100.0 * len(reviewed_rows) / total, 3) if total else 0.0,
+        "metadata_reviewed": metadata_reviewed,
+        "domain_reviewed": domain_reviewed,
+        "objects_reviewed": objects_reviewed,
+        "issues": issues,
+    }
+
+
 def prepare_annotation_package(
     *,
     sample_id: str,

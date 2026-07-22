@@ -1,0 +1,19 @@
+project:
+  name: adaptive-multi-domain-tracking
+  seed: 42
+
+paths:
+  data_dir: data
+  raw_data_dir: data/raw
+  interim_data_dir: data/interim
+  yolo_data_dir: data/yolo
+  mot_data_dir: data/mot
+  models_dir: models
+  outputs_dir: outputs
+  logs_dir: outputs/logs
+
+runtime:
+  device: auto
+  num_workers: 4
+  log_level: INFO
+

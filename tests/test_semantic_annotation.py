@@ -11,6 +11,7 @@ import yaml
 
 from football_tracking.benchmarking.semantic_annotation import (
     SemanticAnnotationError,
+    audit_annotation_package,
     finalize_annotation_package,
     merge_reviewed_manifests,
     prepare_annotation_package,
@@ -69,6 +70,9 @@ def test_annotation_package_requires_human_review_before_finalize(tmp_path: Path
     assert len(list((package_dir / "contact_sheets").glob("*.jpg"))) == 1
     with pytest.raises(SemanticAnnotationError, match="reviewed"):
         finalize_annotation_package(package_dir=package_dir)
+    draft_status = audit_annotation_package(package_dir)
+    assert draft_status["ready_to_finalize"] is False
+    assert draft_status["remaining_track_count"] == 1
 
     review_path = package_dir / "ground_truth_review.yaml"
     review = yaml.safe_load(review_path.read_text(encoding="utf-8"))
@@ -99,9 +103,12 @@ def test_annotation_package_requires_human_review_before_finalize(tmp_path: Path
         writer.writerows(rows)
 
     finalized = finalize_annotation_package(package_dir=package_dir)
+    reviewed_status = audit_annotation_package(package_dir)
     manifest = yaml.safe_load(Path(finalized["manifest"]).read_text(encoding="utf-8"))
 
     assert finalized["track_count"] == 1
+    assert reviewed_status["ready_to_finalize"] is True
+    assert reviewed_status["review_percent"] == 100.0
     assert manifest["require_review_metadata"] is True
     assert manifest["samples"][0]["ground_truth"]["tracks"][0]["fine_label"] == "sedan"
     assert not Path(manifest["samples"][0]["artifacts"]["discovery"]).is_absolute()

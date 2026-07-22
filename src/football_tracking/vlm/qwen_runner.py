@@ -20,6 +20,101 @@ class QwenRunnerError(RuntimeError):
     """Raised when local Qwen inference cannot run."""
 
 
+class QwenVlmBatchSession:
+    """Keep one Qwen model loaded while processing several bounded job batches."""
+
+    def __init__(self, config: VlmTrackingConfig) -> None:
+        self.config = config
+        self.model: Any | None = None
+        self.processor: Any | None = None
+        self.process_vision_info: Any | None = None
+        self.model_load_seconds = 0.0
+        self.call_count = 0
+
+    def __enter__(self) -> QwenVlmBatchSession:
+        try:
+            from qwen_vl_utils import process_vision_info  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise QwenRunnerError(
+                "Missing Qwen VLM dependencies. Install them with: "
+                "pip install -r requirements/vlm.txt"
+            ) from exc
+
+        load_started = time.perf_counter()
+        try:
+            self.model, self.processor = load_qwen_model(self.config)
+        except VlmModelLoadError as exc:
+            raise QwenRunnerError(str(exc)) from exc
+        self.process_vision_info = process_vision_info
+        self.model_load_seconds = time.perf_counter() - load_started
+        return self
+
+    def __exit__(self, _exc_type: Any, _exc: Any, _traceback: Any) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self.model is None and self.processor is None:
+            return
+        release_model_memory(self.model, self.processor)
+        self.model = None
+        self.processor = None
+        self.process_vision_info = None
+
+    def run(
+        self,
+        config: VlmTrackingConfig,
+        jobs: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if not jobs:
+            raise QwenRunnerError("At least one Qwen inference batch is required.")
+        if self.model is None or self.processor is None or self.process_vision_info is None:
+            raise QwenRunnerError("Qwen session is not open.")
+        if _model_signature(config) != _model_signature(self.config):
+            raise QwenRunnerError("Qwen session configuration changed while the model was loaded.")
+
+        batches: list[dict[str, Any]] = []
+        inference_started = time.perf_counter()
+        _reset_peak_cuda_memory()
+        for index, job in enumerate(jobs, start=1):
+            prompt = str(job.get("prompt", ""))
+            image_paths = [Path(path) for path in job.get("image_paths", [])]
+            image_labels = [str(label) for label in job.get("image_labels", [])]
+            if not prompt.strip():
+                raise QwenRunnerError(f"Qwen batch {index} has an empty prompt.")
+            if image_labels and len(image_labels) != len(image_paths):
+                raise QwenRunnerError(
+                    f"Qwen batch {index} image_labels must match image_paths."
+                )
+            batches.append(
+                _run_loaded_qwen(
+                    config,
+                    model=self.model,
+                    processor=self.processor,
+                    process_vision_info=self.process_vision_info,
+                    prompt=prompt,
+                    image_paths=image_paths,
+                    image_labels=image_labels,
+                    batch_id=str(job.get("batch_id") or f"batch_{index:03d}"),
+                )
+            )
+        self.call_count += 1
+        return {
+            "status": "ok",
+            "model_id": config.model_id,
+            "quantization": normalize_quantization(config.quantization),
+            "torch_dtype": config.torch_dtype,
+            "batch_count": len(batches),
+            "image_count": sum(int(row["image_count"]) for row in batches),
+            "timing": {
+                "model_load_seconds": self.model_load_seconds if self.call_count == 1 else 0.0,
+                "inference_seconds": time.perf_counter() - inference_started,
+                "session_call_index": self.call_count,
+            },
+            "cuda_memory": _peak_cuda_memory(),
+            "batches": batches,
+        }
+
+
 def run_qwen_vlm(
     config: VlmTrackingConfig,
     prompt: str,
@@ -37,65 +132,17 @@ def run_qwen_vlm_batches(
     jobs: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Load Qwen once and execute several bounded image batches."""
-    if not jobs:
-        raise QwenRunnerError("At least one Qwen inference batch is required.")
-    try:
-        from qwen_vl_utils import process_vision_info  # type: ignore[import-not-found]
-    except ImportError as exc:
-        raise QwenRunnerError(
-            "Missing Qwen VLM dependencies. Install them with: "
-            "pip install -r requirements/vlm.txt"
-        ) from exc
+    with QwenVlmBatchSession(config) as session:
+        return session.run(config, jobs)
 
-    load_started = time.perf_counter()
-    try:
-        model, processor = load_qwen_model(config)
-    except VlmModelLoadError as exc:
-        raise QwenRunnerError(str(exc)) from exc
 
-    model_load_seconds = time.perf_counter() - load_started
-    batches: list[dict[str, Any]] = []
-    inference_started = time.perf_counter()
-    _reset_peak_cuda_memory()
-    try:
-        for index, job in enumerate(jobs, start=1):
-            prompt = str(job.get("prompt", ""))
-            image_paths = [Path(path) for path in job.get("image_paths", [])]
-            image_labels = [str(label) for label in job.get("image_labels", [])]
-            if not prompt.strip():
-                raise QwenRunnerError(f"Qwen batch {index} has an empty prompt.")
-            if image_labels and len(image_labels) != len(image_paths):
-                raise QwenRunnerError(
-                    f"Qwen batch {index} image_labels must match image_paths."
-                )
-            batches.append(
-                _run_loaded_qwen(
-                    config,
-                    model=model,
-                    processor=processor,
-                    process_vision_info=process_vision_info,
-                    prompt=prompt,
-                    image_paths=image_paths,
-                    image_labels=image_labels,
-                    batch_id=str(job.get("batch_id") or f"batch_{index:03d}"),
-                )
-            )
-    finally:
-        release_model_memory(model, processor)
-    return {
-        "status": "ok",
-        "model_id": config.model_id,
-        "quantization": normalize_quantization(config.quantization),
-        "torch_dtype": config.torch_dtype,
-        "batch_count": len(batches),
-        "image_count": sum(int(row["image_count"]) for row in batches),
-        "timing": {
-            "model_load_seconds": model_load_seconds,
-            "inference_seconds": time.perf_counter() - inference_started,
-        },
-        "cuda_memory": _peak_cuda_memory(),
-        "batches": batches,
-    }
+def _model_signature(config: VlmTrackingConfig) -> tuple[str, str, str, str]:
+    return (
+        config.model_id,
+        config.device,
+        config.torch_dtype,
+        normalize_quantization(config.quantization),
+    )
 
 
 def _run_loaded_qwen(
@@ -210,4 +257,9 @@ def _peak_cuda_memory() -> dict[str, int | None]:
     return {"peak_allocated_bytes": None, "peak_reserved_bytes": None}
 
 
-__all__ = ["QwenRunnerError", "run_qwen_vlm", "run_qwen_vlm_batches"]
+__all__ = [
+    "QwenRunnerError",
+    "QwenVlmBatchSession",
+    "run_qwen_vlm",
+    "run_qwen_vlm_batches",
+]

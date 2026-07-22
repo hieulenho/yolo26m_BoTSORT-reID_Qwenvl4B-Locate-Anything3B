@@ -17,5 +17,19 @@ $env:TMPDIR = $RunTemp
 Write-Host "[tests] TEMP=$env:TEMP"
 Write-Host "[tests] BaseTemp=$BaseTemp"
 
-& $Python -m pytest -q --basetemp="$BaseTemp" -p no:cacheprovider @args
-exit $LASTEXITCODE
+$ExitCode = 1
+try {
+    & $Python -m pytest -q --basetemp="$BaseTemp" -p no:cacheprovider @args
+    $ExitCode = $LASTEXITCODE
+}
+finally {
+    foreach ($Path in @($RunTemp, $BaseTemp)) {
+        if (Test-Path -LiteralPath $Path) {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if ((Test-Path -LiteralPath $TempRoot) -and -not (Get-ChildItem -LiteralPath $TempRoot -Force)) {
+        Remove-Item -LiteralPath $TempRoot -Force -ErrorAction SilentlyContinue
+    }
+}
+exit $ExitCode

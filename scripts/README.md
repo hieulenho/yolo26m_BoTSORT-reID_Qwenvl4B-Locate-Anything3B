@@ -42,20 +42,23 @@ Useful controls:
   -CalibrationSeconds 8 `
   -DiscoveryKeyframes 2 `
   -QwenQuantization 4bit `
+  -SemanticWorkerMode deferred `
   -Device cuda `
   -Overwrite
 ```
 
 The script captures a short calibration clip, discovers the vocabulary once, builds a realtime
 plan, and starts the camera/RTSP/file stream. Track crops are written to a non-blocking semantic
-queue. Use `-NoWindow` for headless measurement.
+queue. `deferred` drains the queue automatically after capture; `live` starts a persistent Qwen
+worker that loads the model once and updates the semantic cache while tracking continues.
+Use `-NoWindow` for headless measurement.
 
 `-DiscoveryKeyframes 2` is the 8 GB GPU default. Increase it only for videos with several
 visually different shots. `-DiscoveryMaxNewTokens 768` protects complete structured JSON; the
 semantic cache makes this cold cost one-time for a matching source and configuration.
 
-On an 8 GB GPU, process the queue after the realtime session so Qwen does not compete with the
-detector for VRAM:
+On an 8 GB GPU, keep the default `-SemanticWorkerMode deferred`. To retry or drain a saved queue
+manually:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\runtime\run_realtime_semantic_worker.py `
@@ -63,12 +66,14 @@ detector for VRAM:
   --vlm-config configs\semantics\dynamic_track.yaml `
   --semantic-output outputs\adaptive_realtime\webcam_01\semantic_cache.json `
   --memory outputs\adaptive_realtime\webcam_01\semantic_memory.json `
-  --max-events 8
+  --max-events 8 `
+  --drain
 ```
 
 The worker atomically claims each event. A model/runtime exception returns the event to
 `pending/`; an invalid answer is moved to `failed/` with its failure reason instead of being
-retried forever. Run only one worker per queue on a single-GPU machine.
+retried forever. In `--watch` mode one persistent Qwen session serves multiple batches, avoiding
+repeated model loading. Run only one worker per queue.
 
 ## Benchmarking
 
@@ -111,6 +116,12 @@ discovery is kept separate from per-track semantic accuracy, which needs human a
 Prepare the human-review package, then finalize and merge the reviewed manifests:
 
 ```powershell
+.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py status `
+  --package-dir data\semantic_benchmark\review\wildlife_black_noddies `
+  --package-dir data\semantic_benchmark\review\traffic_street `
+  --package-dir data\semantic_benchmark\review\education_classroom_long `
+  --output outputs\reports\semantic_gt_status.json
+
 .\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
   --package-dir data\semantic_benchmark\review\traffic_street
 
@@ -124,6 +135,17 @@ Prepare the human-review package, then finalize and merge the reviewed manifests
 
 `finalize` intentionally fails until every track row and the video-level review block have been
 marked as reviewed by a named annotator.
+
+After generating `idsw_taxonomy_events.csv`, create a human-review sheet with:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\benchmarks\review_idsw_taxonomy.py prepare `
+  --events outputs\reports\idsw_taxonomy\idsw_taxonomy_events.csv `
+  --output data\idsw_review\idsw_event_review.csv
+```
+
+The reviewed type, reviewer, and status are required before the diagnostic percentages can be
+presented as human-validated failure causes.
 
 Build the measured long-stream realtime comparison:
 

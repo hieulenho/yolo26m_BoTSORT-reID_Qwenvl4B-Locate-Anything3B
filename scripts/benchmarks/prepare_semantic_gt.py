@@ -9,6 +9,7 @@ from pathlib import Path
 
 from football_tracking.benchmarking.semantic_annotation import (
     SemanticAnnotationError,
+    audit_annotation_package,
     finalize_annotation_package,
     merge_reviewed_manifests,
     prepare_annotation_package,
@@ -38,6 +39,9 @@ def main() -> int:
     merge.add_argument("--manifest", type=Path, action="append", required=True)
     merge.add_argument("--output-manifest", type=Path, required=True)
     merge.add_argument("--overwrite", action="store_true")
+    status = subparsers.add_parser("status")
+    status.add_argument("--package-dir", type=Path, action="append", required=True)
+    status.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
     try:
         if args.command == "prepare":
@@ -60,12 +64,31 @@ def main() -> int:
                 output_manifest=args.output_manifest,
                 overwrite=args.overwrite,
             )
-        else:
+        elif args.command == "merge":
             result = merge_reviewed_manifests(
                 manifest_paths=args.manifest,
                 output_manifest=args.output_manifest,
                 overwrite=args.overwrite,
             )
+        else:
+            packages = [audit_annotation_package(path) for path in args.package_dir]
+            result = {
+                "status": (
+                    "ready"
+                    if all(row["ready_to_finalize"] for row in packages)
+                    else "review_required"
+                ),
+                "package_count": len(packages),
+                "track_count": sum(row["track_count"] for row in packages),
+                "reviewed_track_count": sum(row["reviewed_track_count"] for row in packages),
+                "remaining_track_count": sum(row["remaining_track_count"] for row in packages),
+                "packages": packages,
+            }
+            if args.output is not None:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                temporary = args.output.with_suffix(args.output.suffix + ".tmp")
+                temporary.write_text(json.dumps(result, indent=2), encoding="utf-8")
+                temporary.replace(args.output)
     except (SemanticAnnotationError, OSError, ValueError) as exc:
         sys.stderr.write(f"Error: {exc}\n")
         return 2

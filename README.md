@@ -134,8 +134,10 @@ For a short plumbing check:
 
 The camera is calibrated for a few seconds and Qwen creates one vocabulary cache. During the
 stream, detector and tracker never wait for the VLM: representative track crops enter an atomic
-queue, while an optional worker updates temporal memory and a semantic cache. On an 8 GB GPU,
-run that worker after capture or on another GPU/server to avoid model contention.
+queue, while a worker updates temporal memory and a semantic cache. The default `deferred` mode
+drains that queue automatically after capture so an 8 GB GPU never holds the detector and Qwen
+at the same time. Use `-SemanticWorkerMode live` on a server or a separate semantic GPU when
+labels must appear during the stream.
 
 ```powershell
 .\scripts\run_realtime_adaptive.ps1 `
@@ -144,6 +146,7 @@ run that worker after capture or on another GPU/server to avoid model contention
   -CalibrationSeconds 8 `
   -DiscoveryKeyframes 2 `
   -QwenQuantization 4bit `
+  -SemanticWorkerMode deferred `
   -Device cuda `
   -Overwrite
 ```
@@ -262,8 +265,9 @@ These are video-level discovery checks, not per-track semantic accuracy. The rep
 leaves semantic accuracy null until every evaluated track has a human base/fine annotation.
 Fine-grained hypotheses below the conservative 0.95 threshold remain `unknown`; this prevents
 unsupported species and vehicle subtypes from being rendered as facts. See the
-[multi-domain trial report](outputs/adaptive_runs/multidomain_long/summary/multidomain_trial_report.md)
-for timings, VRAM, coverage, licenses, CSV, JSON, and charts.
+[canonical experiment report](docs/benchmarks/final_experiment_report.md) for the retained
+timings, VRAM, coverage, licenses, and charts. Regenerating a raw run writes the detailed report
+under `outputs/adaptive_runs/multidomain_long/summary/`.
 
 On the same traffic video and detector outputs, `realtime_stable` (TrackTrack) reduced predicted
 IDs from 153 to 87 and tracks shorter than one second from 64.1% to 31.0%. Throughput fell from
@@ -299,13 +303,14 @@ football footage; they are not cross-domain accuracy claims.
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-The verified local state is `419 passed`. Canonical reports:
+The verified local state is `421 passed`. Canonical reports:
 
 - [Final report](docs/benchmarks/final_experiment_report.md)
 - [Artifact audit](docs/benchmarks/artifact_audit.json)
 - [Runtime CSV](docs/benchmarks/realtime_route_summary.csv)
 - [Long realtime benchmark](docs/benchmarks/realtime_long_benchmark.md)
 - [Five-pass engineering audit](docs/benchmarks/five_pass_audit.md)
+- [Current three-pass completion audit](docs/benchmarks/three_pass_completion_audit.md)
 - [All terminal commands](commands.txt)
 
 ## Measurement Limits

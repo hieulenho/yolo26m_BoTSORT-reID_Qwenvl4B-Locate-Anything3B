@@ -54,19 +54,21 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
   -CalibrationSeconds 8 `
   -DiscoveryKeyframes 2 `
   -QwenQuantization 4bit `
+  -SemanticWorkerMode deferred `
   -Device cuda `
   -Overwrite
 
 # 6. Tracker smoke benchmark against SportsMOT GT.
 .\scripts\run_tracking_benchmark.ps1 -Smoke -SmokeFrames 300 -Overwrite
 
-# Optional: process one bounded realtime semantic batch after webcam capture.
+# Optional retry: drain a saved realtime semantic queue with one persistent model load.
 .\.venv\Scripts\python.exe scripts\runtime\run_realtime_semantic_worker.py `
   --queue-dir outputs\adaptive_realtime\webcam_01\semantic_queue `
   --vlm-config configs\semantics\dynamic_track.yaml `
   --semantic-output outputs\adaptive_realtime\webcam_01\semantic_cache.json `
   --memory outputs\adaptive_realtime\webcam_01\semantic_memory.json `
-  --max-events 8
+  --max-events 8 `
+  --drain
 
 # 7. Rebuild canonical detector/tracker/final reports from saved full experiments.
 .\.venv\Scripts\python.exe scripts\benchmarks\consolidate_detector_benchmark.py `
@@ -129,6 +131,12 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
 
 # 10. Human-reviewed multi-domain semantic GT.
 # First review every contact sheet, CSV row, and ground_truth_review.yaml in each package.
+.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py status `
+  --package-dir data\semantic_benchmark\review\wildlife_black_noddies `
+  --package-dir data\semantic_benchmark\review\traffic_street `
+  --package-dir data\semantic_benchmark\review\education_classroom_long `
+  --output outputs\reports\semantic_gt_status.json
+
 .\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
   --package-dir data\semantic_benchmark\review\wildlife_black_noddies
 
@@ -156,4 +164,12 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
   --run optimized_no_drop=outputs\adaptive_realtime\traffic_final\realtime_metrics.json `
   --run bounded_live=outputs\adaptive_realtime\traffic_bounded\realtime_metrics.json `
   --output-dir outputs\benchmarks\realtime\traffic_35s `
+  --overwrite
+
+# 12. Prepare human review of the five diagnostic IDSW failure categories.
+# Run run_idsw_analysis.ps1 first so the events CSV exists.
+.\scripts\benchmarks\run_idsw_analysis.ps1 -Overwrite
+.\.venv\Scripts\python.exe scripts\benchmarks\review_idsw_taxonomy.py prepare `
+  --events outputs\reports\idsw_taxonomy\idsw_taxonomy_events.csv `
+  --output data\idsw_review\idsw_event_review.csv `
   --overwrite
