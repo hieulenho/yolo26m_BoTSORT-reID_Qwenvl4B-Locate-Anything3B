@@ -1,0 +1,32 @@
+grid:
+  name: botsort_reid_hard_identity_strict
+  tracker_name: botsort_reid
+  base_tracker_config: configs/trackers/botsort_balanced.yaml
+  base_compare_config: configs/legacy/football/compare_trackers_yolo26m_botsort_hard_identity.yaml
+  output_root: outputs/experiments/tracker_grid/botsort_reid_hard_identity_strict
+  max_experiments: 5
+
+parameters:
+  tracker.track_high_thresh:
+    - 0.40
+    - 0.45
+  tracker.new_track_thresh:
+    - 0.55
+    - 0.60
+  tracker.proximity_thresh:
+    - 0.50
+  tracker.appearance_thresh:
+    - 0.35
+  tracker.match_thresh:
+    - 0.80
+  tracker.track_buffer:
+    - 90
+  output.min_hits_for_output:
+    - 5
+
+strategy:
+  mode: grid
+  include_baseline: true
+
+runtime:
+  command_prefix: .\.venv\Scripts\python.exe -m football_tracking.cli

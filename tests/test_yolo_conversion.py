@@ -13,7 +13,7 @@ FIXTURE_ROOT = Path("tests/fixtures/mini_tracking_dataset")
 
 def _load_sequences() -> list[SequenceInfo]:
     adapter = SoccerNetAdapter()
-    mapping = load_class_mapping("configs/class_mapping.yaml")
+    mapping = load_class_mapping("configs/legacy/football/class_mapping.yaml")
     sequences: list[SequenceInfo] = []
     for candidate in adapter.discover_sequences(FIXTURE_ROOT):
         sequence = adapter.load_sequence(candidate.source_path)

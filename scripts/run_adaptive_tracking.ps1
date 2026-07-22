@@ -184,7 +184,7 @@ if ($RunTrackSemantics) {
     $TaskPrompt = "Domain discovered as '$($DiscoveryData.domain.name)'. Non-binding semantic profiles: $SemanticProfiles. Independently label every visible track from visual evidence. Keep the base class stable, infer a fine label only from diagnostic crop evidence, preserve unseen classes, and reject uncertainty at each level."
     $QwenArgs = @(
         "-m", "football_tracking.cli", "analyze-tracking-vlm",
-        "--config", "configs\vlm_dynamic_track_semantics.yaml",
+        "--config", "configs\semantics\dynamic_track.yaml",
         "--source-video", $SourcePath,
         "--tracked-video", $OutputPath,
         "--tracks", $MotPath,

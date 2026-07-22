@@ -13,6 +13,7 @@ outputs/**
 !outputs/
 !outputs/**/
 !outputs/**/.gitkeep
+!outputs/README.md
 outputs/tracks/
 outputs/tracks/comparison/
 outputs/videos/

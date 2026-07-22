@@ -152,17 +152,21 @@ def _render_markdown(config: FinalReportConfig) -> str:
     cli = r".\.venv\Scripts\python.exe -m football_tracking.cli"
     command_lines = [
         f"{cli} doctor",
-        f"{cli} prepare-dataset --config configs/sportsmot_data.yaml --overwrite",
-        f"{cli} train-detector --config configs/yolo26m_sportsmot_football_train.yaml --device 0",
-        f"{cli} evaluate-detector --config configs/yolo26m_sportsmot_football_eval.yaml",
-        f"{cli} cache-detections --config configs/detection_cache_yolo26m_all.yaml --overwrite",
+        f"{cli} prepare-dataset --config configs/legacy/football/sportsmot_data.yaml --overwrite",
+        f"{cli} train-detector --config "
+        "configs/legacy/football/yolo26m_sportsmot_football_train.yaml --device 0",
+        f"{cli} evaluate-detector --config "
+        "configs/legacy/football/yolo26m_sportsmot_football_eval.yaml",
+        f"{cli} cache-detections --config "
+        "configs/legacy/football/detection_cache_yolo26m_all.yaml --overwrite",
         f"{cli} compare-trackers --config "
-        "configs/compare_trackers_yolo26m_botsort_identity_stable_all.yaml --overwrite",
-        f"{cli} render-video --config configs/render_video.yaml --overwrite",
-        f"{cli} analyze-tracking-vlm --config configs/vlm_qwen4b_tracking.yaml "
+        "configs/legacy/football/"
+        "compare_trackers_yolo26m_botsort_identity_stable_all.yaml --overwrite",
+        f"{cli} render-video --config configs/legacy/football/render_video.yaml --overwrite",
+        f"{cli} analyze-tracking-vlm --config configs/legacy/football/vlm_qwen4b_tracking.yaml "
         "--run-model --overwrite",
-        f"{cli} benchmark --config configs/benchmark.yaml",
-        f"{cli} generate-report --config configs/report.yaml",
+        f"{cli} benchmark --config configs/legacy/football/benchmark.yaml",
+        f"{cli} generate-report --config configs/legacy/football/report.yaml",
     ]
     lines = [
         f"# {config.title}",

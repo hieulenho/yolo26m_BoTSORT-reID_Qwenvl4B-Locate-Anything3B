@@ -54,7 +54,7 @@ def test_evaluate_pipeline_results_separates_model_and_render_fallbacks(
     completed = subprocess.run(
         [
             sys.executable,
-            "scripts/evaluate_pipeline_results.py",
+            "scripts/legacy/evaluate_pipeline_results.py",
             "--sequence-name",
             "video_1",
             "--annotation-csv",

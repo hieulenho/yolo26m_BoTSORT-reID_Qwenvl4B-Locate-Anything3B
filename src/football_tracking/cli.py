@@ -80,7 +80,7 @@ def _add_data_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/data.yaml"),
+        default=Path("configs/legacy/football/data.yaml"),
         help="Path to the data pipeline YAML config.",
     )
     parser.add_argument(
@@ -117,7 +117,7 @@ def _add_baseline_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/yolov8m_baseline.yaml"),
+        default=Path("configs/legacy/football/yolov8m_baseline.yaml"),
         help="Path to the YOLOv8m baseline YAML config.",
     )
     parser.add_argument("--split", choices=("train", "val", "test"), default=None)
@@ -141,7 +141,9 @@ def _parse_batch(value: str) -> int | float:
 
 
 def _add_training_common_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", type=Path, default=Path("configs/yolov8m_train.yaml"))
+    parser.add_argument(
+        "--config", type=Path, default=Path("configs/legacy/football/yolov8m_train.yaml")
+    )
     parser.add_argument("--device", default=None)
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch", type=_parse_batch, default=None)
@@ -191,7 +193,9 @@ def _add_tracking_common_options(
 
 
 def _add_detection_cache_common_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", type=Path, default=Path("configs/detection_cache.yaml"))
+    parser.add_argument(
+        "--config", type=Path, default=Path("configs/legacy/football/detection_cache.yaml")
+    )
     parser.add_argument("--device", default=None)
     parser.add_argument("--max-sequences", type=int, default=None)
     parser.add_argument("--max-frames", type=int, default=None)
@@ -217,7 +221,9 @@ def _add_experiment_common_options(
 
 
 def _add_render_video_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", type=Path, default=Path("configs/render_video.yaml"))
+    parser.add_argument(
+        "--config", type=Path, default=Path("configs/legacy/football/render_video.yaml")
+    )
     parser.add_argument("--tracker", choices=("sort", "deepsort"), default=None)
     parser.add_argument("--max-sequences", type=int, default=None)
     parser.add_argument("--max-frames", type=int, default=None)
@@ -227,21 +233,25 @@ def _add_render_video_options(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_benchmark_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", type=Path, default=Path("configs/benchmark.yaml"))
+    parser.add_argument(
+        "--config", type=Path, default=Path("configs/legacy/football/benchmark.yaml")
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--debug", action="store_true")
 
 
 def _add_report_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", type=Path, default=Path("configs/report.yaml"))
+    parser.add_argument("--config", type=Path, default=Path("configs/legacy/football/report.yaml"))
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--debug", action="store_true")
 
 
 def _add_vlm_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", type=Path, default=Path("configs/vlm_qwen4b_tracking.yaml"))
+    parser.add_argument(
+        "--config", type=Path, default=Path("configs/legacy/football/vlm_qwen4b_tracking.yaml")
+    )
     parser.add_argument("--source-video", type=Path, default=None)
     parser.add_argument("--tracked-video", type=Path, default=None)
     parser.add_argument("--tracks", type=Path, default=None)
@@ -328,7 +338,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Prepare SportsMOT football-only YOLO and MOT datasets.",
     )
     _add_data_common_options(sportsmot_parser)
-    sportsmot_parser.set_defaults(config=Path("configs/sportsmot_data.yaml"))
+    sportsmot_parser.set_defaults(config=Path("configs/legacy/football/sportsmot_data.yaml"))
     sportsmot_parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -340,7 +350,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Prepare the recommended SportsMOT football dataset.",
     )
     _add_data_common_options(prepare_dataset_parser)
-    prepare_dataset_parser.set_defaults(config=Path("configs/sportsmot_data.yaml"))
+    prepare_dataset_parser.set_defaults(config=Path("configs/legacy/football/sportsmot_data.yaml"))
     prepare_dataset_parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -406,7 +416,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Evaluate fine-tuned detector on val or test split.",
     )
     _add_training_common_options(eval_parser)
-    eval_parser.set_defaults(config=Path("configs/yolov8m_eval.yaml"))
+    eval_parser.set_defaults(config=Path("configs/legacy/football/yolov8m_eval.yaml"))
 
     compare_parser = subparsers.add_parser(
         "compare-detectors",
@@ -438,26 +448,30 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_tracking_common_options(
         track_video_parser,
-        Path("configs/track_video_yolo26m_botsort.yaml"),
+        Path("configs/legacy/football/track_video_yolo26m_botsort.yaml"),
     )
 
     track_parser = subparsers.add_parser(
         "track",
         help="Track the configured SportsMOT football split.",
     )
-    _add_tracking_common_options(track_parser, Path("configs/track_sportsmot.yaml"))
+    _add_tracking_common_options(track_parser, Path("configs/legacy/football/track_sportsmot.yaml"))
 
     track_sportsmot_parser = subparsers.add_parser(
         "track-sportsmot",
         help="Track SportsMOT football sequences with the configured detector and tracker.",
     )
-    _add_tracking_common_options(track_sportsmot_parser, Path("configs/track_sportsmot.yaml"))
+    _add_tracking_common_options(
+        track_sportsmot_parser, Path("configs/legacy/football/track_sportsmot.yaml")
+    )
 
     validate_tracks_parser = subparsers.add_parser(
         "validate-tracks",
         help="Validate MOT prediction outputs.",
     )
-    _add_tracking_common_options(validate_tracks_parser, Path("configs/track_sportsmot_smoke.yaml"))
+    _add_tracking_common_options(
+        validate_tracks_parser, Path("configs/legacy/football/track_sportsmot_smoke.yaml")
+    )
 
     cache_parser = subparsers.add_parser(
         "cache-detections",
@@ -492,7 +506,7 @@ def _build_parser() -> argparse.ArgumentParser:
     track_from_cache_parser.add_argument(
         "--experiment-config",
         type=Path,
-        default=Path("configs/compare_trackers.yaml"),
+        default=Path("configs/legacy/football/compare_trackers.yaml"),
     )
     track_from_cache_parser.add_argument(
         "--split",
@@ -512,13 +526,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "compare-trackers",
         help="Compare configured trackers from shared cached detections.",
     )
-    _add_experiment_common_options(compare_trackers_parser, Path("configs/compare_trackers.yaml"))
+    _add_experiment_common_options(
+        compare_trackers_parser, Path("configs/legacy/football/compare_trackers.yaml")
+    )
 
     evaluate_tracking_parser = subparsers.add_parser(
         "evaluate-tracking",
         help="Evaluate existing MOT tracker outputs with TrackEval.",
     )
-    _add_experiment_common_options(evaluate_tracking_parser, Path("configs/compare_trackers.yaml"))
+    _add_experiment_common_options(
+        evaluate_tracking_parser, Path("configs/legacy/football/compare_trackers.yaml")
+    )
 
     render_video_parser = subparsers.add_parser(
         "render-video",
@@ -557,7 +575,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ablation_parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/tracker_ablation.yaml"),
+        default=Path("configs/legacy/football/tracker_ablation.yaml"),
     )
     ablation_parser.add_argument("--max-experiments", type=int, default=None)
     ablation_parser.add_argument("--resume", action="store_true")
@@ -571,7 +589,7 @@ def _build_parser() -> argparse.ArgumentParser:
     grid_parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/tracker_grid_botsort_reid.yaml"),
+        default=Path("configs/legacy/football/tracker_grid_botsort_reid.yaml"),
     )
     grid_parser.add_argument("--max-experiments", type=int, default=None)
     grid_parser.add_argument("--overwrite", action="store_true")

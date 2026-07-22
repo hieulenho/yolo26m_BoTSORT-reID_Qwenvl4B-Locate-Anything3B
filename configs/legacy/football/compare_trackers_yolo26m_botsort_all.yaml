@@ -1,0 +1,50 @@
+experiment:
+  name: yolo26m_sort_deepsort_botsort_all
+  seed: 42
+  split: all
+
+dataset:
+  mot_root: data/mot/sportsmot_football
+  seqmap: data/mot/sportsmot_football/seqmaps/all.txt
+
+detections:
+  cache_config: configs/legacy/football/detection_cache_yolo26m_all.yaml
+  cache_root: outputs/detections/cache/yolo26m_sportsmot_football
+  confidence_threshold: 0.10
+
+trackers:
+  - name: sort
+    config: configs/legacy/football/sort.yaml
+  - name: deepsort
+    config: configs/legacy/football/deepsort.yaml
+  - name: botsort_reid
+    config: configs/legacy/football/botsort_reid.yaml
+
+evaluation:
+  trackeval_config: configs/legacy/football/trackeval.yaml
+  metrics:
+    - HOTA
+    - CLEAR
+    - Identity
+  allow_partial_sequences: false
+
+benchmark:
+  render_video: false
+  measure_tracker_only: true
+  measure_end_to_end_from_cache: true
+  warmup_sequences: 0
+
+output:
+  root: outputs/experiments/yolo26m_sort_deepsort_botsort_all
+  tracks_root: outputs/tracks/yolo26m_comparison_all
+  metrics_root: outputs/metrics/experiments/yolo26m_botsort_all
+  figures_root: outputs/figures/experiments/yolo26m_botsort_all
+  videos_root: outputs/videos/comparison/yolo26m_botsort_all
+
+runtime:
+  max_sequences: null
+  max_frames_per_sequence: null
+  overwrite: false
+  fail_fast: true
+  smoke_only: false
+  log_level: INFO

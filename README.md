@@ -292,7 +292,7 @@ football footage; they are not cross-domain accuracy claims.
 
 ```powershell
 .\scripts\run_tracking_benchmark.ps1 -Smoke -Overwrite
-.\.venv\Scripts\python.exe scripts\build_final_benchmark_report.py `
+.\.venv\Scripts\python.exe scripts\benchmarks\build_final_benchmark_report.py `
   --config configs\benchmarks\final_report.yaml `
   --overwrite
 .\.venv\Scripts\python.exe -m ruff check src scripts tests
@@ -322,13 +322,14 @@ The verified local state is `419 passed`. Canonical reports:
 ## Repository Layout
 
 ```text
-configs/                    source configs, profiles, ontology, benchmarks
+configs/                    adaptive config, profiles, ontology, benchmark contracts
 data/                       local datasets and reviewed manifests
-docs/                       design notes and publishable figures
+docs/                       current design notes, results, and archived documentation
+legacy/                     archived demos and compatibility assets
 models/                     local promoted checkpoints
 outputs/                    generated runs, caches, metrics, and reports
 requirements/               base, development, VLM, and open-vocabulary dependencies
-scripts/                    reproducible PowerShell and Python entry points
+scripts/                    supported entry points plus runtime/benchmark/data helpers
 src/football_tracking/      package implementation
 tests/                      regression and benchmark-contract tests
 ```

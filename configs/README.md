@@ -50,12 +50,12 @@ final report fails instead of silently accepting missing or incompatible inputs.
 
 ## Dynamic Semantic Config
 
-`vlm_dynamic_track_semantics.yaml` uses an open output schema. Qwen receives global keyframes,
+`semantics/dynamic_track.yaml` uses an open output schema. Qwen receives global keyframes,
 track crops, and structured MOT metadata, then emits labels with evidence and confidence. It is
 separate from scene discovery because the two stages have different image and token budgets.
 
 ## Historical Configs
 
-Root configs for YOLOv8, fixed football A/B/C, tracker grids, and smoke tests remain for result
-reproduction. New multi-domain work should start with `adaptive_tracking.yaml` and a benchmark
-config under `configs/benchmarks/`.
+Configs for YOLOv8, fixed football A/B/C, tracker grids, and their smoke tests are archived under
+`legacy/football/` for result reproduction. New multi-domain work should start with
+`adaptive_tracking.yaml` and a benchmark config under `benchmarks/`.

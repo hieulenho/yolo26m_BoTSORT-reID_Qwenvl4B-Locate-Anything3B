@@ -1,0 +1,58 @@
+model:
+  name: yolo26m
+  backend: ultralytics
+  checkpoint: models/detector/football/yolo26m_best.pt
+  alternative_checkpoints:
+    - yolo26m.pt
+  fallback_checkpoint: yolo26m.pt
+  allow_pretrained_fallback: true
+  allow_smoke_checkpoint: false
+
+detector:
+  imgsz: 960
+  conf: 0.10
+  iou: 0.65
+  max_det: 300
+  device: auto
+  half: false
+  class_ids:
+    - 0
+  target_class_id: 0
+  target_class_name: player
+  preserve_source_classes: false
+
+tracker:
+  name: botsort_reid
+  config: configs/legacy/football/botsort_reid.yaml
+
+dataset:
+  mot_root: data/mot/sportsmot_football
+  split: val
+  seqmap: data/mot/sportsmot_football/seqmaps/val.txt
+
+output:
+  tracks_dir: outputs/tracks/botsort_reid/sportsmot_football
+  videos_dir: outputs/videos/botsort_reid/sportsmot_football
+  metrics_dir: outputs/metrics
+  render_video: false
+  save_mot: true
+
+render:
+  enabled: false
+  show_confidence: false
+  show_class: false
+  show_track_id: true
+  show_trajectory: true
+  trajectory_length: 20
+  line_thickness: 2
+  font_scale: 0.55
+  show_fps: true
+
+runtime:
+  max_sequences: null
+  max_frames_per_sequence: null
+  overwrite: false
+  show_window: false
+  fail_fast: true
+  smoke_only: false
+  log_level: INFO

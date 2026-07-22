@@ -49,7 +49,7 @@ New-Item -ItemType Directory -Force -Path $RunRoot | Out-Null
 
 Write-Host "[1/4] Capture $CalibrationSeconds-second calibration clip"
 $CaptureArgs = @(
-    "scripts\capture_calibration_clip.py",
+    "scripts\runtime\capture_calibration_clip.py",
     "--source", $Source,
     "--output", $CalibrationVideo,
     "--seconds", "$CalibrationSeconds"
@@ -88,7 +88,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "[4/4] Start realtime stream"
 $RealtimeArgs = @(
-    "scripts\run_realtime_adaptive.py",
+    "scripts\runtime\run_realtime_adaptive.py",
     "--config", $GeneratedConfig,
     "--source", $Source,
     "--output-video", $OutputVideo,
@@ -122,6 +122,6 @@ if ($Overwrite) { $RealtimeArgs += "--overwrite" }
 $RealtimeExitCode = $LASTEXITCODE
 if ($RealtimeExitCode -eq 0 -and -not $DisableSemanticQueue) {
     Write-Host "Semantic events are queued without blocking tracking. Process one bounded batch with:"
-    Write-Host ".\.venv\Scripts\python.exe scripts\run_realtime_semantic_worker.py --queue-dir `"$SemanticQueue`" --vlm-config configs\vlm_dynamic_track_semantics.yaml --semantic-output `"$SemanticCache`" --memory `"$SemanticMemory`" --max-events 8"
+    Write-Host ".\.venv\Scripts\python.exe scripts\runtime\run_realtime_semantic_worker.py --queue-dir `"$SemanticQueue`" --vlm-config configs\semantics\dynamic_track.yaml --semantic-output `"$SemanticCache`" --memory `"$SemanticMemory`" --max-events 8"
 }
 exit $RealtimeExitCode

@@ -37,7 +37,7 @@ def _require_mapping(value: Any, context: str) -> dict[str, Any]:
 
 def _resolve_config_path(config_path: str | Path | None, project_root: Path) -> Path:
     if config_path is None:
-        return resolve_project_path("configs/base.yaml", project_root=project_root)
+        return resolve_project_path("configs/legacy/football/base.yaml", project_root=project_root)
 
     path = Path(config_path).expanduser()
     if path.is_absolute():

@@ -58,7 +58,7 @@ plumbing and smoke testing. Real accuracy improvements should come from fine-tun
 Generate a BoT-SORT ReID grid-search plan:
 
 ```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli plan-tracker-grid --config configs\tracker_grid_botsort_reid.yaml --overwrite
+.\.venv\Scripts\python.exe -m football_tracking.cli plan-tracker-grid --config configs\legacy\football\tracker_grid_botsort_reid.yaml --overwrite
 ```
 
 This writes:

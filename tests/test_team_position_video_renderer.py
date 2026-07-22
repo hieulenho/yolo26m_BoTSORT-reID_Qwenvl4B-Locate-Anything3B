@@ -66,7 +66,7 @@ def test_render_team_position_video_can_hide_unlabeled_tracks(tmp_path: Path) ->
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/render_team_position_video.py",
+            "scripts/legacy/render_team_position_video.py",
             "--source-video",
             str(source),
             "--tracks",

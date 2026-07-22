@@ -58,9 +58,9 @@ On an 8 GB GPU, process the queue after the realtime session so Qwen does not co
 detector for VRAM:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\run_realtime_semantic_worker.py `
+.\.venv\Scripts\python.exe scripts\runtime\run_realtime_semantic_worker.py `
   --queue-dir outputs\adaptive_realtime\webcam_01\semantic_queue `
-  --vlm-config configs\vlm_dynamic_track_semantics.yaml `
+  --vlm-config configs\semantics\dynamic_track.yaml `
   --semantic-output outputs\adaptive_realtime\webcam_01\semantic_cache.json `
   --memory outputs\adaptive_realtime\webcam_01\semantic_memory.json `
   --max-events 8
@@ -81,11 +81,11 @@ Fast tracker plumbing check:
 Consolidate existing full benchmark sources:
 
 ```powershell
-.\scripts\build_tracking_benchmark_report.ps1 -Overwrite
-.\.venv\Scripts\python.exe scripts\consolidate_detector_benchmark.py `
+.\scripts\benchmarks\build_tracking_benchmark_report.ps1 -Overwrite
+.\.venv\Scripts\python.exe scripts\benchmarks\consolidate_detector_benchmark.py `
   --config configs\benchmarks\detector_sportsmot.yaml `
   --overwrite
-.\.venv\Scripts\python.exe scripts\build_final_benchmark_report.py `
+.\.venv\Scripts\python.exe scripts\benchmarks\build_final_benchmark_report.py `
   --config configs\benchmarks\final_report.yaml `
   --overwrite
 ```
@@ -96,8 +96,8 @@ scope, and writes report-ready figures.
 Licensed public multi-domain trial:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\download_multidomain_samples.py
-.\.venv\Scripts\python.exe scripts\build_multidomain_trial_report.py `
+.\.venv\Scripts\python.exe scripts\data\download_multidomain_samples.py
+.\.venv\Scripts\python.exe scripts\benchmarks\build_multidomain_trial_report.py `
   --manifest data\samples\multidomain\samples_manifest.json `
   --run-root outputs\adaptive_runs\multidomain_long `
   --output-dir outputs\adaptive_runs\multidomain_long\summary `
@@ -111,10 +111,10 @@ discovery is kept separate from per-track semantic accuracy, which needs human a
 Prepare the human-review package, then finalize and merge the reviewed manifests:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\prepare_semantic_gt.py finalize `
+.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
   --package-dir data\semantic_benchmark\review\traffic_street
 
-.\.venv\Scripts\python.exe scripts\prepare_semantic_gt.py merge `
+.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py merge `
   --manifest data\semantic_benchmark\review\wildlife_black_noddies\manifest.reviewed.yaml `
   --manifest data\semantic_benchmark\review\traffic_street\manifest.reviewed.yaml `
   --manifest data\semantic_benchmark\review\education_classroom_long\manifest.reviewed.yaml `
@@ -128,7 +128,7 @@ marked as reviewed by a named annotator.
 Build the measured long-stream realtime comparison:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\build_realtime_benchmark.py `
+.\.venv\Scripts\python.exe scripts\benchmarks\build_realtime_benchmark.py `
   --run baseline_fp32=outputs\adaptive_realtime\traffic_long\realtime_metrics.json `
   --run optimized_no_drop=outputs\adaptive_realtime\traffic_final\realtime_metrics.json `
   --run bounded_live=outputs\adaptive_realtime\traffic_bounded\realtime_metrics.json `
@@ -146,12 +146,26 @@ Build the measured long-stream realtime comparison:
 
 ## Compatibility Scripts
 
-The following scripts support earlier football-only experiments and are not the primary adaptive
-entry point:
+Earlier football-only experiments are archived under `scripts/legacy/` and are not primary entry
+points:
 
-- `run_raw_video_semantic_experiments.ps1`
-- `run_vlm_guided_pipeline.ps1`
-- `run_team_position_benchmark.ps1`
-- `render_team_position_video.py`
+- `scripts/legacy/run_raw_video_semantic_experiments.ps1`
+- `scripts/legacy/run_vlm_guided_pipeline.ps1`
+- `scripts/legacy/run_team_position_benchmark.ps1`
+- `scripts/legacy/render_team_position_video.py`
 
 Use them only when reproducing an older report whose manifest explicitly references those paths.
+
+## Directory Map
+
+```text
+scripts/
+  run_adaptive_tracking.ps1       primary offline pipeline
+  run_realtime_adaptive.ps1       primary live/file stream pipeline
+  run_tracking_benchmark.ps1      canonical tracker benchmark
+  setup_env.ps1, run_tests.ps1    environment and validation
+  runtime/                         Python workers used by supported entry points
+  benchmarks/                      report, audit, and metric builders
+  data/                            sample download and input diagnostics
+  legacy/                          compatibility-only football workflows
+```

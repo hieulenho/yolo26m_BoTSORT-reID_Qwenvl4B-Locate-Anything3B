@@ -31,7 +31,11 @@ configs/ontology/                    canonical vocabulary registry
 configs/trackers/                    immutable tracker presets
 configs/benchmarks/                  benchmark contracts and source manifests
 requirements/                        dependency groups
-scripts/                             supported entry points
+scripts/                             small set of supported PowerShell entry points
+scripts/runtime/                     realtime and scene-discovery workers
+scripts/benchmarks/                  metric, audit, and report builders
+scripts/data/                        sample acquisition and input diagnostics
+scripts/legacy/                      compatibility-only workflows
 tests/                               regression and artifact-contract tests
 README.md                            public project entry point
 commands.txt                         complete terminal runbook
@@ -67,8 +71,10 @@ They are intentionally ignored when large or licensed separately. Do not commit:
 
 ## Legacy Compatibility
 
-The older football-only A/B/C scripts remain available for reproducing historical artifacts.
-New work should enter through `run_adaptive_tracking.ps1` or `run_realtime_adaptive.ps1`.
+The older football-only A/B/C scripts, configs, and documents remain under `scripts/legacy/`,
+`configs/legacy/football/`, and `docs/legacy/` for reproducing historical artifacts. New work
+should enter through `scripts/run_adaptive_tracking.ps1` or
+`scripts/run_realtime_adaptive.ps1`.
 Do not mix old result folders with `outputs/benchmarks/final/`.
 
 ## Cleanup Rules

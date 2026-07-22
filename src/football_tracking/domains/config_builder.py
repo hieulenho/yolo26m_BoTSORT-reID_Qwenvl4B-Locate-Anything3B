@@ -343,7 +343,7 @@ def _domain_config_payloads(
             }
         ],
         "evaluation": {
-            "trackeval_config": "configs/trackeval.yaml",
+            "trackeval_config": "configs/legacy/football/trackeval.yaml",
             "metrics": ["HOTA", "CLEAR", "Identity"],
             "allow_partial_sequences": False,
         },

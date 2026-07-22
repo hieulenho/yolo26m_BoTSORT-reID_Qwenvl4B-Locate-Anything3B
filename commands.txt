@@ -61,21 +61,21 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
 .\scripts\run_tracking_benchmark.ps1 -Smoke -SmokeFrames 300 -Overwrite
 
 # Optional: process one bounded realtime semantic batch after webcam capture.
-.\.venv\Scripts\python.exe scripts\run_realtime_semantic_worker.py `
+.\.venv\Scripts\python.exe scripts\runtime\run_realtime_semantic_worker.py `
   --queue-dir outputs\adaptive_realtime\webcam_01\semantic_queue `
-  --vlm-config configs\vlm_dynamic_track_semantics.yaml `
+  --vlm-config configs\semantics\dynamic_track.yaml `
   --semantic-output outputs\adaptive_realtime\webcam_01\semantic_cache.json `
   --memory outputs\adaptive_realtime\webcam_01\semantic_memory.json `
   --max-events 8
 
 # 7. Rebuild canonical detector/tracker/final reports from saved full experiments.
-.\.venv\Scripts\python.exe scripts\consolidate_detector_benchmark.py `
+.\.venv\Scripts\python.exe scripts\benchmarks\consolidate_detector_benchmark.py `
   --config configs\benchmarks\detector_sportsmot.yaml `
   --overwrite
 
-.\scripts\build_tracking_benchmark_report.ps1 -Overwrite
+.\scripts\benchmarks\build_tracking_benchmark_report.ps1 -Overwrite
 
-.\.venv\Scripts\python.exe scripts\build_final_benchmark_report.py `
+.\.venv\Scripts\python.exe scripts\benchmarks\build_final_benchmark_report.py `
   --config configs\benchmarks\final_report.yaml `
   --overwrite
 
@@ -84,7 +84,7 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
 .\.venv\Scripts\python.exe -m pytest -q
 
 # 9. Download the licensed public multi-domain samples (internet required).
-.\.venv\Scripts\python.exe scripts\download_multidomain_samples.py
+.\.venv\Scripts\python.exe scripts\data\download_multidomain_samples.py
 
 # Run any downloaded sample (all canonical samples are at least 30 seconds).
 .\scripts\run_adaptive_tracking.ps1 `
@@ -114,7 +114,7 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
   -Overwrite
 
 # Consolidate domain/vocabulary coverage, FPS, VRAM, and continuity proxies.
-.\.venv\Scripts\python.exe scripts\build_multidomain_trial_report.py `
+.\.venv\Scripts\python.exe scripts\benchmarks\build_multidomain_trial_report.py `
   --manifest data\samples\multidomain\samples_manifest.json `
   --run-root outputs\adaptive_runs\multidomain_long `
   --output-dir outputs\adaptive_runs\multidomain_long\summary `
@@ -129,29 +129,29 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
 
 # 10. Human-reviewed multi-domain semantic GT.
 # First review every contact sheet, CSV row, and ground_truth_review.yaml in each package.
-.\.venv\Scripts\python.exe scripts\prepare_semantic_gt.py finalize `
+.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
   --package-dir data\semantic_benchmark\review\wildlife_black_noddies
 
-.\.venv\Scripts\python.exe scripts\prepare_semantic_gt.py finalize `
+.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
   --package-dir data\semantic_benchmark\review\traffic_street
 
-.\.venv\Scripts\python.exe scripts\prepare_semantic_gt.py finalize `
+.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
   --package-dir data\semantic_benchmark\review\education_classroom_long
 
-.\.venv\Scripts\python.exe scripts\prepare_semantic_gt.py merge `
+.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py merge `
   --manifest data\semantic_benchmark\review\wildlife_black_noddies\manifest.reviewed.yaml `
   --manifest data\semantic_benchmark\review\traffic_street\manifest.reviewed.yaml `
   --manifest data\semantic_benchmark\review\education_classroom_long\manifest.reviewed.yaml `
   --output-manifest data\semantic_benchmark\multidomain.reviewed.yaml `
   --overwrite
 
-.\.venv\Scripts\python.exe scripts\evaluate_adaptive_semantics.py `
+.\.venv\Scripts\python.exe scripts\benchmarks\evaluate_adaptive_semantics.py `
   --manifest data\semantic_benchmark\multidomain.reviewed.yaml `
   --output-dir outputs\benchmarks\semantics\multidomain_reviewed `
   --overwrite
 
 # 11. Consolidate the measured 35-second realtime comparison and charts.
-.\.venv\Scripts\python.exe scripts\build_realtime_benchmark.py `
+.\.venv\Scripts\python.exe scripts\benchmarks\build_realtime_benchmark.py `
   --run baseline_fp32=outputs\adaptive_realtime\traffic_long\realtime_metrics.json `
   --run optimized_no_drop=outputs\adaptive_realtime\traffic_final\realtime_metrics.json `
   --run bounded_live=outputs\adaptive_realtime\traffic_bounded\realtime_metrics.json `

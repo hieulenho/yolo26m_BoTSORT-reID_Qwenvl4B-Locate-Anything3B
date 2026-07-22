@@ -8,7 +8,7 @@ dataset:
   seqmap: data/mot/sportsmot_football/seqmaps/all.txt
 
 detections:
-  cache_config: configs/detection_cache_yolo26m_all.yaml
+  cache_config: configs/legacy/football/detection_cache_yolo26m_all.yaml
   cache_root: outputs/detections/cache/yolo26m_sportsmot_football
   confidence_threshold: 0.10
 
@@ -19,7 +19,7 @@ trackers:
     config: configs/trackers/deepocsort_reid_realtime.yaml
 
 evaluation:
-  trackeval_config: configs/trackeval.yaml
+  trackeval_config: configs/legacy/football/trackeval.yaml
   metrics:
     - HOTA
     - CLEAR

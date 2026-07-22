@@ -4,7 +4,7 @@ from football_tracking.data.prepare import prepare_data
 
 
 def test_prepare_data_fixture_creates_yolo_and_mot_outputs() -> None:
-    result = prepare_data("configs/data_test.yaml", overwrite=True, fail_fast=False)
+    result = prepare_data("configs/legacy/football/data_test.yaml", overwrite=True, fail_fast=False)
 
     assert result.validation_report.error_count == 0
     assert result.yolo_stats["images"] == 9
@@ -16,7 +16,9 @@ def test_prepare_data_fixture_creates_yolo_and_mot_outputs() -> None:
 
 
 def test_prepare_data_dry_run_does_not_write_outputs() -> None:
-    result = prepare_data("configs/data_test.yaml", dry_run=True, overwrite=True, fail_fast=False)
+    result = prepare_data(
+        "configs/legacy/football/data_test.yaml", dry_run=True, overwrite=True, fail_fast=False
+    )
 
     assert result.dry_run is True
     assert result.yolo_stats["dry_run"] is True

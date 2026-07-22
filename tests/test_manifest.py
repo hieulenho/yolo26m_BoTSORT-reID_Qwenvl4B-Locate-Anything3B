@@ -16,8 +16,8 @@ def test_manifest_counts_frames_objects_and_tracks_by_sequence(tmp_path: Path) -
         dataset_name="fixture",
         adapter="soccernet",
         seed=1,
-        config_path=Path("configs/data_test.yaml"),
-        class_mapping_path=Path("configs/class_mapping.yaml"),
+        config_path=Path("configs/legacy/football/data_test.yaml"),
+        class_mapping_path=Path("configs/legacy/football/class_mapping.yaml"),
         yolo_output_dir=tmp_path / "yolo",
         mot_output_dir=tmp_path / "mot",
     )

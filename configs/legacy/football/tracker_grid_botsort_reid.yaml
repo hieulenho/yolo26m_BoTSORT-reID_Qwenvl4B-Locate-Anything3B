@@ -1,0 +1,30 @@
+grid:
+  name: botsort_reid_recall_identity
+  tracker_name: botsort_reid
+  base_tracker_config: configs/trackers/botsort_balanced.yaml
+  base_compare_config: configs/legacy/football/compare_trackers_yolo26m_botsort_all.yaml
+  output_root: outputs/experiments/tracker_grid/botsort_reid_recall_identity
+  max_experiments: 24
+
+parameters:
+  tracker.track_high_thresh:
+    - 0.25
+    - 0.30
+    - 0.35
+  tracker.new_track_thresh:
+    - 0.35
+    - 0.40
+    - 0.50
+  output.min_hits_for_output:
+    - 3
+    - 5
+  tracker.track_buffer:
+    - 90
+    - 120
+
+strategy:
+  mode: grid
+  include_baseline: true
+
+runtime:
+  command_prefix: .\.venv\Scripts\python.exe -m football_tracking.cli

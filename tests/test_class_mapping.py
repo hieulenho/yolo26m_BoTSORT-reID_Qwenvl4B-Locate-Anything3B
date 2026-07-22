@@ -4,7 +4,7 @@ from football_tracking.data.class_mapping import load_class_mapping, normalize_c
 
 
 def _mapping():
-    return load_class_mapping(Path("configs/class_mapping.yaml"))
+    return load_class_mapping(Path("configs/legacy/football/class_mapping.yaml"))
 
 
 def test_player_is_kept() -> None:

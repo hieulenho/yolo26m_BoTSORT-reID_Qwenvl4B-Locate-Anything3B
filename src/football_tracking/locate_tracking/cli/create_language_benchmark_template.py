@@ -232,11 +232,12 @@ def create_language_benchmark_template(
                 f"--manifest {benchmark_path}"
             ),
             "evaluate": (
-                ".\\scripts\\run_language_benchmark.ps1 "
-                f"-Mode subset -Manifest {benchmark_path} "
-                f"-Predictions {prediction_path} "
-                "-OutputDir outputs\\locate_tracking\\benchmark\\subset\\a5_full_system "
-                "-Overwrite"
+                ".\\.venv\\Scripts\\python.exe -m "
+                "football_tracking.locate_tracking.cli run-language-benchmark "
+                f"--manifest {benchmark_path} "
+                f"--predictions {prediction_path} "
+                "--output-dir outputs\\locate_tracking\\benchmark\\subset\\a5_full_system "
+                "--overwrite"
             ),
         },
     }
