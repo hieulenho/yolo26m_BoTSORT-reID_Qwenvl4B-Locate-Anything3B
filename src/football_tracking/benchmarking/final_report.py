@@ -32,44 +32,81 @@ def build_final_benchmark_report(
     expected = _mapping(config.get("expected"), "expected")
     output = _mapping(config.get("output"), "output")
 
-    paths = {
-        "detector": _resolve(inputs.get("detector_summary"), root),
-        "tracking": _resolve(inputs.get("tracking_summary"), root),
-        "tracking_per_sequence": _resolve(inputs.get("tracking_per_sequence"), root),
-        "tracking_manifest": _resolve(inputs.get("tracking_manifest"), root),
-        "idsw": _resolve(inputs.get("idsw_summary"), root),
-        "semantic": _resolve(inputs.get("semantic_summary"), root),
-    }
-    runtime_entries = inputs.get("runtime_routes")
-    if not isinstance(runtime_entries, list) or not runtime_entries:
-        raise FinalReportError("inputs.runtime_routes must be a non-empty list.")
+    semantic_path = _resolve(inputs.get("semantic_summary"), root)
+    physical_realtime_value = inputs.get("physical_realtime")
+    core_snapshot_value = inputs.get("core_snapshot")
+    use_core_snapshot = core_snapshot_value is not None
+    paths: dict[str, Path] = {"semantic": semantic_path}
+    if physical_realtime_value is not None:
+        paths["physical_realtime"] = _resolve(physical_realtime_value, root)
     runtime_sources: list[dict[str, Any]] = []
-    for raw_item in runtime_entries:
-        item = _mapping(raw_item, "runtime route")
-        source = {
-            "id": str(item.get("id", "")).strip(),
-            "name": str(item.get("name", "")).strip(),
-            "metrics": _resolve(item.get("metrics"), root),
+    core_snapshot: dict[str, Any] | None = None
+    if use_core_snapshot:
+        paths["core_snapshot"] = _resolve(core_snapshot_value, root)
+        core_snapshot = _read_json(paths["core_snapshot"])
+        detector = {
+            "rows": core_snapshot.get("detectors", []),
+            "sources": [
+                {
+                    "snapshot": str(paths["core_snapshot"]),
+                    "snapshot_sha256": file_sha256(paths["core_snapshot"]),
+                }
+            ],
         }
-        if item.get("validation") is None:
-            raise FinalReportError(
-                f"Runtime route {source['id'] or '<unnamed>'} requires validation."
-            )
-        source["validation"] = _resolve(item.get("validation"), root)
-        runtime_sources.append(source)
+        tracking = core_snapshot.get("trackers", [])
+        tracking_manifest = None
+        idsw = {"summaries": core_snapshot.get("idsw_taxonomy", [])}
+        runtime = core_snapshot.get("realtime_routes", [])
+        if not isinstance(runtime, list):
+            raise FinalReportError("core_snapshot.realtime_routes must be a list.")
+    else:
+        paths.update(
+            {
+                "detector": _resolve(inputs.get("detector_summary"), root),
+                "tracking": _resolve(inputs.get("tracking_summary"), root),
+                "tracking_per_sequence": _resolve(
+                    inputs.get("tracking_per_sequence"),
+                    root,
+                ),
+                "tracking_manifest": _resolve(inputs.get("tracking_manifest"), root),
+                "idsw": _resolve(inputs.get("idsw_summary"), root),
+            }
+        )
+        runtime_entries = inputs.get("runtime_routes")
+        if not isinstance(runtime_entries, list) or not runtime_entries:
+            raise FinalReportError("inputs.runtime_routes must be a non-empty list.")
+        for raw_item in runtime_entries:
+            item = _mapping(raw_item, "runtime route")
+            source = {
+                "id": str(item.get("id", "")).strip(),
+                "name": str(item.get("name", "")).strip(),
+                "metrics": _resolve(item.get("metrics"), root),
+            }
+            if item.get("validation") is None:
+                raise FinalReportError(
+                    f"Runtime route {source['id'] or '<unnamed>'} requires validation."
+                )
+            source["validation"] = _resolve(item.get("validation"), root)
+            runtime_sources.append(source)
 
-    detector = _read_json(paths["detector"])
-    tracking = _read_json(paths["tracking"])
-    tracking_manifest = _read_json(paths["tracking_manifest"])
-    idsw = _read_json(paths["idsw"])
+        detector = _read_json(paths["detector"])
+        tracking = _read_json(paths["tracking"])
+        tracking_manifest = _read_json(paths["tracking_manifest"])
+        idsw = _read_json(paths["idsw"])
+        runtime = [_runtime_row(item, expected) for item in runtime_sources]
+
     semantic = _read_json(paths["semantic"])
-    runtime = [_runtime_row(item, expected) for item in runtime_sources]
+    physical_realtime = (
+        _read_json(paths["physical_realtime"])
+        if "physical_realtime" in paths
+        else None
+    )
 
     issues: list[dict[str, Any]] = []
     _validate_detector(detector, issues)
     _validate_tracking(
         tracking,
-        paths["tracking_per_sequence"],
+        paths.get("tracking_per_sequence"),
         tracking_manifest,
         expected,
         issues,
@@ -77,7 +114,18 @@ def build_final_benchmark_report(
     _validate_idsw(idsw, tracking, issues)
     _validate_semantic(semantic, expected, issues)
     _validate_runtime(runtime, expected, issues)
-    issues.extend(_known_limitations())
+    _validate_physical_realtime(physical_realtime, issues)
+    if use_core_snapshot:
+        _issue(
+            issues,
+            "WARNING",
+            "core_snapshot",
+            (
+                "Detector, SportsMOT tracker, IDSW, and route-runtime tables were "
+                "validated from the immutable published core benchmark snapshot."
+            ),
+        )
+    issues.extend(_known_limitations(expected))
     errors = [item for item in issues if item["severity"] == "ERROR"]
     if errors:
         details = "; ".join(f"{item['code']}: {item['message']}" for item in errors)
@@ -128,21 +176,62 @@ def build_final_benchmark_report(
         "created_at": datetime.now(UTC).isoformat(),
         "config": str(config_file),
         "config_sha256": file_sha256(config_file),
-        "hardware": runtime[0]["hardware"],
+        "hardware": (
+            core_snapshot.get("hardware", {})
+            if core_snapshot is not None
+            else runtime[0]["hardware"]
+        ),
         "detectors": detector.get("rows", []),
         "trackers": tracking,
         "semantic_pipelines": semantic.get("pipelines", []),
         "realtime_routes": runtime,
+        "physical_realtime": physical_realtime,
         "idsw_taxonomy": idsw.get("summaries", []),
         "measurement_contract": {
-            "detector": "SportsMOT val, 2,900 images, 640 px, same GPU",
-            "tracking": "SportsMOT 30 sequences, 20,171 frames, shared detections",
-            "semantic": "31 human-reviewed tracks from one football video",
-            "realtime": (
-                "120-frame file-source run, 640 px, adaptive routed tracker, "
-                "rendering and MP4 writing enabled"
+            "detector": (
+                core_snapshot.get("measurement_contract", {}).get(
+                    "detector",
+                    "SportsMOT val, 2,900 images, 640 px, same GPU",
+                )
+                if core_snapshot is not None
+                else "SportsMOT val, 2,900 images, 640 px, same GPU"
             ),
-            "idsw_taxonomy": "heuristic diagnostic categories; official IDSW is TrackEval",
+            "tracking": (
+                core_snapshot.get("measurement_contract", {}).get(
+                    "tracking",
+                    "SportsMOT 30 sequences, 20,171 frames, shared detections",
+                )
+                if core_snapshot is not None
+                else "SportsMOT 30 sequences, 20,171 frames, shared detections"
+            ),
+            "semantic": str(
+                semantic.get("measurement_scope", {}).get(
+                    "quality",
+                    "shared reference GT for all semantic pipelines",
+                )
+            ),
+            "realtime": (
+                core_snapshot.get("measurement_contract", {}).get(
+                    "realtime",
+                    (
+                        "120-frame file-source run, 640 px, adaptive routed tracker, "
+                        "rendering and MP4 writing enabled"
+                    ),
+                )
+                if core_snapshot is not None
+                else (
+                    "120-frame file-source run, 640 px, adaptive routed tracker, "
+                    "rendering and MP4 writing enabled"
+                )
+            ),
+            "idsw_taxonomy": (
+                core_snapshot.get("measurement_contract", {}).get(
+                    "idsw_taxonomy",
+                    "heuristic diagnostic categories; official IDSW is TrackEval",
+                )
+                if core_snapshot is not None
+                else "heuristic diagnostic categories; official IDSW is TrackEval"
+            ),
         },
         "sources": source_records,
     }
@@ -209,8 +298,8 @@ def _validate_detector(payload: dict[str, Any], issues: list[dict[str, Any]]) ->
 
 def _validate_tracking(
     rows: Any,
-    per_sequence_path: Path,
-    manifest: dict[str, Any],
+    per_sequence_path: Path | None,
+    manifest: dict[str, Any] | None,
     expected: dict[str, Any],
     issues: list[dict[str, Any]],
 ) -> None:
@@ -240,6 +329,18 @@ def _validate_tracking(
         for metric in ("HOTA", "DetA", "AssA", "MOTA", "IDF1"):
             _range_metric(issues, row.get(metric), f"tracking.{tracker}.{metric}", scale=100.0)
         _positive_metric(issues, row.get("tracker_fps"), f"tracking.{tracker}.tracker_fps")
+
+    if per_sequence_path is None or manifest is None:
+        _issue(
+            issues,
+            "WARNING",
+            "tracking_snapshot_scope",
+            (
+                "Per-sequence tracking files are not embedded in the core snapshot; "
+                "aggregate rows retain the original published measurement contract."
+            ),
+        )
+        return
 
     grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
     with per_sequence_path.open("r", encoding="utf-8", newline="") as handle:
@@ -326,6 +427,10 @@ def _validate_semantic(
             "semantic_macro_f1",
             "semantic_coverage",
             "selective_accuracy",
+            "fine_label_accuracy",
+            "fine_candidate_accuracy",
+            "unknown_rejection_f1",
+            "hallucination_rate",
         ):
             _range_metric(issues, row.get(metric), f"semantic.{pipeline}.{metric}")
         _positive_metric(
@@ -526,6 +631,52 @@ def _validate_runtime(
             )
 
 
+def _validate_physical_realtime(
+    payload: dict[str, Any] | list[Any] | None,
+    issues: list[dict[str, Any]],
+) -> None:
+    if payload is None:
+        _issue(
+            issues,
+            "WARNING",
+            "physical_realtime_missing",
+            "Physical webcam/RTSP repeated-run report is not configured.",
+        )
+        return
+    if not isinstance(payload, dict):
+        _issue(
+            issues,
+            "ERROR",
+            "physical_realtime_schema",
+            "Physical realtime report must be a mapping.",
+        )
+        return
+    profiles = payload.get("profiles", [])
+    if not isinstance(profiles, list):
+        profiles = []
+    expected_profiles = {
+        "bounded_tracking_only",
+        "bounded_semantic_deferred",
+        "no_drop_semantic_deferred",
+    }
+    valid = {
+        str(row.get("profile"))
+        for row in profiles
+        if isinstance(row, dict)
+        and int(row.get("repeat_count", 0)) >= 3
+        and row.get("processing_fps_mean") is not None
+        and row.get("p95_latency_ms_mean") is not None
+        and row.get("drop_rate_mean") is not None
+    }
+    if valid != expected_profiles:
+        _issue(
+            issues,
+            "ERROR",
+            "physical_realtime_profiles",
+            f"Physical realtime profiles are incomplete: {sorted(valid)}.",
+        )
+
+
 def _validate_source_hashes(
     sources: Any,
     issues: list[dict[str, Any]],
@@ -554,27 +705,31 @@ def _validate_source_hashes(
                 )
 
 
-def _known_limitations() -> list[dict[str, Any]]:
+def _known_limitations(expected: dict[str, Any]) -> list[dict[str, Any]]:
+    semantic_track_count = int(expected.get("semantic_gt_tracks", 0))
     return [
         {
             "severity": "WARNING",
             "code": "semantic_gt_scope",
-            "message": "Semantic A/B/C ground truth covers 31 tracks from one football video.",
+            "message": (
+                f"Semantic A/B/C reference GT covers {semantic_track_count} selected "
+                "tracks from one 30-second UA-DETRAC traffic sequence."
+            ),
         },
         {
             "severity": "WARNING",
             "code": "runtime_scope",
             "message": (
-                "Route-to-route timings use a 120-frame local file; the separate 35-second "
-                "stress test still replays a file rather than a physical camera."
+                "Route-to-route timings use a shared 120-frame local file. Physical camera "
+                "timing is reported separately with three repeated 900-frame runs per profile."
             ),
         },
         {
             "severity": "WARNING",
-            "code": "cross_domain_gt_pending",
+            "code": "semantic_domain_matrix_pending",
             "message": (
-                "Wildlife, traffic, and education routes need reviewed per-track GT before "
-                "semantic accuracy claims."
+                "Equivalent A/B/C semantic experiments are still required on independently "
+                "reviewed sports, medical, and education tracks."
             ),
         },
         {
@@ -590,6 +745,7 @@ def _markdown(payload: dict[str, Any], audit: dict[str, Any], figures: list[Path
     trackers = payload["trackers"]
     semantics = payload["semantic_pipelines"]
     runtime = payload["realtime_routes"]
+    physical = payload.get("physical_realtime")
     lines = [
         "# Final experiment report",
         "",
@@ -637,17 +793,19 @@ def _markdown(payload: dict[str, Any], audit: dict[str, Any], figures: list[Path
             "",
             "## Semantic A/B/C",
             "",
-            "| Pipeline | E2E accuracy | Macro F1 | Coverage | Selective accuracy | "
-            "Accepted / GT | Cold semantic (s) | Peak VRAM |",
-            "|---|---:|---:|---:|---:|---:|---:|---:|",
+            "| Pipeline | Accuracy | Macro F1 | Coverage | Fine strict | Fine candidate | "
+            "Unknown F1 | Hallucination | Cold (s) | Peak VRAM |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in semantics:
         lines.append(
             f"| {row['pipeline']} | {row['semantic_accuracy']:.2%} | "
             f"{row['semantic_macro_f1']:.2%} | {row['semantic_coverage']:.2%} | "
-            f"{row['selective_accuracy']:.2%} | "
-            f"{row['accepted_tracks']} / {row['gt_tracks']} | "
+            f"{row['fine_label_accuracy']:.2%} | "
+            f"{row['fine_candidate_accuracy']:.2%} | "
+            f"{row['unknown_rejection_f1']:.2%} | "
+            f"{row['hallucination_rate']:.2%} | "
             f"{row['semantic_cold_seconds']:.2f} | {row['sequential_peak_gib']:.2f} GiB |"
         )
     lines.extend(
@@ -693,6 +851,28 @@ def _markdown(payload: dict[str, Any], audit: dict[str, Any], figures: list[Path
             f"{float(row['shorter_than_30_percent']):.1f}% | "
             f"{row['tracks_with_gaps']} | {row['validation_warning_count']} |"
         )
+    if isinstance(physical, dict):
+        lines.extend(
+            [
+                "",
+                "## Physical webcam realtime",
+                "",
+                "Each profile contains three independent 900-frame runs on the named "
+                "hardware. Values are mean +/- population standard deviation.",
+                "",
+                "| Profile | Runs | Process FPS | Source FPS | P95 | Drop | Startup |",
+                "|---|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for row in physical.get("profiles", []):
+            lines.append(
+                f"| {row['profile']} | {row['repeat_count']} | "
+                f"{_mean_std(row, 'processing_fps', 2)} | "
+                f"{_mean_std(row, 'source_progress_fps', 2)} | "
+                f"{_mean_std(row, 'p95_latency_ms', 1)} ms | "
+                f"{_mean_std(row, 'drop_rate', 2, scale=100.0)}% | "
+                f"{_mean_std(row, 'startup_seconds', 2)} s |"
+            )
     lines.extend(
         [
             "",
@@ -723,11 +903,11 @@ def _markdown(payload: dict[str, Any], audit: dict[str, Any], figures: list[Path
             "## Scope",
             "",
             "- Detector and tracking scores are compared against SportsMOT ground truth.",
-            "- Semantic scores use 31 manually reviewed track labels from video 1.",
+            f"- Semantic scores use {payload['measurement_contract']['semantic']}.",
             "- Detection-only classes are rendered without a track ID; only `track` classes "
             "enter MOT.",
-            "- Cross-domain routing is integration-tested, but cross-domain accuracy still "
-            "needs GT.",
+            "- The retained table is UA-DETRAC traffic. A separate official AnimalTrack "
+            "Zebra A/B/C matrix extends semantic evaluation to wildlife.",
             "- IDSW taxonomy is heuristic; use the official TrackEval IDSW column for ranking.",
             "",
             "## Figures",
@@ -740,6 +920,18 @@ def _markdown(payload: dict[str, Any], audit: dict[str, Any], figures: list[Path
 
 def _count_percent(row: dict[str, Any], prefix: str) -> str:
     return f"{int(row[f'{prefix}_count'])} ({float(row[f'{prefix}_percent']):.1f}%)"
+
+
+def _mean_std(
+    row: dict[str, Any],
+    metric: str,
+    digits: int,
+    *,
+    scale: float = 1.0,
+) -> str:
+    mean = float(row.get(f"{metric}_mean") or 0.0) * scale
+    std = float(row.get(f"{metric}_std") or 0.0) * scale
+    return f"{mean:.{digits}f} +/- {std:.{digits}f}"
 
 
 def _write_figures(payload: dict[str, Any], output_dir: Path) -> list[Path]:
@@ -938,7 +1130,9 @@ def _write_figures(payload: dict[str, Any], output_dir: Path) -> list[Path]:
     semantic_axes[0].set_xticks(semantic_positions, semantic_labels)
     semantic_axes[0].set_ylim(0, 110)
     semantic_axes[0].set_ylabel("Percent")
-    semantic_axes[0].set_title("Semantic quality on 31 reviewed tracks")
+    semantic_axes[0].set_title(
+        f"Semantic quality on {semantics[0]['gt_tracks']} reference tracks"
+    )
     semantic_axes[0].grid(axis="y", alpha=0.25)
     semantic_axes[0].legend(fontsize=8)
     cold_bars = semantic_axes[1].bar(

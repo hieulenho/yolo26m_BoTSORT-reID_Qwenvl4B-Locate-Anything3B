@@ -45,6 +45,8 @@ class VlmTrackingConfig:
     torch_dtype: str
     quantization: str
     max_new_tokens: int
+    image_min_pixels: int
+    image_max_pixels: int
     temperature: float
     do_sample: bool
     run_model: bool
@@ -155,6 +157,8 @@ def load_vlm_tracking_config(
         torch_dtype=str(model_cfg.get("torch_dtype", "auto")),
         quantization=normalize_quantization(str(model_cfg.get("quantization", "none"))),
         max_new_tokens=int(model_cfg.get("max_new_tokens", 1024)),
+        image_min_pixels=int(model_cfg.get("image_min_pixels", 64 * 32 * 32)),
+        image_max_pixels=int(model_cfg.get("image_max_pixels", 512 * 32 * 32)),
         temperature=float(model_cfg.get("temperature", 0.1)),
         do_sample=bool(model_cfg.get("do_sample", False)),
         run_model=bool(model_cfg.get("run_model", False)),
@@ -205,6 +209,8 @@ def _apply_overrides(
         "torch_dtype",
         "quantization",
         "max_new_tokens",
+        "image_min_pixels",
+        "image_max_pixels",
         "temperature",
         "do_sample",
         "run_model",
@@ -271,6 +277,12 @@ def _validate_config(config: VlmTrackingConfig) -> None:
         raise VlmConfigError("sampling.crop_output_size must be in [64, 1024].")
     if config.max_new_tokens <= 0:
         raise VlmConfigError("model.max_new_tokens must be positive.")
+    if config.image_min_pixels <= 0:
+        raise VlmConfigError("model.image_min_pixels must be positive.")
+    if config.image_max_pixels < config.image_min_pixels:
+        raise VlmConfigError(
+            "model.image_max_pixels must be greater than or equal to image_min_pixels."
+        )
     if config.temperature < 0:
         raise VlmConfigError("model.temperature must be non-negative.")
     if not config.model_id:

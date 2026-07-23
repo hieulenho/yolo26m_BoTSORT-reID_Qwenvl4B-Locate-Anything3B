@@ -10,6 +10,8 @@ from football_tracking.adaptive_tracking.ontology import COCO80_CLASSES
 from football_tracking.adaptive_tracking.schemas import SceneDiscovery
 
 FOOTBALL_DOMAINS = {"football", "soccer", "football_match", "sports_football"}
+MICROSCOPY_DOMAINS = {"microscopy", "medical_microscopy", "cell_microscopy"}
+MICROSCOPY_CLASSES = {"cell", "cells", "nuclei", "nucleus", "cell nucleus"}
 REALTIME_PROFILES = {"realtime", "realtime_stable"}
 FOOTBALL_PERSON_CLASSES = {
     "person",
@@ -76,6 +78,7 @@ def build_detector_route(
     *,
     profile: str = "realtime",
     football_checkpoint: str = "models/detector/football/yolo26m_best.pt",
+    microscopy_checkpoint: str | None = None,
     coco_checkpoint: str | None = None,
     open_checkpoint: str | None = None,
 ) -> DetectorRoute:
@@ -97,6 +100,22 @@ def build_detector_route(
             class_ids=(0,),
             tracker_class_ids=(0,),
             reason="No detector class survived normalization; use a conservative person fallback.",
+            profile=normalized_profile,
+        )
+
+    if _is_microscopy_scene(discovery, microscopy_checkpoint):
+        return DetectorRoute(
+            route_name="microscopy_finetuned",
+            backend="ultralytics",
+            checkpoint=str(microscopy_checkpoint),
+            class_names=("cell",),
+            class_ids=(0,),
+            tracker_class_ids=(0,),
+            reason=(
+                "Qwen identified a microscopy scene containing only cell/nucleus "
+                "targets; use the held-out-validated microscopy adapter."
+            ),
+            primary_class_ids=(0,),
             profile=normalized_profile,
         )
 
@@ -135,6 +154,15 @@ def build_detector_route(
         coco_checkpoint=coco_checkpoint,
         open_checkpoint=open_checkpoint,
     )
+
+
+def _is_microscopy_scene(
+    discovery: SceneDiscovery, checkpoint: str | None
+) -> bool:
+    if not checkpoint or not Path(checkpoint).is_file():
+        return False
+    names = {item.canonical_name for item in discovery.detector_objects}
+    return discovery.domain in MICROSCOPY_DOMAINS and bool(names) and names <= MICROSCOPY_CLASSES
 
 
 def _general_route(

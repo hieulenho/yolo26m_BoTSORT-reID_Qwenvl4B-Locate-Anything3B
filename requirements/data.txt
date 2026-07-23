@@ -1,0 +1,3 @@
+# Optional benchmark acquisition tools. Not required for runtime inference.
+gdown>=5.2,<6
+remotezip>=0.12,<1

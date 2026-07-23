@@ -129,16 +129,25 @@ def build_grounding_plan(
             )
             candidate["expected_track_ids"].append(track_id)
     if uncertain_track_ids:
+        uncertainty_trigger = (
+            "explicit_track_benchmark" if verify_track_ids else "qwen_unknown_track"
+        )
         for item in discovery.tracking_objects:
             candidate = candidates.setdefault(
                 item.canonical_name,
                 {
                     "class_label": item.canonical_name,
                     "display_name": item.display_name,
-                    "trigger": "qwen_unknown_track",
+                    "trigger": uncertainty_trigger,
                     "expected_track_ids": [],
                 },
             )
+            if verify_track_ids:
+                # A controlled class benchmark must use the canonical class name
+                # and provenance even when discovery first added a descriptive
+                # open-vocabulary candidate such as "yellow bus".
+                candidate["trigger"] = uncertainty_trigger
+                candidate["display_name"] = item.canonical_name
             candidate["expected_track_ids"].extend(uncertain_track_ids)
     selected_candidates = list(candidates.values())[:max_classes]
     requests = _grounding_requests(
@@ -244,14 +253,19 @@ def _grounding_request(
     expected_track_ids: list[int],
     target_track_id: int | None = None,
 ) -> dict[str, Any]:
-    query = f"the {item['display_name']}"
+    display_name = (
+        item["class_label"]
+        if item.get("trigger") == "explicit_track_benchmark"
+        else item["display_name"]
+    )
+    query = f"the {display_name}"
     if target_track_id is not None:
         query += f" inside the tracking box labeled ID {target_track_id}"
     return {
         "request_id": request_id,
         "class_label": item["class_label"],
         "query": query,
-        "localized_query": f"the {item['display_name']}",
+        "localized_query": f"the {display_name}",
         "frame_index": int(keyframe["frame_index"]),
         "image_path": str(keyframe["path"]),
         "trigger": item["trigger"],
@@ -271,6 +285,7 @@ def execute_grounding_plan(
     torch_dtype: str = "auto",
     quantization: str = "8bit",
     max_new_tokens: int = 512,
+    image_max_pixels: int = 512 * 512,
     minimum_iou: float = 0.10,
     target_crop_padding: float = 1.0,
     target_crop_size: int = 384,
@@ -298,6 +313,7 @@ def execute_grounding_plan(
         torch_dtype=torch_dtype,
         quantization=quantization,
         max_new_tokens=max_new_tokens,
+        image_max_pixels=image_max_pixels,
     )
     service = GroundingService(
         backend=backend,

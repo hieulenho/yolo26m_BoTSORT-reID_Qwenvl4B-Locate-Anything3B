@@ -43,6 +43,10 @@ data/yolo/sportsmot_football_smoke/
 data/mot/*
 !data/mot/.gitkeep
 data/mot/sportsmot_football/
+data/external/*
+!data/external/.gitkeep
+data/benchmarks/*
+!data/benchmarks/.gitkeep
 .cache/
 tools/.venv-download/
 

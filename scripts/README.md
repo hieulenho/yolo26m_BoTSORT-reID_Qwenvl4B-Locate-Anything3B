@@ -158,6 +158,33 @@ Build the measured long-stream realtime comparison:
   --overwrite
 ```
 
+Run the three-profile physical webcam/RTSP protocol:
+
+```powershell
+.\scripts\benchmarks\run_physical_realtime_protocol.ps1 `
+  -Source "0" `
+  -ProtocolName webcam_900_frames `
+  -MaxFrames 900 `
+  -Repeats 3 `
+  -Overwrite
+```
+
+Audit official multi-domain GT sources and normalize downloaded annotations:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\benchmarks\audit_multidomain_sources.py `
+  --output outputs\benchmarks\multidomain\dataset_readiness.json
+
+.\.venv\Scripts\python.exe scripts\benchmarks\convert_multidomain_gt.py `
+  --format bdd100k_scalabel `
+  --annotations data\external\bdd100k\labels\box_track_20 `
+  --output-dir data\normalized\bdd100k `
+  --overwrite
+```
+
+See `docs/benchmarks/multidomain_completion_protocol.md` for TAO, AnimalTrack, CTC,
+unknown-rejection, hallucination and two-reviewer IDSW commands.
+
 ## Validation
 
 ```powershell

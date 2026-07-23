@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from statistics import fmean
+from statistics import fmean, pstdev
 from typing import Any
 
 
@@ -40,6 +40,7 @@ def build_realtime_report(
         "hardware": rows[0]["hardware"],
         "best_source_progress_run": best["name"],
         "mean_processing_fps": fmean(float(row["processing_fps"] or 0.0) for row in rows),
+        "profiles": _profile_summaries(rows),
         "runs": rows,
         "notes": [
             "processing_fps measures processed frames only",
@@ -69,9 +70,15 @@ def _load_run(name: str, path: Path) -> dict[str, Any]:
     resources = value.get("resources", {})
     cuda = value.get("cuda_memory", {})
     hardware = value.get("hardware", {})
+    stream_source = str(value.get("stream_source", "")).strip()
+    profile, repeat = _run_identity(str(name))
     return {
         "name": str(name),
+        "profile": profile,
+        "repeat": repeat,
         "path": str(path),
+        "stream_source": stream_source,
+        "source_kind": _source_kind(stream_source),
         "frames_processed": int(value.get("frames", 0)),
         "source_frames_consumed": int(value.get("source_frames_consumed", value.get("frames", 0))),
         "dropped_late_frames": int(value.get("dropped_late_frames", 0)),
@@ -84,6 +91,7 @@ def _load_run(name: str, path: Path) -> dict[str, Any]:
         "p95_latency_ms": timing.get("frame_latency_ms_p95"),
         "p99_latency_ms": timing.get("frame_latency_ms_p99"),
         "startup_seconds": timing.get("startup_seconds"),
+        "shutdown_seconds": timing.get("shutdown_seconds"),
         "detector_fps": timing.get("detector_fps"),
         "tracker_fps": timing.get("tracker_fps"),
         "peak_ram_gb": _gb(resources.get("peak_process_rss_bytes")),
@@ -95,6 +103,54 @@ def _load_run(name: str, path: Path) -> dict[str, Any]:
             "logical_cpu_count": hardware.get("logical_cpu_count"),
         },
     }
+
+
+def _run_identity(name: str) -> tuple[str, int | None]:
+    head, marker, repeat = name.rpartition("_r")
+    if marker and repeat.isdigit():
+        return head, int(repeat)
+    return name, None
+
+
+def _profile_summaries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["profile"]), []).append(row)
+    metrics = (
+        "processing_fps",
+        "source_progress_fps",
+        "p95_latency_ms",
+        "drop_rate",
+        "startup_seconds",
+        "shutdown_seconds",
+        "peak_ram_gb",
+        "peak_vram_gb",
+    )
+    summaries: list[dict[str, Any]] = []
+    for profile, profile_rows in grouped.items():
+        summary: dict[str, Any] = {
+            "profile": profile,
+            "repeat_count": len(profile_rows),
+        }
+        for metric in metrics:
+            values = [
+                float(row[metric])
+                for row in profile_rows
+                if row.get(metric) is not None
+            ]
+            summary[f"{metric}_mean"] = fmean(values) if values else None
+            summary[f"{metric}_std"] = pstdev(values) if len(values) > 1 else 0.0
+        summaries.append(summary)
+    return summaries
+
+
+def _source_kind(source: str) -> str:
+    normalized = source.strip().lower()
+    if normalized.isdigit():
+        return "webcam"
+    if normalized.startswith(("rtsp://", "rtsps://")):
+        return "rtsp"
+    return "file"
 
 
 def _gb(value: Any) -> float | None:
@@ -118,8 +174,11 @@ def _markdown(payload: dict[str, Any]) -> str:
         f"({float(hardware.get('gpu_memory_gb') or 0):.1f} GB VRAM), "
         f"{hardware.get('logical_cpu_count')} logical CPU threads.",
         "",
-        "| Run | Process FPS | Source progress FPS | p95 | Drop | Startup | RAM | VRAM |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        (
+            "| Run | Process FPS | Source progress FPS | p95 | Drop | Startup | "
+            "Shutdown | RAM | VRAM |"
+        ),
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in payload["runs"]:
         lines.append(
@@ -128,8 +187,26 @@ def _markdown(payload: dict[str, Any]) -> str:
             f"{float(row['p95_latency_ms'] or 0):.1f} ms | "
             f"{100 * float(row['drop_rate'] or 0):.1f}% | "
             f"{float(row['startup_seconds'] or 0):.1f}s | "
+            f"{float(row['shutdown_seconds'] or 0):.1f}s | "
             f"{float(row['peak_ram_gb'] or 0):.2f} GB | "
             f"{float(row['peak_vram_gb'] or 0):.2f} GB |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Repeated-run summary",
+            "",
+            "| Profile | N | Process FPS | Source FPS | p95 | Drop |",
+            "|---|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in payload["profiles"]:
+        lines.append(
+            f"| {row['profile']} | {row['repeat_count']} | "
+            f"{_mean_std(row, 'processing_fps', 2)} | "
+            f"{_mean_std(row, 'source_progress_fps', 2)} | "
+            f"{_mean_std(row, 'p95_latency_ms', 1)} ms | "
+            f"{_mean_std(row, 'drop_rate', 3, scale=100.0)}% |"
         )
     lines.extend(
         [
@@ -144,6 +221,18 @@ def _markdown(payload: dict[str, Any]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _mean_std(
+    row: dict[str, Any],
+    metric: str,
+    digits: int,
+    *,
+    scale: float = 1.0,
+) -> str:
+    mean = float(row.get(f"{metric}_mean") or 0.0) * scale
+    std = float(row.get(f"{metric}_std") or 0.0) * scale
+    return f"{mean:.{digits}f} +/- {std:.{digits}f}"
 
 
 def _figures(rows: list[dict[str, Any]], output_dir: Path) -> list[Path]:

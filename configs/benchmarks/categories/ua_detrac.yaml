@@ -1,0 +1,12 @@
+1:
+  class_label: car
+  fine_label: ""
+2:
+  class_label: car
+  fine_label: van
+3:
+  class_label: bus
+  fine_label: ""
+4:
+  class_label: unknown
+  fine_label: ""

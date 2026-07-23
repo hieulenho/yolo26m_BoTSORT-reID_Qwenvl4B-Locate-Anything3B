@@ -1,5 +1,6 @@
 output_dir: ../../outputs/benchmarks/semantic/pipelines
 frame_count: 1399
+quality_scope: same human-reviewed manifest; unknown predictions count as errors
 
 pipelines:
   - id: A

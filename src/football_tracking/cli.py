@@ -263,6 +263,8 @@ def _add_vlm_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--torch-dtype", default=None)
     parser.add_argument("--quantization", choices=("none", "8bit", "4bit"), default=None)
     parser.add_argument("--max-new-tokens", type=int, default=None)
+    parser.add_argument("--image-min-pixels", type=int, default=None)
+    parser.add_argument("--image-max-pixels", type=int, default=None)
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--keyframe-interval", type=float, default=None)
     parser.add_argument("--max-keyframes", type=int, default=None)
@@ -749,6 +751,8 @@ def _vlm_overrides(args: argparse.Namespace) -> dict[str, object]:
         "torch_dtype": getattr(args, "torch_dtype", None),
         "quantization": getattr(args, "quantization", None),
         "max_new_tokens": getattr(args, "max_new_tokens", None),
+        "image_min_pixels": getattr(args, "image_min_pixels", None),
+        "image_max_pixels": getattr(args, "image_max_pixels", None),
         "temperature": getattr(args, "temperature", None),
         "keyframe_interval_seconds": getattr(args, "keyframe_interval", None),
         "max_keyframes": getattr(args, "max_keyframes", None),

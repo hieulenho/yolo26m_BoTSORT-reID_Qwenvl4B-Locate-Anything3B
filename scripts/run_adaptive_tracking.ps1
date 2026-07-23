@@ -28,13 +28,19 @@ param(
     [int]$MaxClasses = 24,
     [ValidateRange(128, 1024)]
     [int]$DiscoveryMaxNewTokens = 768,
+    [ValidateRange(65536, 16777216)]
+    [int]$QwenImageMaxPixels = 524288,
     [int]$MaxFrames = 0,
     [ValidateRange(0, 100000)]
     [int]$SemanticMaxTracks = 0,
     [ValidateRange(2, 64)]
     [int]$SemanticMaxImages = 8,
+    [ValidateRange(128, 1024)]
+    [int]$SemanticMaxNewTokens = 384,
     [ValidateRange(1, 1000)]
     [int]$LocateMaxTracks = 12,
+    [ValidateRange(4096, 4194304)]
+    [int]$LocateImageMaxPixels = 262144,
 
     [ValidateRange(0.0, 1.0)]
     [double]$FineUnknownThreshold = 0.95,
@@ -123,7 +129,8 @@ if (-not $SkipDiscovery) {
         "--device", $Device,
         "--max-keyframes", "$MaxKeyframes",
         "--max-classes", "$MaxClasses",
-        "--max-new-tokens", "$DiscoveryMaxNewTokens"
+        "--max-new-tokens", "$DiscoveryMaxNewTokens",
+        "--image-max-pixels", "$QwenImageMaxPixels"
     )
     if ($RefreshSemanticCache) { $DiscoveryArgs += "--refresh-cache" }
     if ($Overwrite) { $DiscoveryArgs += "--overwrite" }
@@ -196,7 +203,8 @@ if ($RunTrackSemantics) {
         "--max-tracks", "$SemanticMaxTracks",
         "--max-crops-per-track", "2",
         "--max-model-images", "$SemanticMaxImages",
-        "--max-new-tokens", "768",
+        "--max-new-tokens", "$SemanticMaxNewTokens",
+        "--image-max-pixels", "$QwenImageMaxPixels",
         "--output-schema", "dynamic",
         "--run-model"
     )
@@ -234,7 +242,8 @@ if ($RunLocateVerification) {
         "--output", $LocateResult,
         "--device", $Device,
         "--quantization", "8bit",
-        "--max-new-tokens", "256"
+        "--max-new-tokens", "256",
+        "--image-max-pixels", "$LocateImageMaxPixels"
     )
     if ($Overwrite) { $LocateArgs += "--overwrite" }
     & $Python @LocateArgs

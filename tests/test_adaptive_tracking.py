@@ -88,6 +88,27 @@ def test_vocabulary_merges_aliases_and_preserves_unknown_classes() -> None:
     assert by_name["road"].action == "context"
 
 
+def test_vocabulary_maps_vehicle_subtypes_to_car_base_class() -> None:
+    objects = normalize_objects(
+        [
+            {"name": "car", "action": "detect", "confidence": 0.9},
+            {
+                "name": "yellow taxi",
+                "action": "track",
+                "confidence": 0.85,
+                "fine_grained_candidates": ["taxi"],
+            },
+        ],
+        registry=_registry(),
+    )
+
+    assert len(objects) == 1
+    assert objects[0].canonical_name == "car"
+    assert objects[0].action == "track"
+    assert objects[0].coco_id == 2
+    assert "yellow" in objects[0].attributes
+
+
 def test_vocabulary_registry_rejects_conflicting_aliases(tmp_path: Path) -> None:
     registry = tmp_path / "registry.yaml"
     registry.write_text(
@@ -170,6 +191,28 @@ def test_router_selects_football_coco_and_open_vocabulary_paths() -> None:
     assert medical.route_name == "open_vocabulary"
     assert medical.backend == "ultralytics_yoloe"
     assert medical.class_names == ("surgical instrument",)
+
+
+def test_router_uses_validated_microscopy_adapter_when_available(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "cell_best.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    discovery = _discovery(
+        "microscopy",
+        [{"name": "cell", "action": "track", "confidence": 0.98}],
+    )
+
+    route = build_detector_route(
+        discovery,
+        profile="balanced",
+        microscopy_checkpoint=str(checkpoint),
+    )
+
+    assert route.route_name == "microscopy_finetuned"
+    assert route.backend == "ultralytics"
+    assert route.checkpoint == str(checkpoint)
+    assert route.class_names == ("cell",)
 
 
 def test_realtime_stable_profile_keeps_small_detector_and_uses_tracktrack() -> None:
@@ -718,6 +761,13 @@ def test_grounding_plan_can_benchmark_explicit_tracks_without_qwen(
     assert {tuple(row["expected_track_ids"]) for row in plan["requests"]} == {
         (7,),
         (9,),
+    }
+    assert {row["trigger"] for row in plan["requests"]} == {
+        "explicit_track_benchmark"
+    }
+    assert {row["localized_query"] for row in plan["requests"]} == {
+        "the player",
+        "the referee",
     }
 
 

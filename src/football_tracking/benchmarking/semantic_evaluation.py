@@ -45,6 +45,14 @@ def evaluate_semantic_manifest(
             "Artifact overrides require a manifest with exactly one sample."
         )
     require_review_metadata = bool(manifest.get("require_review_metadata", False))
+    ground_truth_source = str(
+        manifest.get("ground_truth_source")
+        or (
+            "human-reviewed ground-truth manifest"
+            if require_review_metadata
+            else "ground-truth manifest (review provenance not required)"
+        )
+    ).strip()
 
     rows: list[dict[str, Any]] = []
     class_counts = Counter()
@@ -178,7 +186,7 @@ def evaluate_semantic_manifest(
         )
     output_root.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "created_at": datetime.now(UTC).isoformat(),
         "manifest": str(manifest_file),
         "manifest_sha256": file_sha256(manifest_file),
@@ -187,12 +195,23 @@ def evaluate_semantic_manifest(
         "per_sample": rows,
         "artifacts": artifact_manifest,
         "metric_scope": {
-            "accuracy_source": "human ground-truth manifest",
+            "accuracy_source": ground_truth_source,
+            "domain_matching_definition": (
+                "canonical domain family match; the raw model domain is retained "
+                "for audit"
+            ),
             "coverage_definition": "accepted non-unknown predictions / GT tracks",
             "selective_accuracy_definition": "correct predictions / accepted predictions",
             "unknown_predictions_count_as_errors": True,
+            "unknown_rejection_definition": (
+                "positive means a GT track labeled unknown is correctly rejected; known "
+                "tracks rejected by the model are false-positive rejections"
+            ),
+            "hallucination_definition": (
+                "an accepted semantic prediction that disagrees with reference GT"
+            ),
             "fine_label_definition": (
-                "human-annotated subtype/species/breed/role/make/model; evaluated only "
+                "reference subtype/species/breed/role/make/model; evaluated only "
                 "for GT tracks that provide fine_label"
             ),
         },
@@ -248,7 +267,10 @@ def _evaluate_sample(
     gt_objects: dict[str, str],
     gt_tracks: dict[int, dict[str, str]],
 ) -> tuple[dict[str, Any], list[tuple[str, str, bool]], list[tuple[str, str]], Counter]:
-    predicted_domain = _domain_name(discovery.get("domain"))
+    gt_domain_raw = _domain_name(gt_domain)
+    predicted_domain_raw = _domain_name(discovery.get("domain"))
+    gt_domain = _domain_family(gt_domain_raw)
+    predicted_domain = _domain_family(predicted_domain_raw)
     predicted_route = _canonical(route.get("route_name", ""))
     route_evaluated = bool(gt_route)
     predicted_objects = {
@@ -285,6 +307,14 @@ def _evaluate_sample(
     fine_accepted = 0
     fine_correct = 0
     fine_accepted_correct = 0
+    fine_candidate_available = 0
+    fine_candidate_correct = 0
+    unknown_gt_count = 0
+    known_gt_count = 0
+    rejection_tp = 0
+    rejection_fp = 0
+    rejection_fn = 0
+    accepted_incorrect = 0
     for track_id, expected_labels in sorted(gt_tracks.items()):
         expected = expected_labels["class_label"]
         prediction = prediction_by_track.get(track_id, {})
@@ -294,11 +324,22 @@ def _evaluate_sample(
             if accepted
             else "unknown"
         )
-        accepted_count += int(accepted and predicted != "unknown")
+        prediction_accepted = bool(accepted and predicted != "unknown")
+        expected_unknown = expected == "unknown"
+        prediction_rejected = not prediction_accepted
+        accepted_count += int(prediction_accepted)
         correct_count += int(predicted == expected)
-        semantic_pairs.append((expected, predicted, accepted and predicted != "unknown"))
+        accepted_incorrect += int(prediction_accepted and predicted != expected)
+        unknown_gt_count += int(expected_unknown)
+        known_gt_count += int(not expected_unknown)
+        rejection_tp += int(expected_unknown and prediction_rejected)
+        rejection_fp += int(not expected_unknown and prediction_rejected)
+        rejection_fn += int(expected_unknown and prediction_accepted)
+        semantic_pairs.append((expected, predicted, prediction_accepted))
         expected_fine = expected_labels.get("fine_label", "")
         if expected_fine:
+            predicted_fine_candidate = _fine_candidate(prediction)
+            candidate_available = predicted_fine_candidate != "unknown"
             predicted_fine_accepted = bool(
                 accepted and prediction.get("fine_accepted", False)
             )
@@ -310,6 +351,10 @@ def _evaluate_sample(
             fine_total += 1
             fine_accepted += int(predicted_fine_accepted and predicted_fine != "unknown")
             fine_correct += int(predicted_fine == expected_fine)
+            fine_candidate_available += int(candidate_available)
+            fine_candidate_correct += int(
+                candidate_available and predicted_fine_candidate == expected_fine
+            )
             fine_accepted_correct += int(
                 predicted_fine_accepted and predicted_fine == expected_fine
             )
@@ -359,7 +404,9 @@ def _evaluate_sample(
         {
             "sample_id": sample_id,
             "gt_domain": gt_domain,
+            "gt_domain_raw": gt_domain_raw,
             "predicted_domain": predicted_domain,
+            "predicted_domain_raw": predicted_domain_raw,
             "domain_correct": int(predicted_domain == gt_domain),
             "gt_detector_route": gt_route or None,
             "predicted_detector_route": predicted_route or None,
@@ -373,6 +420,9 @@ def _evaluate_sample(
             "class_precision": round(class_precision, 6),
             "class_recall": round(class_recall, 6),
             "class_f1": round(class_f1, 6),
+            "class_hallucination_rate": round(
+                _safe_div(false_positive, len(predicted_classes)), 6
+            ),
             "action_correct": action_correct,
             "action_total": len(action_pairs),
             "action_accuracy": round(_safe_div(action_correct, len(action_pairs)), 6),
@@ -380,6 +430,11 @@ def _evaluate_sample(
             "semantic_total": semantic_total,
             "semantic_accuracy": round(_safe_div(correct_count, semantic_total), 6),
             "semantic_accepted": accepted_count,
+            "semantic_accepted_correct": accepted_count - accepted_incorrect,
+            "semantic_hallucination_count": accepted_incorrect,
+            "semantic_hallucination_rate": round(
+                _safe_div(accepted_incorrect, accepted_count), 6
+            ),
             "semantic_coverage": round(_safe_div(accepted_count, semantic_total), 6),
             "semantic_selective_accuracy": round(
                 _safe_div(
@@ -394,10 +449,22 @@ def _evaluate_sample(
             ),
             "fine_semantic_correct": fine_correct,
             "fine_semantic_total": fine_total,
+            "fine_candidate_available": fine_candidate_available,
+            "fine_candidate_correct": fine_candidate_correct,
             "fine_semantic_accuracy": (
                 round(_safe_div(fine_correct, fine_total), 6) if fine_total else None
             ),
             "fine_semantic_accepted": fine_accepted,
+            "fine_semantic_accepted_correct": fine_accepted_correct,
+            "fine_semantic_hallucination_count": fine_accepted - fine_accepted_correct,
+            "fine_semantic_hallucination_rate": (
+                round(
+                    _safe_div(fine_accepted - fine_accepted_correct, fine_accepted),
+                    6,
+                )
+                if fine_accepted
+                else None
+            ),
             "fine_semantic_coverage": (
                 round(_safe_div(fine_accepted, fine_total), 6) if fine_total else None
             ),
@@ -414,6 +481,13 @@ def _evaluate_sample(
             "locate_cold_start_seconds": locate_cold_seconds,
             "qwen_peak_allocated_bytes": qwen_peak,
             "locate_peak_allocated_bytes": locate_peak,
+            "unknown_gt_count": unknown_gt_count,
+            "known_gt_count": known_gt_count,
+            "unknown_rejection_tp": rejection_tp,
+            "unknown_rejection_fp": rejection_fp,
+            "unknown_rejection_fn": rejection_fn,
+            "unknown_false_accept_count": rejection_fn,
+            "known_false_reject_count": rejection_fp,
         },
         semantic_pairs,
         action_pairs,
@@ -479,10 +553,27 @@ def _aggregate(
     fine_correct = sum(int(row.get("fine_semantic_correct", 0)) for row in rows)
     fine_accepted = sum(int(row.get("fine_semantic_accepted", 0)) for row in rows)
     fine_accepted_correct = sum(
-        int(row.get("fine_semantic_correct", 0))
-        for row in rows
-        if row.get("fine_semantic_accepted", 0)
+        int(row.get("fine_semantic_accepted_correct", 0)) for row in rows
     )
+    fine_candidate_available = sum(
+        int(row.get("fine_candidate_available", 0)) for row in rows
+    )
+    fine_candidate_correct = sum(
+        int(row.get("fine_candidate_correct", 0)) for row in rows
+    )
+    accepted_incorrect = sum(
+        int(row.get("semantic_hallucination_count", 0)) for row in rows
+    )
+    fine_accepted_incorrect = sum(
+        int(row.get("fine_semantic_hallucination_count", 0)) for row in rows
+    )
+    rejection_tp = sum(int(row.get("unknown_rejection_tp", 0)) for row in rows)
+    rejection_fp = sum(int(row.get("unknown_rejection_fp", 0)) for row in rows)
+    rejection_fn = sum(int(row.get("unknown_rejection_fn", 0)) for row in rows)
+    rejection_precision = _safe_div(rejection_tp, rejection_tp + rejection_fp)
+    rejection_recall = _safe_div(rejection_tp, rejection_tp + rejection_fn)
+    unknown_gt_count = sum(int(row.get("unknown_gt_count", 0)) for row in rows)
+    known_gt_count = sum(int(row.get("known_gt_count", 0)) for row in rows)
     return {
         "domain_accuracy": round(
             _safe_div(sum(row["domain_correct"] for row in rows), len(rows)), 6
@@ -502,6 +593,10 @@ def _aggregate(
         "class_precision": round(class_precision, 6),
         "class_recall": round(class_recall, 6),
         "class_f1": round(_f1(class_precision, class_recall), 6),
+        "class_hallucination_rate": round(
+            _safe_div(class_counts["fp"], class_counts["tp"] + class_counts["fp"]),
+            6,
+        ),
         "action_accuracy": round(
             _safe_div(
                 sum(expected == predicted for expected, predicted in action_pairs),
@@ -521,8 +616,43 @@ def _aggregate(
         ),
         "semantic_gt_track_count": len(semantic_pairs),
         "semantic_accepted_track_count": len(accepted_pairs),
+        "semantic_hallucination_count": accepted_incorrect,
+        "semantic_hallucination_rate": round(
+            _safe_div(accepted_incorrect, len(accepted_pairs)), 6
+        ),
+        "unknown_rejection_precision": (
+            round(rejection_precision, 6) if unknown_gt_count else None
+        ),
+        "unknown_rejection_recall": (
+            round(rejection_recall, 6) if unknown_gt_count else None
+        ),
+        "unknown_rejection_f1": (
+            round(_f1(rejection_precision, rejection_recall), 6)
+            if unknown_gt_count
+            else None
+        ),
+        "unknown_gt_track_count": unknown_gt_count,
+        "known_gt_track_count": known_gt_count,
+        "unknown_false_accept_rate": (
+            round(_safe_div(rejection_fn, unknown_gt_count), 6)
+            if unknown_gt_count
+            else None
+        ),
+        "known_false_reject_rate": round(
+            _safe_div(rejection_fp, known_gt_count), 6
+        ),
         "fine_semantic_track_accuracy": (
             round(_safe_div(fine_correct, fine_total), 6) if fine_total else None
+        ),
+        "fine_candidate_accuracy": (
+            round(_safe_div(fine_candidate_correct, fine_total), 6)
+            if fine_total
+            else None
+        ),
+        "fine_candidate_coverage": (
+            round(_safe_div(fine_candidate_available, fine_total), 6)
+            if fine_total
+            else None
         ),
         "fine_semantic_coverage": (
             round(_safe_div(fine_accepted, fine_total), 6) if fine_total else None
@@ -534,9 +664,85 @@ def _aggregate(
         ),
         "fine_semantic_gt_track_count": fine_total,
         "fine_semantic_accepted_track_count": fine_accepted,
+        "fine_semantic_hallucination_count": fine_accepted_incorrect,
+        "fine_semantic_hallucination_rate": (
+            round(_safe_div(fine_accepted_incorrect, fine_accepted), 6)
+            if fine_accepted
+            else None
+        ),
         "per_class": per_class,
+        "per_domain": _per_domain(rows),
         "performance_means": numeric_means,
     }
+
+
+def _per_domain(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    domains = sorted({str(row["gt_domain"]) for row in rows})
+    for domain in domains:
+        selected = [row for row in rows if row["gt_domain"] == domain]
+        semantic_total = sum(int(row["semantic_total"]) for row in selected)
+        semantic_correct = sum(int(row["semantic_correct"]) for row in selected)
+        accepted = sum(int(row["semantic_accepted"]) for row in selected)
+        accepted_correct = sum(
+            int(row.get("semantic_accepted_correct", 0)) for row in selected
+        )
+        fine_total = sum(int(row["fine_semantic_total"]) for row in selected)
+        fine_correct = sum(int(row["fine_semantic_correct"]) for row in selected)
+        fine_candidate_available = sum(
+            int(row.get("fine_candidate_available", 0)) for row in selected
+        )
+        fine_candidate_correct = sum(
+            int(row.get("fine_candidate_correct", 0)) for row in selected
+        )
+        rejection_tp = sum(int(row["unknown_rejection_tp"]) for row in selected)
+        rejection_fp = sum(int(row["unknown_rejection_fp"]) for row in selected)
+        rejection_fn = sum(int(row["unknown_rejection_fn"]) for row in selected)
+        unknown_total = sum(int(row["unknown_gt_count"]) for row in selected)
+        rejection_precision = _safe_div(rejection_tp, rejection_tp + rejection_fp)
+        rejection_recall = _safe_div(rejection_tp, rejection_tp + rejection_fn)
+        result[domain] = {
+            "sample_count": len(selected),
+            "track_count": semantic_total,
+            "semantic_accuracy": round(
+                _safe_div(semantic_correct, semantic_total), 6
+            ),
+            "coverage": round(_safe_div(accepted, semantic_total), 6),
+            "selective_accuracy": round(
+                _safe_div(accepted_correct, accepted), 6
+            ),
+            "hallucination_rate": round(
+                _safe_div(accepted - accepted_correct, accepted), 6
+            ),
+            "fine_label_accuracy": (
+                round(_safe_div(fine_correct, fine_total), 6) if fine_total else None
+            ),
+            "fine_candidate_accuracy": (
+                round(_safe_div(fine_candidate_correct, fine_total), 6)
+                if fine_total
+                else None
+            ),
+            "fine_candidate_coverage": (
+                round(_safe_div(fine_candidate_available, fine_total), 6)
+                if fine_total
+                else None
+            ),
+            "unknown_rejection_f1": (
+                round(_f1(rejection_precision, rejection_recall), 6)
+                if unknown_total
+                else None
+            ),
+            "tracking_end_to_end_fps_mean": _mean(
+                [row.get("tracking_end_to_end_fps") for row in selected]
+            ),
+            "qwen_inference_seconds_mean": _mean(
+                [row.get("qwen_inference_seconds") for row in selected]
+            ),
+            "locate_inference_seconds_mean": _mean(
+                [row.get("locate_inference_seconds") for row in selected]
+            ),
+        }
+    return result
 
 
 def _ground_truth_objects(data: dict[str, Any], sample_id: str) -> dict[str, str]:
@@ -625,6 +831,69 @@ def _domain_name(value: Any) -> str:
     return _canonical(value or "unknown")
 
 
+def _fine_candidate(prediction: dict[str, Any]) -> str:
+    scores = prediction.get("fine_label_scores")
+    if isinstance(scores, dict) and scores:
+        numeric = [
+            (_canonical(label), float(score))
+            for label, score in scores.items()
+            if _canonical(label)
+        ]
+        if numeric:
+            return max(numeric, key=lambda item: item[1])[0]
+    label = _canonical(prediction.get("fine_label", "unknown"))
+    return label or "unknown"
+
+
+def _domain_family(value: Any) -> str:
+    name = _domain_name(value)
+    aliases = {
+        "traffic": {
+            "driving",
+            "road",
+            "road traffic",
+            "roadway",
+            "traffic",
+            "transportation",
+            "urban intersection",
+            "vehicle traffic",
+        },
+        "sports": {
+            "association football",
+            "basketball",
+            "football",
+            "soccer",
+            "sport",
+            "sports",
+        },
+        "wildlife": {
+            "animal",
+            "animals",
+            "nature",
+            "wildlife",
+            "zebra herd",
+        },
+        "medical": {
+            "cell microscopy",
+            "clinical",
+            "medical",
+            "microscopy",
+            "microscopy cells",
+        },
+        "education": {
+            "classroom",
+            "education",
+            "lecture",
+            "school classroom",
+            "teaching",
+        },
+    }
+    for family, names in aliases.items():
+        if name in names:
+            return family
+    return name
+
+
 def _canonical(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value).strip().lower().replace("_", " "))
 
@@ -702,6 +971,12 @@ def _markdown(payload: dict[str, Any]) -> str:
             f"- Semantic macro-F1: **{summary['semantic_macro_f1']:.3f}**",
             f"- Semantic coverage: **{summary['semantic_coverage']:.3f}**",
             f"- Selective accuracy: **{summary['semantic_selective_accuracy']:.3f}**",
+            "- Unknown-rejection F1: **{}**".format(
+                f"{summary['unknown_rejection_f1']:.3f}"
+                if summary["unknown_rejection_f1"] is not None
+                else "n/a (no unknown GT)"
+            ),
+            f"- Accepted hallucination rate: **{summary['semantic_hallucination_rate']:.3f}**",
             "- Fine-grained track accuracy: **{}**".format(
                 f"{summary['fine_semantic_track_accuracy']:.3f}"
                 if summary["fine_semantic_track_accuracy"] is not None
@@ -750,10 +1025,31 @@ def _write_figures(summary: dict[str, Any], directory: Path) -> list[Path]:
     bars = axis.bar(values.keys(), values.values(), color="#2f5d2a")
     axis.set_ylim(0, 1.05)
     axis.set_ylabel("Score")
-    axis.set_title("Adaptive semantic benchmark (human ground truth)")
+    axis.set_title("Adaptive semantic benchmark (reference ground truth)")
     axis.tick_params(axis="x", rotation=25)
     axis.bar_label(bars, fmt="%.3f", padding=3)
     figure.tight_layout()
     figure.savefig(path, dpi=180)
     plt.close(figure)
-    return [path]
+    risk_path = directory / "semantic_rejection_and_risk.png"
+    risk_values = {
+        "Unknown rejection F1": summary["unknown_rejection_f1"] or 0.0,
+        "Unknown false accept": summary["unknown_false_accept_rate"] or 0.0,
+        "Known false reject": summary["known_false_reject_rate"],
+        "Accepted hallucination": summary["semantic_hallucination_rate"],
+    }
+    figure, axis = plt.subplots(figsize=(9, 5.2))
+    bars = axis.bar(
+        risk_values.keys(),
+        risk_values.values(),
+        color=("#2f5d2a", "#b83a3a", "#d17c24", "#7d3f98"),
+    )
+    axis.set_ylim(0, 1.05)
+    axis.set_ylabel("Rate")
+    axis.set_title("Unknown rejection and accepted semantic risk")
+    axis.tick_params(axis="x", rotation=20)
+    axis.bar_label(bars, fmt="%.3f", padding=3)
+    figure.tight_layout()
+    figure.savefig(risk_path, dpi=180)
+    plt.close(figure)
+    return [path, risk_path]

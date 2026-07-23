@@ -1,0 +1,99 @@
+schema_version: 1
+sources:
+  - id: sportsmot_football
+    release_required: true
+    domain: sports
+    benchmark_scope: multi_object_tracking
+    official_url: https://github.com/MCG-NJU/SportsMOT
+    access: local
+    usage_note: Follow the SportsMOT repository license and dataset terms.
+    annotation_format: mot_challenge
+    local_requirements:
+      - data/mot/sportsmot_football/val
+    metrics: [HOTA, DetA, AssA, MOTA, IDF1, IDSW, FPS]
+
+  - id: tao_open_world
+    release_required: false
+    domain: open_world
+    benchmark_scope: multi_domain_tracking
+    official_url: https://taodataset.org/
+    download_url: https://huggingface.co/datasets/TAO-Dataset/TAO
+    access: manual_download
+    usage_note: Download through the official TAO distribution and retain its licenses.
+    annotation_format: tao_coco_video
+    local_requirements:
+      - data/external/tao/annotations
+      - data/external/tao/frames
+    metrics: [TETA, HOTA, DetA, AssA, LocA, class_accuracy, FPS]
+
+  - id: bdd100k_mot
+    release_required: false
+    domain: traffic
+    benchmark_scope: multi_class_tracking
+    official_url: https://github.com/bdd100k/bdd100k
+    download_url: https://bdd-data.berkeley.edu/
+    access: account_required
+    usage_note: Download after accepting the official BDD100K terms in the data portal.
+    annotation_format: bdd100k_scalabel
+    local_requirements:
+      - data/external/bdd100k/labels/box_track_20
+      - data/external/bdd100k/images/track
+    metrics: [TETA, HOTA, MOTA, IDF1, IDSW, class_accuracy, FPS]
+
+  - id: ua_detrac_mvi_40774
+    release_required: true
+    domain: traffic
+    benchmark_scope: vehicle_tracking_30_second_subset
+    official_url: https://sites.google.com/view/daweidu/projects/ua-detrac
+    download_url: https://zenodo.org/records/14030107
+    access: official_annotations_plus_public_archive_subset
+    usage_note: Official UA-DETRAC XML annotations; the matching 750-frame image subset is range-fetched from the CC BY 4.0 Zenodo archive and verified by ZIP CRC.
+    annotation_format: ua_detrac_xml
+    local_requirements:
+      - data/external/ua_detrac/annotations/test_xml/DETRAC-Test-Annotations-XML/MVI_40774.xml
+      - data/external/ua_detrac/images/test/MVI_40774
+      - data/benchmarks/normalized/ua_detrac_mvi_40774/MVI_40774/gt/gt.txt
+      - data/benchmarks/videos/ua_detrac/MVI_40774_750.mp4
+    metrics: [HOTA, DetA, AssA, MOTA, IDF1, IDSW, class_accuracy, FPS]
+
+  - id: animaltrack
+    release_required: true
+    domain: wildlife
+    benchmark_scope: multi_class_animal_tracking_zebra_subset
+    official_url: https://hengfan2010.github.io/projects/AnimalTrack/
+    download_url: https://hengfan2010.github.io/projects/AnimalTrack/download.html
+    access: manual_download
+    usage_note: Annotations are CC BY 4.0; images/videos are for non-commercial research.
+    annotation_format: animaltrack_mot
+    local_requirements:
+      - data/external/animaltrack/zebra/gt
+      - data/external/animaltrack/zebra/videos
+    metrics: [HOTA, MOTA, IDF1, IDSW, species_accuracy, FPS]
+
+  - id: cell_tracking_challenge_2d
+    release_required: true
+    domain: medical_microscopy
+    benchmark_scope: cell_segmentation_tracking
+    official_url: https://celltrackingchallenge.net/2d-datasets/
+    download_url: https://data.celltrackingchallenge.net/training-datasets/Fluo-N2DH-GOWT1.zip
+    access: official_public_ctc_use
+    usage_note: CTC-related evaluation is allowed without separate consent; do not redistribute the archive or annotations.
+    annotation_format: ctc_masks_lineage
+    local_requirements:
+      - data/external/cell_tracking_challenge/Fluo-N2DH-GOWT1/01
+      - data/external/cell_tracking_challenge/Fluo-N2DH-GOWT1/01_GT/TRA
+      - data/external/cell_tracking_challenge/Fluo-N2DH-GOWT1/02
+      - data/external/cell_tracking_challenge/Fluo-N2DH-GOWT1/02_GT/TRA
+    metrics: [TRA, DET, SEG, HOTA, IDSW, FPS]
+
+  - id: classroom_local_review
+    release_required: false
+    domain: education
+    benchmark_scope: local_semantic_tracking
+    official_url: null
+    access: local_human_review
+    usage_note: No public classroom MOT GT is assumed; finalize the local review package.
+    annotation_format: semantic_review_package
+    local_requirements:
+      - data/semantic_benchmark/review/education_classroom_long
+    metrics: [class_accuracy, macro_F1, fine_label_accuracy, unknown_rejection_F1]

@@ -53,11 +53,11 @@ def test_realtime_report_preserves_latency_drop_and_hardware(tmp_path: Path) -> 
     _write_metrics(bounded, processing_fps=28.0, source_fps=30.0)
 
     result = build_realtime_report(
-        [("baseline", baseline), ("bounded", bounded)],
+        [("baseline_r1", baseline), ("bounded_r1", bounded)],
         tmp_path / "report",
     )
 
-    assert result["summary"]["best_source_progress_run"] == "bounded"
+    assert result["summary"]["best_source_progress_run"] == "bounded_r1"
     assert result["summary"]["hardware"]["gpu"] == "test GPU"
     assert result["summary"]["runs"][1]["drop_rate"] == pytest.approx(0.1)
     assert Path(result["paths"]["json"]).is_file()
@@ -65,6 +65,26 @@ def test_realtime_report_preserves_latency_drop_and_hardware(tmp_path: Path) -> 
     assert "Use the no-drop profile" in Path(result["paths"]["markdown"]).read_text(
         encoding="utf-8"
     )
+    assert result["summary"]["profiles"][0]["profile"] == "baseline"
+    assert result["summary"]["profiles"][0]["repeat_count"] == 1
+
+
+def test_realtime_report_aggregates_repeated_profiles(tmp_path: Path) -> None:
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    _write_metrics(first, processing_fps=20.0, source_fps=25.0)
+    _write_metrics(second, processing_fps=24.0, source_fps=27.0)
+
+    result = build_realtime_report(
+        [("bounded_r1", first), ("bounded_r2", second)],
+        tmp_path / "report",
+    )
+
+    profile = result["summary"]["profiles"][0]
+    assert profile["profile"] == "bounded"
+    assert profile["repeat_count"] == 2
+    assert profile["processing_fps_mean"] == pytest.approx(22.0)
+    assert profile["processing_fps_std"] == pytest.approx(2.0)
 
 
 def test_realtime_report_rejects_non_realtime_artifact(tmp_path: Path) -> None:

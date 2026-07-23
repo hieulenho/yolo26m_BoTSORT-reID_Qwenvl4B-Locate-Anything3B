@@ -111,16 +111,37 @@ def run_realtime_tracking(
     if width <= 0 or height <= 0:
         capture.release()
         raise RealtimeTrackingError("Stream did not report valid frame dimensions.")
+    latest_reader = (
+        _LatestFrameReader(capture)
+        if drop_late_frames and _is_live_source(source_value)
+        else None
+    )
+    if latest_reader is not None:
+        latest_reader.start()
     prefetched_frame = None
+    prefetched_live_sequence: int | None = None
+    last_live_sequence = 0
     detector_warmup_seconds = 0.0
     if prewarm_detector:
-        ok, prefetched_frame = capture.read()
+        if latest_reader is not None:
+            ok, warmup_sequence, prefetched_frame = latest_reader.read_after(
+                0,
+                timeout_seconds=5.0,
+            )
+        else:
+            ok, prefetched_frame = capture.read()
+            warmup_sequence = 0
         if not ok:
-            capture.release()
+            _release_capture(capture, latest_reader)
             raise RealtimeTrackingError("Could not read a frame for detector warm-up.")
         warmup_started = time.perf_counter()
         predict_tracking_frame(detector, prefetched_frame, config)
         detector_warmup_seconds = time.perf_counter() - warmup_started
+        if latest_reader is not None:
+            prefetched_live_sequence, prefetched_frame = latest_reader.latest()
+            if prefetched_frame is None:
+                prefetched_live_sequence = warmup_sequence
+            last_live_sequence = max(int(prefetched_live_sequence or 1) - 1, 0)
     writer = _open_writer(
         output_video,
         output_fps,
@@ -171,12 +192,24 @@ def run_realtime_tracking(
         else None
     )
     tracker_diagnostics: dict[str, Any] | None = None
+    stream_finished = started
+    shutdown_seconds = 0.0
     try:
         while max_frames is None or processed_frame_count < max_frames:
             if prefetched_frame is not None:
                 frame = prefetched_frame
                 prefetched_frame = None
+                live_sequence = prefetched_live_sequence
+                prefetched_live_sequence = None
+            elif latest_reader is not None:
+                ok, live_sequence, frame = latest_reader.read_after(
+                    last_live_sequence,
+                    timeout_seconds=5.0,
+                )
+                if not ok:
+                    break
             else:
+                live_sequence = None
                 if drop_late_frames and source_fps > 0:
                     expected_index = int(
                         (time.perf_counter() - started) * source_fps
@@ -193,6 +226,11 @@ def run_realtime_tracking(
                 ok, frame = capture.read()
                 if not ok:
                     break
+            if live_sequence is not None:
+                skipped = _dropped_between(last_live_sequence, live_sequence)
+                dropped_late_frames += skipped
+                frame_index += skipped
+                last_live_sequence = live_sequence
             frame_index += 1
             processed_frame_count += 1
             frame_started = time.perf_counter()
@@ -329,7 +367,8 @@ def run_realtime_tracking(
                 if cv2.waitKey(1) & 0xFF in {ord("q"), 27}:
                     break
     finally:
-        capture.release()
+        stream_finished = time.perf_counter()
+        _release_capture(capture, latest_reader)
         if writer is not None:
             writer.release()
         if mot_handle is not None:
@@ -340,10 +379,12 @@ def run_realtime_tracking(
         tracker.close()
         if show_window:
             cv2.destroyAllWindows()
-    total_seconds = time.perf_counter() - started
+        shutdown_seconds = time.perf_counter() - stream_finished
+    total_seconds = stream_finished - started
     result = {
         "mode": "realtime",
         "stream_source": str(stream_source),
+        "capture_mode": "latest_frame" if latest_reader is not None else "sequential",
         "config": str(Path(config_path).resolve()),
         "route": {
             "checkpoint": str(checkpoint.checkpoint),
@@ -423,6 +464,7 @@ def run_realtime_tracking(
             "startup_seconds": (
                 detector_load_seconds + tracker_load_seconds + detector_warmup_seconds
             ),
+            "shutdown_seconds": shutdown_seconds,
             "prewarm_detector": prewarm_detector,
             "drop_late_frames": drop_late_frames,
             "max_catchup_frames": max_catchup_frames,
@@ -485,6 +527,90 @@ def _capture_source(source: str | int) -> str | int:
         return source
     text = str(source).strip()
     return int(text) if text.isdigit() else text
+
+
+def _is_live_source(source: str | int) -> bool:
+    if isinstance(source, int):
+        return True
+    return str(source).strip().lower().startswith(("rtsp://", "rtsps://"))
+
+
+def _dropped_between(previous_sequence: int, current_sequence: int) -> int:
+    return max(int(current_sequence) - int(previous_sequence) - 1, 0)
+
+
+def _release_capture(capture: Any, latest_reader: _LatestFrameReader | None) -> None:
+    if latest_reader is not None:
+        latest_reader.release()
+    else:
+        capture.release()
+
+
+class _LatestFrameReader:
+    """Continuously retain the newest physical-stream frame and sequence number."""
+
+    def __init__(self, capture: Any) -> None:
+        self._capture = capture
+        self._condition = threading.Condition()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._sequence = 0
+        self._frame: Any | None = None
+        self._ended = False
+        self._error: BaseException | None = None
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _worker(self) -> None:
+        try:
+            while not self._stop.is_set():
+                ok, frame = self._capture.read()
+                with self._condition:
+                    if not ok:
+                        self._ended = True
+                        self._condition.notify_all()
+                        return
+                    self._sequence += 1
+                    self._frame = frame
+                    self._condition.notify_all()
+        except BaseException as exc:  # pragma: no cover - OpenCV backend failure
+            with self._condition:
+                self._error = exc
+                self._ended = True
+                self._condition.notify_all()
+
+    def read_after(
+        self,
+        sequence: int,
+        *,
+        timeout_seconds: float,
+    ) -> tuple[bool, int, Any | None]:
+        deadline = time.monotonic() + timeout_seconds
+        with self._condition:
+            while self._sequence <= sequence and not self._ended:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._condition.wait(timeout=remaining)
+            if self._error is not None:
+                raise RealtimeTrackingError(
+                    f"Physical stream reader failed: {self._error}"
+                )
+            if self._sequence <= sequence or self._frame is None:
+                return False, self._sequence, None
+            return True, self._sequence, self._frame
+
+    def latest(self) -> tuple[int, Any | None]:
+        with self._condition:
+            return self._sequence, self._frame
+
+    def release(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+        self._capture.release()
+        if self._thread.is_alive():
+            self._thread.join(timeout=0.5)
 
 
 def _open_writer(

@@ -173,3 +173,71 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
   --events outputs\reports\idsw_taxonomy\idsw_taxonomy_events.csv `
   --output data\idsw_review\idsw_event_review.csv `
   --overwrite
+
+# 13. Audit official multi-domain sources and local GT readiness.
+.\.venv\Scripts\python.exe scripts\benchmarks\audit_multidomain_sources.py `
+  --registry configs\benchmarks\multidomain_sources.yaml `
+  --output outputs\benchmarks\multidomain\dataset_readiness.json
+
+# 14. Render 52 before/current/after IDSW evidence sheets for manual review.
+.\.venv\Scripts\python.exe scripts\benchmarks\review_idsw_taxonomy.py evidence `
+  --events outputs\benchmarks\tracking\sportsmot_yolo26m\smoke\idsw_taxonomy\idsw_taxonomy_events.csv `
+  --dataset-root data\mot\sportsmot_football `
+  --tracks-root outputs\benchmarks\tracking\sportsmot_yolo26m\smoke\tracks `
+  --output-dir outputs\benchmarks\tracking\sportsmot_yolo26m\smoke\idsw_taxonomy\review_evidence `
+  --overwrite
+
+# Prepare independent reviewer sheets. Complete both files before computing agreement.
+.\.venv\Scripts\python.exe scripts\benchmarks\review_idsw_taxonomy.py prepare `
+  --events outputs\benchmarks\tracking\sportsmot_yolo26m\smoke\idsw_taxonomy\idsw_taxonomy_events.csv `
+  --output data\idsw_review\reviewer_a.csv `
+  --overwrite
+
+.\.venv\Scripts\python.exe scripts\benchmarks\review_idsw_taxonomy.py prepare `
+  --events outputs\benchmarks\tracking\sportsmot_yolo26m\smoke\idsw_taxonomy\idsw_taxonomy_events.csv `
+  --output data\idsw_review\reviewer_b.csv `
+  --overwrite
+
+.\.venv\Scripts\python.exe scripts\benchmarks\review_idsw_taxonomy.py agreement `
+  --review-a data\idsw_review\reviewer_a.csv `
+  --review-b data\idsw_review\reviewer_b.csv `
+  --output outputs\benchmarks\tracking\sportsmot_yolo26m\smoke\idsw_taxonomy\idsw_reviewer_agreement.json
+
+# 15. Run the physical webcam protocol and generate hardware-linked charts.
+.\.venv\Scripts\python.exe scripts\benchmarks\audit_official_semantic_gt.py `
+  --manifest outputs\benchmarks\semantic\ua_detrac_mvi_40774\pipeline_a_qwen\semantic_gt_manifest.yaml `
+  --manifest outputs\benchmarks\semantic\animaltrack_zebra\pipeline_a_qwen\semantic_gt_manifest.yaml `
+  --minimum-domains 2 `
+  --minimum-tracks 40 `
+  --output outputs\benchmarks\multidomain\official_semantic_gt_status.json
+
+.\scripts\benchmarks\run_physical_realtime_protocol.ps1 `
+  -Source "0" `
+  -ProtocolName webcam_900_frames `
+  -MaxFrames 900 `
+  -Repeats 3 `
+  -Overwrite
+
+# 16. Rebuild the evidence-based completion gate after all manual/physical runs.
+.\.venv\Scripts\python.exe scripts\benchmarks\build_completion_gate.py `
+  --dataset-readiness outputs\benchmarks\multidomain\dataset_readiness.json `
+  --semantic-gt-status outputs\benchmarks\multidomain\official_semantic_gt_status.json `
+  --idsw-review-status outputs\benchmarks\tracking\sportsmot_yolo26m\smoke\idsw_taxonomy\idsw_review_status.json `
+  --idsw-agreement outputs\benchmarks\tracking\sportsmot_yolo26m\smoke\idsw_taxonomy\idsw_reviewer_agreement.json `
+  --realtime-report outputs\benchmarks\realtime\physical\webcam_900_frames\comparison\realtime_benchmark.json `
+  --semantic-comparison outputs\benchmarks\semantic\ua_detrac_mvi_40774\comparison\semantic_pipeline_comparison.json `
+  --output-dir outputs\benchmarks\multidomain\completion `
+  --overwrite
+
+# 17. Rebuild the GT-backed multi-domain tracking table and traffic A/B/C comparison.
+.\.venv\Scripts\python.exe scripts\benchmarks\build_multidomain_tracking_summary.py `
+  --config configs\benchmarks\multidomain_tracking_summary.yaml `
+  --overwrite
+
+.\.venv\Scripts\python.exe scripts\benchmarks\build_semantic_pipeline_comparison.py `
+  --config configs\benchmarks\semantic_pipelines_ua_detrac.yaml `
+  --overwrite
+
+.\.venv\Scripts\python.exe scripts\benchmarks\build_final_benchmark_report.py `
+  --config configs\benchmarks\final_report.yaml `
+  --overwrite

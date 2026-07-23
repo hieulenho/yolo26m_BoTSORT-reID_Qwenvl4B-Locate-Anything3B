@@ -32,7 +32,7 @@ classes:
     coco_class: person
     default_action: track
   - name: car
-    aliases: [automobile, sedan]
+    aliases: [automobile, sedan, taxi, cab, hatchback, suv]
     coco_class: car
     default_action: track
   - name: motorcycle

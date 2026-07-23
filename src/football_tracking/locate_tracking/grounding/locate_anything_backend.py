@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,7 @@ class LocateAnythingBackend:
         torch_dtype: str = "bfloat16",
         quantization: str = "none",
         max_new_tokens: int = 4096,
+        image_max_pixels: int = 512 * 512,
         prompt_template: str = DEFAULT_LOCATEANYTHING_PROMPT_TEMPLATE,
         trust_remote_code: bool = True,
     ) -> None:
@@ -90,6 +92,11 @@ class LocateAnythingBackend:
         self.torch_dtype = torch_dtype
         self.quantization = normalize_quantization(quantization)
         self.max_new_tokens = int(max_new_tokens)
+        self.image_max_pixels = int(image_max_pixels)
+        if self.image_max_pixels < 64 * 64:
+            raise LocateAnythingBackendError(
+                "LocateAnything image_max_pixels must be at least 4096."
+            )
         self.prompt_template = prompt_template
         self.trust_remote_code = bool(trust_remote_code)
         self._worker: _LocateAnythingWorker | None = None
@@ -113,6 +120,7 @@ class LocateAnythingBackend:
             "torch_dtype": self.torch_dtype,
             "quantization": self.quantization,
             "max_new_tokens": self.max_new_tokens,
+            "image_max_pixels": self.image_max_pixels,
             "decoding": "greedy",
             "prompt_template": self.prompt_template,
             "trust_remote_code": self.trust_remote_code,
@@ -204,8 +212,14 @@ class LocateAnythingBackend:
         model = self.load_model()
         prompt = self.prompt_template.format(query=query)
         with Image.open(image_path) as image:
+            rgb_image = image.convert("RGB")
+            original_size = rgb_image.size
+            bounded_image = _resize_image_to_pixel_budget(
+                rgb_image,
+                self.image_max_pixels,
+            )
             try:
-                output = model.ground_single(image.convert("RGB"), query)
+                output = model.ground_single(bounded_image, query)
             except Exception as exc:  # noqa: BLE001
                 raise LocateAnythingBackendError(
                     f"LocateAnything grounding failed: {exc}"
@@ -214,8 +228,25 @@ class LocateAnythingBackend:
             raw_response=_extract_generated_text(output),
             metadata={
                 "prompt": prompt,
+                "original_image_size": list(original_size),
+                "model_image_size": list(bounded_image.size),
+                "image_max_pixels": self.image_max_pixels,
             },
         )
+
+
+def _resize_image_to_pixel_budget(image: Any, max_pixels: int) -> Any:
+    """Downscale an image while preserving aspect ratio and never upscale it."""
+    width, height = image.size
+    pixel_count = width * height
+    if pixel_count <= max_pixels:
+        return image
+    scale = math.sqrt(max_pixels / pixel_count)
+    target_width = max(1, int(math.floor(width * scale)))
+    target_height = max(1, int(math.floor(height * scale)))
+    from PIL import Image  # type: ignore[import-not-found]
+
+    return image.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
 
 def _move_model(model: Any, device: str) -> Any:

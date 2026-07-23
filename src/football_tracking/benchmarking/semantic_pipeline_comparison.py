@@ -1,4 +1,4 @@
-"""Compare semantic Pipelines A/B/C using the same human ground truth."""
+"""Compare semantic Pipelines A/B/C using the same reference ground truth."""
 
 from __future__ import annotations
 
@@ -46,13 +46,15 @@ def build_semantic_pipeline_comparison(
             )
     output_dir.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at": datetime.now(UTC).isoformat(),
         "config": str(config_file),
         "frame_count": frame_count,
         "hardware": runtime_versions(),
         "measurement_scope": {
-            "quality": "same 31-track human-reviewed GT manifest",
+            "quality": str(
+                config.get("quality_scope", "same human-reviewed GT manifest")
+            ),
             "tracking_fps": "video tracking stage only",
             "effective_cold_fps": (
                 "frame_count / (tracking wall time + cold semantic wall time)"
@@ -119,6 +121,11 @@ def _read_pipeline(value: Any, base: Path, frame_count: int) -> dict[str, Any]:
         "semantic_macro_f1": summary.get("semantic_macro_f1"),
         "semantic_coverage": summary.get("semantic_coverage"),
         "selective_accuracy": summary.get("semantic_selective_accuracy"),
+        "fine_label_accuracy": summary.get("fine_semantic_track_accuracy"),
+        "fine_candidate_accuracy": summary.get("fine_candidate_accuracy"),
+        "fine_candidate_coverage": summary.get("fine_candidate_coverage"),
+        "unknown_rejection_f1": summary.get("unknown_rejection_f1"),
+        "hallucination_rate": summary.get("semantic_hallucination_rate"),
         "gt_tracks": summary.get("semantic_gt_track_count"),
         "accepted_tracks": summary.get("semantic_accepted_track_count"),
         "tracking_fps": tracking_fps,
@@ -178,22 +185,26 @@ def _markdown(payload: dict[str, Any]) -> str:
     lines = [
         "# Semantic pipeline comparison",
         "",
-        "All quality values use the same 31 human-reviewed tracks from video 1.",
+        f"Quality scope: {payload['measurement_scope']['quality']}.",
         "Unknown predictions count as errors in accuracy and are excluded from selective accuracy.",
         "",
-        "| Pipeline | Accuracy | Macro F1 | Coverage | Selective accuracy | "
-        "Semantic cold (s) | Effective cold FPS | Peak VRAM (GiB) |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| Pipeline | Accuracy | Macro F1 | Fine accepted | Fine candidate | "
+        "Unknown F1 | Hallucination | Coverage | Semantic cold (s) | "
+        "Effective cold FPS | Peak VRAM (GiB) |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in payload["pipelines"]:
         lines.append(
-            "| {pipeline} | {accuracy} | {f1} | {coverage} | {selective} | "
-            "{seconds} | {fps} | {vram} |".format(
+            "| {pipeline} | {accuracy} | {f1} | {fine} | {fine_candidate} | {unknown} | "
+            "{hallucination} | {coverage} | {seconds} | {fps} | {vram} |".format(
                 pipeline=row["pipeline"],
                 accuracy=_percent(row["semantic_accuracy"]),
                 f1=_percent(row["semantic_macro_f1"]),
+                fine=_percent(row["fine_label_accuracy"]),
+                fine_candidate=_percent(row["fine_candidate_accuracy"]),
+                unknown=_percent(row["unknown_rejection_f1"]),
+                hallucination=_percent(row["hallucination_rate"]),
                 coverage=_percent(row["semantic_coverage"]),
-                selective=_percent(row["selective_accuracy"]),
                 seconds=_format(row["semantic_cold_seconds"]),
                 fps=_format(row["effective_cold_fps"]),
                 vram=_format(row["sequential_peak_gib"]),
@@ -233,8 +244,8 @@ def _write_figures(rows: list[dict[str, Any]], output_dir: Path) -> list[Path]:
     width = 0.22
     for offset, key, label, color in (
         (-width, "semantic_accuracy", "Accuracy", "#2463A8"),
-        (0.0, "semantic_coverage", "Coverage", "#F28E2B"),
-        (width, "selective_accuracy", "Selective accuracy", "#2E8B57"),
+        (0.0, "fine_label_accuracy", "Fine accuracy", "#8B5CF6"),
+        (width, "unknown_rejection_f1", "Unknown rejection F1", "#2E8B57"),
     ):
         values = [100.0 * float(row.get(key) or 0.0) for row in rows]
         axis.bar(positions + offset, values, width, label=label, color=color)
@@ -247,6 +258,21 @@ def _write_figures(rows: list[dict[str, Any]], output_dir: Path) -> list[Path]:
     quality_path = output_dir / "semantic_pipeline_quality.png"
     quality.savefig(quality_path, dpi=180, bbox_inches="tight")
     plt.close(quality)
+
+    risk, risk_axis = plt.subplots(figsize=(9, 4.8))
+    risk_bars = risk_axis.bar(
+        labels,
+        [100.0 * float(row.get("hallucination_rate") or 0.0) for row in rows],
+        color="#B83A3A",
+    )
+    risk_axis.set_ylabel("Accepted hallucination (%)")
+    risk_axis.set_ylim(0, 105)
+    risk_axis.grid(axis="y", alpha=0.25)
+    risk_axis.bar_label(risk_bars, fmt="%.2f", padding=3)
+    risk.tight_layout()
+    risk_path = output_dir / "semantic_pipeline_hallucination.png"
+    risk.savefig(risk_path, dpi=180, bbox_inches="tight")
+    plt.close(risk)
 
     performance, axes = plt.subplots(1, 2, figsize=(12, 4.8))
     qwen = [
@@ -275,7 +301,7 @@ def _write_figures(rows: list[dict[str, Any]], output_dir: Path) -> list[Path]:
     performance_path = output_dir / "semantic_pipeline_performance.png"
     performance.savefig(performance_path, dpi=180, bbox_inches="tight")
     plt.close(performance)
-    return [quality_path, performance_path]
+    return [quality_path, risk_path, performance_path]
 
 
 __all__ = [

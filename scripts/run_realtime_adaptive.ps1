@@ -34,6 +34,9 @@ param(
     [switch]$SynchronousVideoWrite,
     [switch]$DisableSceneCutReset,
     [switch]$DisableSemanticQueue,
+    [string]$ReuseGeneratedConfig = "",
+    [switch]$SetupOnly,
+    [switch]$SkipDeferredSemanticDrain,
     [switch]$NoWindow,
     [switch]$Overwrite
 )
@@ -65,44 +68,58 @@ if ($Overwrite) {
     }
 }
 
-Write-Host "[1/4] Capture $CalibrationSeconds-second calibration clip"
-$CaptureArgs = @(
-    "scripts\runtime\capture_calibration_clip.py",
-    "--source", $Source,
-    "--output", $CalibrationVideo,
-    "--seconds", "$CalibrationSeconds"
-)
-if ($Overwrite) { $CaptureArgs += "--overwrite" }
-& $Python @CaptureArgs
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if ($ReuseGeneratedConfig) {
+    if (-not (Test-Path -LiteralPath $ReuseGeneratedConfig -PathType Leaf)) {
+        throw "Reusable generated config does not exist: $ReuseGeneratedConfig"
+    }
+    $GeneratedConfig = (Resolve-Path -LiteralPath $ReuseGeneratedConfig).Path
+    Write-Host "[1-3/4] Reuse calibrated detector/tracker plan: $GeneratedConfig"
+}
+else {
+    Write-Host "[1/4] Capture $CalibrationSeconds-second calibration clip"
+    $CaptureArgs = @(
+        "scripts\runtime\capture_calibration_clip.py",
+        "--source", $Source,
+        "--output", $CalibrationVideo,
+        "--seconds", "$CalibrationSeconds"
+    )
+    if ($Overwrite) { $CaptureArgs += "--overwrite" }
+    & $Python @CaptureArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "[2/4] Discover domain and dynamic vocabulary with Qwen"
-$DiscoveryArgs = @(
-    "-m", "football_tracking.adaptive_tracking.cli", "discover",
-    "--source", $CalibrationVideo,
-    "--output", $Discovery,
-    "--quantization", $QwenQuantization,
-    "--device", $Device,
-    "--max-keyframes", "$DiscoveryKeyframes",
-    "--max-new-tokens", "$DiscoveryMaxNewTokens"
-)
-if ($Overwrite) { $DiscoveryArgs += "--overwrite" }
-& $Python @DiscoveryArgs
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Write-Host "[2/4] Discover domain and dynamic vocabulary with Qwen"
+    $DiscoveryArgs = @(
+        "-m", "football_tracking.adaptive_tracking.cli", "discover",
+        "--source", $CalibrationVideo,
+        "--output", $Discovery,
+        "--quantization", $QwenQuantization,
+        "--device", $Device,
+        "--max-keyframes", "$DiscoveryKeyframes",
+        "--max-new-tokens", "$DiscoveryMaxNewTokens"
+    )
+    if ($Overwrite) { $DiscoveryArgs += "--overwrite" }
+    & $Python @DiscoveryArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "[3/4] Build realtime YOLO/YOLOE + OC-SORT plan"
-$PlanArgs = @(
-    "-m", "football_tracking.adaptive_tracking.cli", "build-plan",
-    "--source", $CalibrationVideo,
-    "--discovery", $Discovery,
-    "--output-dir", $PlanRoot,
-    "--output-video", $OutputVideo,
-    "--profile", "realtime",
-    "--device", $Device
-)
-if ($Overwrite) { $PlanArgs += "--overwrite" }
-& $Python @PlanArgs
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Write-Host "[3/4] Build realtime YOLO/YOLOE + OC-SORT plan"
+    $PlanArgs = @(
+        "-m", "football_tracking.adaptive_tracking.cli", "build-plan",
+        "--source", $CalibrationVideo,
+        "--discovery", $Discovery,
+        "--output-dir", $PlanRoot,
+        "--output-video", $OutputVideo,
+        "--profile", "realtime",
+        "--device", $Device
+    )
+    if ($Overwrite) { $PlanArgs += "--overwrite" }
+    & $Python @PlanArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+if ($SetupOnly) {
+    Write-Host "==> Realtime setup complete: $GeneratedConfig"
+    exit 0
+}
 
 Write-Host "[4/4] Start realtime stream"
 $SemanticWorker = $null
@@ -176,7 +193,11 @@ if ($SemanticWorkerMode -eq "live" -and $null -ne $SemanticWorker) {
         Write-Warning "Semantic worker exited with code $($SemanticWorker.ExitCode). See $SemanticWorkerStderr"
     }
 }
-elseif ($RealtimeExitCode -eq 0 -and $SemanticWorkerMode -eq "deferred") {
+elseif (
+    $RealtimeExitCode -eq 0 -and
+    $SemanticWorkerMode -eq "deferred" -and
+    -not $SkipDeferredSemanticDrain
+) {
     Write-Host "==> Draining the semantic queue after capture (GPU-safe default)"
     $DrainWorkerArgs = @($WorkerArgs) + @(
         "--max-total-events", "$SemanticWorkerMaxEvents",
@@ -186,5 +207,12 @@ elseif ($RealtimeExitCode -eq 0 -and $SemanticWorkerMode -eq "deferred") {
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Deferred semantic worker failed. Queued events were kept for retry."
     }
+}
+elseif (
+    $RealtimeExitCode -eq 0 -and
+    $SemanticWorkerMode -eq "deferred" -and
+    $SkipDeferredSemanticDrain
+) {
+    Write-Host "==> Semantic events retained for deferred processing: $SemanticQueue"
 }
 exit $RealtimeExitCode

@@ -104,6 +104,8 @@ def test_vlm_config_loads_qwen4b_defaults(tmp_path, monkeypatch) -> None:
     assert config.run_model is False
     assert config.max_keyframes == 2
     assert config.crop_output_size == 128
+    assert config.image_min_pixels == 64 * 32 * 32
+    assert config.image_max_pixels == 512 * 32 * 32
 
 
 def test_zero_max_tracks_means_all_tracks(tmp_path, monkeypatch) -> None:
@@ -286,6 +288,8 @@ def test_qwen_images_are_interleaved_with_track_labels(tmp_path: Path) -> None:
         "text",
     ]
     assert content[2]["text"] == "Appearance crop for track ID 7."
+    assert content[1]["min_pixels"] == 64 * 32 * 32
+    assert content[1]["max_pixels"] == 512 * 32 * 32
     assert content[-1]["text"] == "Return JSON."
 
 

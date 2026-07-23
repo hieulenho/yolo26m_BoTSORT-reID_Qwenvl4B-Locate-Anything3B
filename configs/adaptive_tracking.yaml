@@ -16,12 +16,15 @@ scene_discovery:
   transition_threshold: 0.45
   max_classes: 24
   max_new_tokens: 768
+  image_min_pixels: 65536
+  image_max_pixels: 524288
   realtime_max_keyframes: 2
   registry: configs/ontology/vocabulary_registry.yaml
   cache_root: outputs/cache/semantic_discovery
 
 detector_router:
   football: models/detector/football/yolo26m_best.pt
+  microscopy: models/detector/microscopy/yolo26s_ctc_gowt1_seq01_best.pt
   coco_realtime: yolo26n.pt
   coco_balanced: yolo26s.pt
   open_realtime: yoloe-26s-seg.pt

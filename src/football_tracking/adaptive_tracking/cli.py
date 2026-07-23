@@ -76,6 +76,8 @@ def _parser() -> argparse.ArgumentParser:
     discover.add_argument("--transition-threshold", type=float, default=0.45)
     discover.add_argument("--max-classes", type=int, default=24)
     discover.add_argument("--max-new-tokens", type=int, default=768)
+    discover.add_argument("--image-min-pixels", type=int, default=64 * 32 * 32)
+    discover.add_argument("--image-max-pixels", type=int, default=512 * 32 * 32)
     discover.add_argument(
         "--registry",
         type=Path,
@@ -162,6 +164,7 @@ def _parser() -> argparse.ArgumentParser:
     grounding.add_argument("--torch-dtype", default="auto")
     grounding.add_argument("--quantization", choices=("none", "8bit", "4bit"), default="8bit")
     grounding.add_argument("--max-new-tokens", type=int, default=512)
+    grounding.add_argument("--image-max-pixels", type=int, default=512 * 512)
     grounding.add_argument("--minimum-iou", type=float, default=0.10)
     grounding.add_argument("--target-crop-padding", type=float, default=1.0)
     grounding.add_argument("--target-crop-size", type=int, default=384)
@@ -224,6 +227,8 @@ def _discover(args: argparse.Namespace) -> dict:
         "transition_threshold": args.transition_threshold,
         "max_classes": args.max_classes,
         "max_new_tokens": args.max_new_tokens,
+        "image_min_pixels": args.image_min_pixels,
+        "image_max_pixels": args.image_max_pixels,
         "quantization": args.quantization,
         "torch_dtype": args.torch_dtype,
         "registry_sha256": file_sha256(registry_path),
@@ -281,6 +286,8 @@ def _discover(args: argparse.Namespace) -> dict:
         transition_threshold=args.transition_threshold,
         model_id=args.model_id,
         max_new_tokens=args.max_new_tokens,
+        image_min_pixels=args.image_min_pixels,
+        image_max_pixels=args.image_max_pixels,
         registry_path=registry_path,
     )
     metadata = dict(discovery.metadata)
@@ -314,6 +321,8 @@ def _discovery_matches_request(
         and discovery.prompt_version == PROMPT_VERSION
         and int(metadata.get("max_classes", -1)) == args.max_classes
         and int(metadata.get("max_new_tokens", -1)) == args.max_new_tokens
+        and int(metadata.get("image_min_pixels", -1)) == args.image_min_pixels
+        and int(metadata.get("image_max_pixels", -1)) == args.image_max_pixels
         and metadata.get("quantization") == args.quantization
         and metadata.get("torch_dtype") == args.torch_dtype
         and float(metadata.get("sample_fps", -1.0)) == args.sample_fps
@@ -408,7 +417,13 @@ def _build_plan(args: argparse.Namespace) -> dict:
     discovery = SceneDiscovery.from_dict(
         json.loads(args.discovery.read_text(encoding="utf-8"))
     )
-    route = build_detector_route(discovery, profile=args.profile)
+    route = build_detector_route(
+        discovery,
+        profile=args.profile,
+        microscopy_checkpoint=(
+            "models/detector/microscopy/yolo26s_ctc_gowt1_seq01_best.pt"
+        ),
+    )
     payload = build_tracking_payload(
         source_video=args.source,
         output_video=args.output_video,
@@ -465,6 +480,7 @@ def _execute_grounding_plan(args: argparse.Namespace) -> dict:
         torch_dtype=args.torch_dtype,
         quantization=args.quantization,
         max_new_tokens=args.max_new_tokens,
+        image_max_pixels=args.image_max_pixels,
         minimum_iou=args.minimum_iou,
         target_crop_padding=args.target_crop_padding,
         target_crop_size=args.target_crop_size,

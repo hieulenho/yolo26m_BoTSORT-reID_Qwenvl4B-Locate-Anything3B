@@ -9,6 +9,7 @@ from football_tracking.benchmarking.final_report import (
     FinalReportError,
     _runtime_row,
     _validate_idsw,
+    _validate_tracking,
 )
 
 
@@ -145,3 +146,35 @@ def test_runtime_row_requires_track_validation(tmp_path: Path) -> None:
             {"id": "test", "name": "Test route", "metrics": metrics},
             {"runtime_frames": 120},
         )
+
+
+def test_tracking_snapshot_keeps_metric_validation_and_reports_scope() -> None:
+    rows = [
+        {
+            "tracker": "tracktrack",
+            "sequence_count": 30,
+            "frame_count": 20171,
+            "HOTA": 71.058,
+            "DetA": 83.864,
+            "AssA": 60.273,
+            "MOTA": 91.511,
+            "IDF1": 71.341,
+            "tracker_fps": 21.658,
+        }
+    ]
+    issues: list[dict] = []
+
+    _validate_tracking(
+        rows,
+        None,
+        None,
+        {
+            "tracker_count": 1,
+            "sequence_count": 30,
+            "frame_count": 20171,
+        },
+        issues,
+    )
+
+    assert [issue["code"] for issue in issues] == ["tracking_snapshot_scope"]
+    assert issues[0]["severity"] == "WARNING"

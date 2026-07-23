@@ -213,15 +213,24 @@ The complete eight-tracker table and the diagnostic five-class IDSW decompositio
 
 ### Semantic A/B/C Ablation
 
-The current semantic GT contains 31 manually reviewed tracks from one football video.
+All three pipelines use the same 20 predicted tracks, matched to official UA-DETRAC vehicle
+annotations at IoU 0.5. Track selection uses observation count only and cannot inspect semantic
+labels or GT classes.
 
-| Pipeline | End-to-end accuracy | Macro F1 | Coverage | Cold time | Peak VRAM |
-|---|---:|---:|---:|---:|---:|
-| A: Qwen | 51.61% | 77.12% | 51.61% | 197.74 s | 4.01 GiB |
-| B: LocateAnything | 16.13% | 11.90% | 16.13% | 108.10 s | 4.46 GiB |
-| C: Qwen + event Locate | 64.52% | 81.87% | 64.52% | 267.30 s | 4.46 GiB |
+| Pipeline | Accuracy | Macro F1 | Coverage | Unknown F1 | Hallucination | Cold time | Peak VRAM |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| A: Qwen | 75.00% | 91.67% | 75.00% | 61.54% | 26.67% | 475.44 s | 4.89 GiB |
+| B: LocateAnything | 45.00% | 80.43% | 75.00% | 15.38% | 46.67% | 350.87 s | 4.56 GiB |
+| C: Qwen + Locate | 60.00% | 88.46% | 90.00% | 20.00% | 38.89% | 826.31 s | 4.89 GiB |
 
 ![Semantic benchmark](docs/assets/benchmarks/semantic_quality_cost.png)
+
+Pipeline A is the most accurate classifier in this traffic sample. Pipeline C raises coverage,
+but weak LocateAnything evidence also introduces wrong labels. LocateAnything is therefore kept
+as spatial evidence, not treated as an independent fine-grained classifier. Strict fine-label
+accuracy is 0% because no subtype passed the conservative 0.95 acceptance threshold; before
+rejection, Qwen proposed the matched `van` subtype correctly, giving A and C 100% candidate
+fine-label accuracy on the supported candidate set.
 
 ### Realtime Routes
 
@@ -269,10 +278,33 @@ unsupported species and vehicle subtypes from being rendered as facts. See the
 timings, VRAM, coverage, licenses, and charts. Regenerating a raw run writes the detailed report
 under `outputs/adaptive_runs/multidomain_long/summary/`.
 
+For GT-backed expansion, the repository now registers SportsMOT, TAO, BDD100K,
+AnimalTrack, Cell Tracking Challenge and the local classroom review package. The
+[multi-domain completion protocol](docs/benchmarks/multidomain_completion_protocol.md)
+documents access conditions, annotation conversion, semantic rejection metrics, IDSW
+double review and physical realtime release gates.
+
 On the same traffic video and detector outputs, `realtime_stable` (TrackTrack) reduced predicted
 IDs from 153 to 87 and tracks shorter than one second from 64.1% to 31.0%. Throughput fell from
 32.12 to 22.84 FPS. These are GT-free continuity proxies, not official IDSW; the SportsMOT table
 above remains the identity benchmark.
+
+### GT-Backed Multi-Domain Tracking
+
+| Domain and protocol | Detector + tracker | Frames | HOTA | IDF1 | IDSW | E2E FPS |
+|---|---|---:|---:|---:|---:|---:|
+| SportsMOT football, 30 sequences | fine-tuned YOLO26m + TrackTrack | 20,171 | 71.058 | 71.341 | 1,042 | 21.66 |
+| UA-DETRAC traffic, 30 seconds | YOLO26n + OC-SORT | 750 | 64.906 | 75.045 | 4 | 21.58 |
+| AnimalTrack Zebra, 5 sequences | YOLO26s + TrackTrack | 1,378 | 54.097 | 68.038 | 130 | 5.64 |
+| CTC microscopy, held-out sequence | YOLO26s adapter + OC-SORT | 92 | 70.559 | 90.054 | 0 | 10.38 |
+
+The zero-shot YOLOE microscopy route produced no detections and 4,575 false negatives. Training
+the adapter on CTC sequence 01 and evaluating only on unseen sequence 02 recovered the result
+shown above. Cross-domain scores are not directly interchangeable because object scale,
+ontology, density, and annotation policy differ. See the
+[full multi-domain tracking table](docs/benchmarks/multidomain_tracking_summary.md).
+
+![Multi-domain tracking quality](docs/assets/benchmarks/multidomain_tracking_quality.png)
 
 ![Realtime route benchmark](docs/assets/benchmarks/realtime_route_fps.png)
 
@@ -303,24 +335,36 @@ football footage; they are not cross-domain accuracy claims.
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-The verified local state is `421 passed`. Canonical reports:
+The verified local state is `456 passed`. Canonical reports:
 
 - [Final report](docs/benchmarks/final_experiment_report.md)
 - [Artifact audit](docs/benchmarks/artifact_audit.json)
 - [Runtime CSV](docs/benchmarks/realtime_route_summary.csv)
 - [Long realtime benchmark](docs/benchmarks/realtime_long_benchmark.md)
+- [GT-backed multi-domain tracking](docs/benchmarks/multidomain_tracking_summary.md)
 - [Five-pass engineering audit](docs/benchmarks/five_pass_audit.md)
 - [Current three-pass completion audit](docs/benchmarks/three_pass_completion_audit.md)
+- [Multi-domain completion protocol](docs/benchmarks/multidomain_completion_protocol.md)
 - [All terminal commands](commands.txt)
+
+The machine-readable release gate is generated at
+`outputs/benchmarks/multidomain/completion/completion_gate.md`. Official semantic GT now
+covers 40 tracks across UA-DETRAC traffic and AnimalTrack wildlife. The gate remains
+`INCOMPLETE` only where independent IDSW double review is still missing.
 
 ## Measurement Limits
 
 - Cross-domain routing is implemented and runtime-tested. Review packages now cover 395 tracks
   and 18,814 observations across wildlife, traffic, and education, but their labels still need
   human confirmation before a valid accuracy claim can be made.
-- Semantic accuracy currently covers 31 tracks from one football video.
-- The five IDSW categories are deterministic diagnostic heuristics. Official tracker ranking
-  uses TrackEval IDSW, HOTA, AssA, and IDF1.
+- Comparable A/B/C semantic accuracy covers 20 UA-DETRAC traffic tracks and 20 AnimalTrack
+  Zebra tracks from official annotations. Equivalent matrices are still needed for sports,
+  medical, education, and a broader set of fine-grained classes.
+- The five IDSW categories are deterministic diagnostic heuristics. Evidence sheets exist for
+  all 52 smoke events, but two independent reviews and adjudication are still required. Official
+  tracker ranking uses TrackEval IDSW, HOTA, AssA, and IDF1.
+- The physical webcam protocol contains three repeated 900-frame runs per profile on the
+  RTX 4060 Laptop GPU. File replay remains separate and is not reported as camera latency.
 - Functional position labels such as striker or midfielder generally require temporal and field
   context; a visible jersey crop alone is not sufficient ground truth.
 

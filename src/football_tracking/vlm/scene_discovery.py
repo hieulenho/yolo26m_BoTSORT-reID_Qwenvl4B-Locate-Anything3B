@@ -25,8 +25,10 @@ from football_tracking.paths import get_project_root, resolve_project_path
 from football_tracking.vlm.model_loader import first_model_device
 
 LOGGER = logging.getLogger(__name__)
-PROMPT_VERSION = "dynamic-v3-hierarchical"
+PROMPT_VERSION = "dynamic-v4-hierarchical-pixel-bounded"
 DEFAULT_REGISTRY = Path("configs/ontology/vocabulary_registry.yaml")
+DEFAULT_IMAGE_MIN_PIXELS = 64 * 32 * 32
+DEFAULT_IMAGE_MAX_PIXELS = 512 * 32 * 32
 
 DISCOVERY_PROMPT = """You analyze a small set of representative shots from one video.
 
@@ -142,6 +144,8 @@ def discover_scene(
     transition_threshold: float = 0.45,
     model_id: str = "Qwen/Qwen3-VL-4B-Instruct",
     max_new_tokens: int = 768,
+    image_min_pixels: int = DEFAULT_IMAGE_MIN_PIXELS,
+    image_max_pixels: int = DEFAULT_IMAGE_MAX_PIXELS,
 ) -> SceneDiscovery:
     """Discover a dynamic vocabulary from shot-aware keyframes."""
     source = Path(video_path).resolve()
@@ -172,6 +176,8 @@ def discover_scene(
         [Path(item.path) for item in sampled],
         prompt,
         max_new_tokens=max_new_tokens,
+        image_min_pixels=image_min_pixels,
+        image_max_pixels=image_max_pixels,
     )
     latency = time.perf_counter() - started
     parsed, parse_warning = _parse_or_fallback(raw_response)
@@ -234,6 +240,8 @@ def discover_scene(
             "inference_seconds": latency,
             "max_classes": max_classes,
             "max_new_tokens": max_new_tokens,
+            "image_min_pixels": image_min_pixels,
+            "image_max_pixels": image_max_pixels,
             "sample_fps": sample_fps,
             "transition_threshold": transition_threshold,
             "registry_sha256": file_sha256(resolve_project_path(registry_path)),
@@ -261,6 +269,8 @@ def _call_qwen(
     prompt: str,
     *,
     max_new_tokens: int,
+    image_min_pixels: int,
+    image_max_pixels: int,
 ) -> str:
     try:
         import torch  # type: ignore[import-not-found]
@@ -272,7 +282,12 @@ def _call_qwen(
             "role": "user",
             "content": [
                 *[
-                    {"type": "image", "image": str(path.resolve())}
+                    {
+                        "type": "image",
+                        "image": str(path.resolve()),
+                        "min_pixels": image_min_pixels,
+                        "max_pixels": image_max_pixels,
+                    }
                     for path in image_paths
                 ],
                 {"type": "text", "text": prompt},
@@ -284,12 +299,13 @@ def _call_qwen(
         tokenize=False,
         add_generation_prompt=True,
     )
-    image_inputs, video_inputs = process_vision_info(messages)
+    image_inputs, video_inputs = process_vision_info(messages, image_patch_size=16)
     inputs = processor(
         text=[text],
         images=image_inputs,
         videos=video_inputs,
         padding=True,
+        do_resize=False,
         return_tensors="pt",
     ).to(first_model_device(model))
     with torch.inference_mode():
@@ -313,6 +329,11 @@ def _parse_or_fallback(response: str) -> tuple[dict[str, Any], str | None]:
     try:
         return _parse_vlm_response(response), None
     except ValueError as exc:
+        recovered = _recover_partial_vlm_response(response)
+        if recovered is not None:
+            warning = f"{exc} Recovered complete fields from a truncated response."
+            LOGGER.warning("Partially recovered discovery response: %s", warning)
+            return recovered, warning
         LOGGER.warning("Could not parse discovery response: %s", exc)
         return (
             {
@@ -340,6 +361,121 @@ def _parse_vlm_response(response: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError("Qwen response root must be an object.")
     return parsed
+
+
+def _recover_partial_vlm_response(response: str) -> dict[str, Any] | None:
+    """Recover complete top-level discovery fields from truncated model JSON.
+
+    Generation can reach ``max_new_tokens`` while writing a later object. Discarding all
+    earlier, syntactically complete objects makes detector routing fail closed to an
+    unrelated class. This parser only accepts individually balanced JSON values and never
+    guesses missing text, so recovered evidence remains auditable.
+    """
+    cleaned = re.sub(r"^\s*```(?:json)?", "", response.strip(), flags=re.I)
+    domain = _extract_json_value_for_key(cleaned, "domain", "{", "}")
+    objects_region = _region_after_key(cleaned, "objects", "[")
+    objects: list[dict[str, Any]] = []
+    if objects_region is not None:
+        for object_text in _extract_complete_object_items(objects_region):
+            try:
+                item = json.loads(object_text)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict):
+                objects.append(item)
+
+    background = _extract_json_value_for_key(
+        cleaned,
+        "background_regions",
+        "[",
+        "]",
+    )
+    if not isinstance(domain, dict) and not objects:
+        return None
+    return {
+        "domain": domain if isinstance(domain, dict) else {
+            "name": "unknown",
+            "confidence": 0.1,
+            "description": "Domain field was incomplete in the model response.",
+        },
+        "objects": objects,
+        "background_regions": background if isinstance(background, list) else [],
+    }
+
+
+def _extract_json_value_for_key(
+    text: str,
+    key: str,
+    opening: str,
+    closing: str,
+) -> Any | None:
+    region = _region_after_key(text, key, opening)
+    if region is None:
+        return None
+    value_text = _extract_balanced(region, 0, opening, closing)
+    if value_text is None:
+        return None
+    try:
+        return json.loads(value_text)
+    except json.JSONDecodeError:
+        return None
+
+
+def _region_after_key(text: str, key: str, opening: str) -> str | None:
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*\{opening}', text)
+    if match is None:
+        return None
+    return text[match.end() - 1 :]
+
+
+def _extract_complete_object_items(array_region: str) -> list[str]:
+    items: list[str] = []
+    index = 1 if array_region.startswith("[") else 0
+    while index < len(array_region):
+        char = array_region[index]
+        if char == "]":
+            break
+        if char != "{":
+            index += 1
+            continue
+        item = _extract_balanced(array_region, index, "{", "}")
+        if item is None:
+            break
+        items.append(item)
+        index += len(item)
+    return items
+
+
+def _extract_balanced(
+    text: str,
+    start: int,
+    opening: str,
+    closing: str,
+) -> str | None:
+    if start >= len(text) or text[start] != opening:
+        return None
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == opening:
+            depth += 1
+        elif char == closing:
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return None
 
 
 __all__ = [

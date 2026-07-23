@@ -1,6 +1,6 @@
 # Three-pass completion audit
 
-Audit date: 2026-07-22
+Audit date: 2026-07-23
 
 ## Scope
 
@@ -27,7 +27,7 @@ It does not turn draft model proposals into ground truth.
 
 ## Pass 1: component and experiment contracts
 
-- Targeted tests: 57 passed.
+- Targeted tests: 84 passed.
 - Ruff, PowerShell parser, and environment doctor passed.
 - A clean 300-frame SportsMOT smoke benchmark ran eight trackers against GT.
 - TrackEval outputs, 11 comparison figures, and five-category diagnostic IDSW outputs were created.
@@ -36,15 +36,15 @@ It does not turn draft model proposals into ground truth.
 
 ## Pass 2: full repository validation
 
-- Full suite: 421 passed.
+- Full suite: 456 passed.
 - Python compile check passed.
-- All 117 YAML files parsed successfully.
+- All 123 source YAML files parsed successfully.
 - Every PowerShell script parsed successfully.
 - `git diff --check` passed.
 
 ## Pass 3: release verification
 
-- Full suite rerun after fixes: 421 passed.
+- Full suite rerun after fixes: 456 passed.
 - Environment doctor: 15 checks passed, 0 warnings, 0 failures.
 - Hardware detected: NVIDIA GeForce RTX 4060 Laptop GPU, CUDA 12.8, 8 GiB VRAM.
 - Smoke artifacts validated: 8 tracker summaries, 11 non-empty figures, 8 IDSW summaries.
@@ -69,12 +69,20 @@ the retained 30-sequence benchmark.
 
 ## Honest completion boundary
 
+- Official GT-backed tracking now covers SportsMOT football, UA-DETRAC traffic, AnimalTrack
+  Zebra, and CTC microscopy. The UA-DETRAC 30-second run reached HOTA 64.906, IDF1 75.045,
+  4 ID switches, and 21.58 end-to-end FPS.
+- A/B/C semantic evaluation uses 20 UA-DETRAC traffic tracks and 20 AnimalTrack Zebra
+  tracks matched to official MOT annotations. Traffic accuracy is 75% for Qwen, 45% for
+  LocateAnything, and 60% for fusion; wildlife accuracy is 10%, 25%, and 35%.
 - The cross-domain review packages contain 395 candidate tracks: 36 wildlife, 153 traffic, and
-  206 classroom. None is human-reviewed yet, so cross-domain semantic accuracy is not reportable.
+  206 classroom. These remain draft expansion data and are not mixed into the official 40-track
+  semantic result.
 - The smoke IDSW taxonomy contains 52 heuristic events. Human review coverage is 0%; use official
   TrackEval IDSW for ranking until the event review sheet is completed.
-- Webcam/RTSP latency still depends on the capture device and network. The retained long-stream
-  benchmark is file replay and must not be described as a physical-camera measurement.
+- A physical webcam matrix now contains three repeated 900-frame runs per profile. The
+  latest-frame reader reports about 30 source FPS without backend-dependent `grab()`
+  over-counting; RTSP network latency still requires a separate endpoint.
 - On one 8 GiB GPU, detector tracking and Qwen/LocateAnything should run sequentially. The default
   realtime mode therefore defers semantics; `live` is intended for a second GPU or server.
 
@@ -82,6 +90,8 @@ the retained 30-sequence benchmark.
 
 - Smoke tracker metrics: `outputs/benchmarks/tracking/sportsmot_yolo26m/smoke/metrics/`
 - Smoke IDSW diagnostics: `outputs/benchmarks/tracking/sportsmot_yolo26m/smoke/idsw_taxonomy/`
-- Semantic GT progress: `outputs/reports/semantic_gt_status.json`
+- Official multi-domain summary: `outputs/benchmarks/multidomain/summary/`
+- Traffic A/B/C comparison: `outputs/benchmarks/semantic/ua_detrac_mvi_40774/comparison/`
+- Wildlife A/B/C comparison: `outputs/benchmarks/semantic/animaltrack_zebra/comparison/`
+- Completion gate: `outputs/benchmarks/multidomain/completion/completion_gate.md`
 - Canonical retained report: `docs/benchmarks/final_experiment_report.md`
-

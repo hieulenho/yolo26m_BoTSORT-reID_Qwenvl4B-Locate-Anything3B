@@ -157,7 +157,13 @@ def _run_loaded_qwen(
     batch_id: str,
 ) -> dict[str, Any]:
     started = time.perf_counter()
-    content = _build_user_content(prompt, image_paths, image_labels)
+    content = _build_user_content(
+        prompt,
+        image_paths,
+        image_labels,
+        image_min_pixels=config.image_min_pixels,
+        image_max_pixels=config.image_max_pixels,
+    )
     messages = [{"role": "user", "content": content}]
 
     try:
@@ -166,12 +172,13 @@ def _run_loaded_qwen(
             tokenize=False,
             add_generation_prompt=True,
         )
-        image_inputs, video_inputs = process_vision_info(messages)
+        image_inputs, video_inputs = process_vision_info(messages, image_patch_size=16)
         inputs = processor(
             text=[text],
             images=image_inputs,
             videos=video_inputs,
             padding=True,
+            do_resize=False,
             return_tensors="pt",
         )
         device = first_model_device(model)
@@ -219,14 +226,22 @@ def _build_user_content(
     prompt: str,
     image_paths: list[Path],
     image_labels: list[str],
-) -> list[dict[str, str]]:
-    content: list[dict[str, str]] = []
+    *,
+    image_min_pixels: int = 64 * 32 * 32,
+    image_max_pixels: int = 512 * 32 * 32,
+) -> list[dict[str, Any]]:
+    content: list[dict[str, Any]] = []
     for index, path in enumerate(image_paths):
         label = image_labels[index] if image_labels else f"Input image {index + 1}."
         content.extend(
             [
                 {"type": "text", "text": label},
-                {"type": "image", "image": str(path.resolve())},
+                {
+                    "type": "image",
+                    "image": str(path.resolve()),
+                    "min_pixels": image_min_pixels,
+                    "max_pixels": image_max_pixels,
+                },
             ]
         )
     content.append({"type": "text", "text": prompt})

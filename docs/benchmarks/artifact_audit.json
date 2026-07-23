@@ -1,22 +1,32 @@
 {
   "status": "ok",
   "error_count": 0,
-  "warning_count": 4,
+  "warning_count": 6,
   "issues": [
     {
       "severity": "WARNING",
+      "code": "tracking_snapshot_scope",
+      "message": "Per-sequence tracking files are not embedded in the core snapshot; aggregate rows retain the original published measurement contract."
+    },
+    {
+      "severity": "WARNING",
+      "code": "core_snapshot",
+      "message": "Detector, SportsMOT tracker, IDSW, and route-runtime tables were validated from the immutable published core benchmark snapshot."
+    },
+    {
+      "severity": "WARNING",
       "code": "semantic_gt_scope",
-      "message": "Semantic A/B/C ground truth covers 31 tracks from one football video."
+      "message": "Semantic A/B/C reference GT covers 20 selected tracks from one 30-second UA-DETRAC traffic sequence."
     },
     {
       "severity": "WARNING",
       "code": "runtime_scope",
-      "message": "Route-to-route timings use a 120-frame local file; the separate 35-second stress test still replays a file rather than a physical camera."
+      "message": "Route-to-route timings use a shared 120-frame local file. Physical camera timing is reported separately with three repeated 900-frame runs per profile."
     },
     {
       "severity": "WARNING",
-      "code": "cross_domain_gt_pending",
-      "message": "Wildlife, traffic, and education routes need reviewed per-track GT before semantic accuracy claims."
+      "code": "semantic_domain_matrix_pending",
+      "message": "Equivalent A/B/C semantic experiments are still required on independently reviewed sports, medical, and education tracks."
     },
     {
       "severity": "WARNING",
@@ -24,5 +34,5 @@
       "message": "IDSW categories are diagnostic heuristics, not official TrackEval metrics."
     }
   ],
-  "source_count": 12
+  "source_count": 3
 }

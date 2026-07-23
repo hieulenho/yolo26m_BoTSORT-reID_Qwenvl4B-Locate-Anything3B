@@ -1,6 +1,6 @@
 # Final experiment report
 
-Artifact audit: **PASS** with 4 scoped limitation(s).
+Artifact audit: **PASS** with 6 scoped limitation(s).
 
 ## Hardware
 
@@ -35,11 +35,11 @@ Recommended profiles: OC-SORT for realtime, TrackTrack for balanced quality, and
 
 ## Semantic A/B/C
 
-| Pipeline | E2E accuracy | Macro F1 | Coverage | Selective accuracy | Accepted / GT | Cold semantic (s) | Peak VRAM |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| A | 51.61% | 77.12% | 51.61% | 100.00% | 16 / 31 | 197.74 | 4.01 GiB |
-| B | 16.13% | 11.90% | 16.13% | 100.00% | 5 / 31 | 108.10 | 4.46 GiB |
-| C | 64.52% | 81.87% | 64.52% | 100.00% | 20 / 31 | 267.30 | 4.46 GiB |
+| Pipeline | Accuracy | Macro F1 | Coverage | Fine strict | Fine candidate | Unknown F1 | Hallucination | Cold (s) | Peak VRAM |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| A | 75.00% | 91.67% | 75.00% | 0.00% | 100.00% | 61.54% | 26.67% | 475.44 | 4.89 GiB |
+| B | 45.00% | 80.43% | 75.00% | 0.00% | 0.00% | 15.38% | 46.67% | 350.87 | 4.56 GiB |
+| C | 60.00% | 88.46% | 90.00% | 0.00% | 100.00% | 20.00% | 38.89% | 826.31 | 4.89 GiB |
 
 ## Realtime routes
 
@@ -62,6 +62,16 @@ Track diagnostics on the same 120-frame source:
 | COCO pretrained | 119 / 120 | 99.17% | 50 | 21.0 | 54.0% | 25 | 2 |
 | Open vocabulary | 119 / 120 | 99.17% | 50 | 21.0 | 54.0% | 25 | 2 |
 
+## Physical webcam realtime
+
+Each profile contains three independent 900-frame runs on the named hardware. Values are mean +/- population standard deviation.
+
+| Profile | Runs | Process FPS | Source FPS | P95 | Drop | Startup |
+|---|---:|---:|---:|---:|---:|---:|
+| bounded_tracking_only | 3 | 53.41 +/- 2.10 | 30.02 +/- 0.01 | 33.5 +/- 1.2 ms | 0.33 +/- 0.09% | 8.34 +/- 0.41 s |
+| bounded_semantic_deferred | 3 | 53.82 +/- 1.95 | 30.01 +/- 0.01 | 33.3 +/- 1.1 ms | 0.33 +/- 0.00% | 8.27 +/- 0.40 s |
+| no_drop_semantic_deferred | 3 | 54.23 +/- 1.90 | 30.00 +/- 0.05 | 32.2 +/- 1.4 ms | 0.00 +/- 0.00% | 8.29 +/- 0.38 s |
+
 ## IDSW diagnostic taxonomy
 
 Counts below are recomputed diagnostic events. Percentages partition each tracker's recomputed total; they do not replace official TrackEval IDSW.
@@ -80,9 +90,9 @@ Counts below are recomputed diagnostic events. Percentages partition each tracke
 ## Scope
 
 - Detector and tracking scores are compared against SportsMOT ground truth.
-- Semantic scores use 31 manually reviewed track labels from video 1.
+- Semantic scores use same 20 predicted tracks matched to official UA-DETRAC GT at IoU 0.5.
 - Detection-only classes are rendered without a track ID; only `track` classes enter MOT.
-- Cross-domain routing is integration-tested, but cross-domain accuracy still needs GT.
+- The retained table is UA-DETRAC traffic. A separate official AnimalTrack Zebra A/B/C matrix extends semantic evaluation to wildlife.
 - IDSW taxonomy is heuristic; use the official TrackEval IDSW column for ranking.
 
 ## Figures
