@@ -8,6 +8,10 @@ import shutil
 import sys
 from pathlib import Path
 
+from football_tracking.evaluation.mot_transform import (
+    MotTransformError,
+    stage_scaled_mot_ground_truth,
+)
 from football_tracking.evaluation.multi_tracker_trackeval import (
     evaluate_trackers_with_trackeval,
 )
@@ -32,6 +36,8 @@ def main() -> int:
     parser.add_argument("--tracker-name", default="adaptive")
     parser.add_argument("--split", default="val")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--gt-scale-x", type=float, default=1.0)
+    parser.add_argument("--gt-scale-y", type=float, default=1.0)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -57,9 +63,22 @@ def main() -> int:
         "name\n" + "\n".join(sequence for sequence, _ in pairs) + "\n",
         encoding="utf-8",
     )
+    evaluation_gt_root = args.gt_root.resolve()
+    try:
+        if args.gt_scale_x != 1.0 or args.gt_scale_y != 1.0:
+            evaluation_gt_root = stage_scaled_mot_ground_truth(
+                gt_root=evaluation_gt_root,
+                sequences=[sequence for sequence, _prediction in pairs],
+                output_root=(args.output_dir / "scaled_gt").resolve(),
+                scale_x=args.gt_scale_x,
+                scale_y=args.gt_scale_y,
+            )
+    except MotTransformError as exc:
+        sys.stderr.write(f"Error: {exc}\n")
+        return 2
     results = evaluate_trackers_with_trackeval(
         tracker_names=[args.tracker_name],
-        gt_root=args.gt_root.resolve(),
+        gt_root=evaluation_gt_root,
         trackers_root=(args.output_dir / "inputs").resolve(),
         split=args.split,
         seqmap=seqmap.resolve(),
@@ -67,6 +86,12 @@ def main() -> int:
         metrics=("HOTA", "CLEAR", "Identity"),
     )
     payload = results[args.tracker_name].to_dict()
+    payload["ground_truth_transform"] = {
+        "source_root": str(args.gt_root.resolve()),
+        "evaluation_root": str(evaluation_gt_root),
+        "scale_x": args.gt_scale_x,
+        "scale_y": args.gt_scale_y,
+    }
     args.output_dir.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(json.dumps(payload, indent=2))

@@ -27,6 +27,7 @@ class VlmTrackingConfig:
     tracked_video: Path | None
     tracks_path: Path
     metadata_path: Path | None
+    grounding_path: Path | None
     output_dir: Path
     keyframes_dir: Path
     crops_dir: Path
@@ -36,6 +37,7 @@ class VlmTrackingConfig:
     track_ids: tuple[int, ...] | None
     max_crops_per_track: int
     max_model_images: int
+    max_tracks_per_batch: int
     crop_padding: float
     crop_output_size: int
     task_prompt: str
@@ -131,6 +133,12 @@ def load_vlm_tracking_config(
             "input.metadata",
             required=False,
         ),
+        grounding_path=_resolve_path(
+            input_cfg.get("grounding"),
+            project_root,
+            "input.grounding",
+            required=False,
+        ),
         output_dir=output_dir,
         keyframes_dir=_resolve_child_dir(
             output_cfg.get("keyframes_dir", "keyframes"),
@@ -148,6 +156,7 @@ def load_vlm_tracking_config(
         track_ids=_parse_track_ids(sampling_cfg.get("track_ids")),
         max_crops_per_track=int(sampling_cfg.get("max_crops_per_track", 3)),
         max_model_images=int(sampling_cfg.get("max_model_images", 8)),
+        max_tracks_per_batch=int(sampling_cfg.get("max_tracks_per_batch", 3)),
         crop_padding=float(sampling_cfg.get("crop_padding", 0.12)),
         crop_output_size=int(sampling_cfg.get("crop_output_size", 256)),
         task_prompt=task_prompt,
@@ -180,6 +189,7 @@ def _apply_overrides(
         "tracked_video": "tracked_video",
         "tracks": "tracks_path",
         "metadata": "metadata_path",
+        "grounding": "grounding_path",
         "output_dir": "output_dir",
     }
     for override_key, field_name in path_fields.items():
@@ -188,7 +198,8 @@ def _apply_overrides(
                 overrides[override_key],
                 config.project_root,
                 f"--{override_key.replace('_', '-')}",
-                required=field_name not in {"tracked_video", "metadata_path"},
+                required=field_name
+                not in {"tracked_video", "metadata_path", "grounding_path"},
             )
     if "output_dir" in changes:
         output_dir = changes["output_dir"]
@@ -201,6 +212,7 @@ def _apply_overrides(
         "track_ids",
         "max_crops_per_track",
         "max_model_images",
+        "max_tracks_per_batch",
         "crop_padding",
         "crop_output_size",
         "output_schema",
@@ -266,6 +278,7 @@ def _validate_config(config: VlmTrackingConfig) -> None:
         "max_keyframes",
         "max_crops_per_track",
         "max_model_images",
+        "max_tracks_per_batch",
     ):
         if int(getattr(config, field_name)) <= 0:
             raise VlmConfigError(f"sampling.{field_name} must be positive.")

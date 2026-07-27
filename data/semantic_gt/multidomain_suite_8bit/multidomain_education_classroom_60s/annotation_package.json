@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "status": "manual_review_required",
+  "created_at": "2026-07-26T18:31:43.124618+00:00",
+  "sample_id": "multidomain_education_classroom_60s",
+  "track_count": 136,
+  "observation_count": 8609,
+  "inputs": {
+    "source_video": {
+      "path": "F:\\videos\\multidomain_education_classroom_60s.mp4",
+      "sha256": "acd55356569bf2796dd100e5bf606fe84cf987afb0617ec9f85800a162090f7c"
+    },
+    "tracks": {
+      "path": "F:\\videos\\multidomain_education_classroom_60s_8bit_realtime_stable_tracking.txt",
+      "sha256": "d246166d270b649a9c51664ae801c4fd5f919d35d65c6e668d7c3d846834f80a"
+    },
+    "discovery": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_education_classroom_60s\\discovery\\scene_discovery.json",
+      "sha256": "bbab9f909b09166f6e1cba81c6039ba0a61979b642982ef855d6a07db36374c1"
+    },
+    "route": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_education_classroom_60s\\plan\\detector_route.json",
+      "sha256": "1e5c6da5522648c95c443a8b4439b98f2f00ca4a7ad51a0b4e217cb3d7154a0a"
+    },
+    "semantics": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_education_classroom_60s\\fused_track_semantics.json",
+      "sha256": "b0bb3ab50be84619c0e13aadec5ed577f77d3fb2a73027249426846a454ee8ee"
+    },
+    "run_report": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_education_classroom_60s\\adaptive_run_report.json",
+      "sha256": "509e6e6cd7a31a53bc9c78b3098e1eb1d0b9ad300391a5a0d29932b666ba36d8"
+    }
+  },
+  "outputs": {
+    "track_csv": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_education_classroom_60s\\track_annotations.csv",
+    "review_yaml": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_education_classroom_60s\\ground_truth_review.yaml",
+    "draft_manifest": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_education_classroom_60s\\manifest.draft.yaml",
+    "package_json": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_education_classroom_60s\\annotation_package.json",
+    "readme": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_education_classroom_60s\\README.md"
+  }
+}

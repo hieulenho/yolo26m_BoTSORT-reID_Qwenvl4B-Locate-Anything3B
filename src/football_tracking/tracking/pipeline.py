@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -723,6 +724,11 @@ def _run_sequence(
     detection_only_count = 0
     emitted_track_count = 0
     unique_tracks: set[int] = set()
+    track_class_votes: dict[int, dict[tuple[int, str], int]] = defaultdict(
+        lambda: defaultdict(int)
+    )
+    track_confidence_totals: dict[int, float] = defaultdict(float)
+    track_confidence_counts: dict[int, int] = defaultdict(int)
     shot_index = 0
     shot_resets: list[int] = []
     frame_count = 0
@@ -792,6 +798,12 @@ def _run_sequence(
             detection_only_count += len(detection_only)
             emitted_track_count += len(tracks)
             unique_tracks.update(track.track_id for track in tracks)
+            for track in tracks:
+                key = (int(track.class_id), str(track.class_name))
+                track_class_votes[int(track.track_id)][key] += 1
+                if track.confidence is not None:
+                    track_confidence_totals[int(track.track_id)] += float(track.confidence)
+                    track_confidence_counts[int(track.track_id)] += 1
             if writer is not None:
                 writer.add_tracks(tracks)
             trajectory.update(tracks)
@@ -857,6 +869,29 @@ def _run_sequence(
         frame_count / cold_start_seconds if frame_count > 0 and cold_start_seconds > 0 else None
     )
     sequence_timing["model_load_scope"] = "shared_once_per_run"
+    track_classes: list[dict[str, Any]] = []
+    for track_id in sorted(track_class_votes):
+        votes = track_class_votes[track_id]
+        (class_id, class_name), winner_count = min(
+            votes.items(),
+            key=lambda item: (-item[1], item[0][0], item[0][1]),
+        )
+        observation_count = sum(votes.values())
+        confidence_count = track_confidence_counts.get(track_id, 0)
+        track_classes.append(
+            {
+                "track_id": track_id,
+                "class_id": class_id,
+                "class_name": class_name,
+                "observation_count": observation_count,
+                "class_consensus": winner_count / observation_count,
+                "mean_confidence": (
+                    track_confidence_totals[track_id] / confidence_count
+                    if confidence_count > 0
+                    else None
+                ),
+            }
+        )
     metadata = {
         "sequence": source.name,
         "source_type": source.source_type,
@@ -907,6 +942,7 @@ def _run_sequence(
         "tracker_detection_count": tracker_detection_count,
         "detection_only_count": detection_only_count,
         "unique_track_count": len(unique_tracks),
+        "track_classes": track_classes,
         "device": config.device,
         "timing": sequence_timing,
         "smoke_only": config.smoke_only or checkpoint.smoke_only,

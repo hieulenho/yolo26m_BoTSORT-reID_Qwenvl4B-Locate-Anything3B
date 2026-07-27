@@ -194,11 +194,13 @@ def build_tracking_payload(
             "iou": 0.65,
             "max_det": 200 if route.profile == "realtime" else 300,
             "device": device,
-            # The primary YOLO path supports FP16. YOLOE supplements explicitly
-            # remain FP32 because their text projection currently requires it.
+            # Standard YOLO checkpoints support FP16. YOLOE keeps its runtime
+            # text embeddings in FP32 in current Ultralytics releases, so
+            # converting the detector to FP16 causes a projection dtype error.
             "half": (
                 route.profile in {"realtime", "realtime_stable"}
                 and str(device).lower() != "cpu"
+                and route.backend != "ultralytics_yoloe"
             ),
             "class_ids": list(route.primary_class_ids or route.class_ids),
             "tracker_class_ids": list(route.tracker_class_ids),

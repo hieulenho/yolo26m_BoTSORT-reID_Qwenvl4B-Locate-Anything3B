@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -76,15 +77,24 @@ class QwenVlmBatchSession:
         inference_started = time.perf_counter()
         _reset_peak_cuda_memory()
         for index, job in enumerate(jobs, start=1):
+            batch_started = time.perf_counter()
             prompt = str(job.get("prompt", ""))
             image_paths = [Path(path) for path in job.get("image_paths", [])]
             image_labels = [str(label) for label in job.get("image_labels", [])]
+            batch_id = str(job.get("batch_id") or f"batch_{index:03d}")
             if not prompt.strip():
                 raise QwenRunnerError(f"Qwen batch {index} has an empty prompt.")
             if image_labels and len(image_labels) != len(image_paths):
                 raise QwenRunnerError(
                     f"Qwen batch {index} image_labels must match image_paths."
                 )
+            print(
+                f"[Qwen] batch {index}/{len(jobs)} "
+                f"({100 * (index - 1) / len(jobs):.0f}%) "
+                f"id={batch_id}, images={len(image_paths)}",
+                file=sys.stderr,
+                flush=True,
+            )
             batches.append(
                 _run_loaded_qwen(
                     config,
@@ -94,8 +104,15 @@ class QwenVlmBatchSession:
                     prompt=prompt,
                     image_paths=image_paths,
                     image_labels=image_labels,
-                    batch_id=str(job.get("batch_id") or f"batch_{index:03d}"),
+                    batch_id=batch_id,
                 )
+            )
+            print(
+                f"[Qwen] batch {index}/{len(jobs)} "
+                f"({100 * index / len(jobs):.0f}%) completed in "
+                f"{time.perf_counter() - batch_started:.1f}s",
+                file=sys.stderr,
+                flush=True,
             )
         self.call_count += 1
         return {

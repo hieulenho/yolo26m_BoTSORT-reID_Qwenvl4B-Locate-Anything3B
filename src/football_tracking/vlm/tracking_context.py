@@ -86,6 +86,7 @@ def run_vlm_analysis(
     rows = read_mot_tracks(config.tracks_path)
     video_info = _read_video_info(config.source_video)
     metadata = _read_optional_json(config.metadata_path)
+    grounding = _read_optional_json(config.grounding_path)
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
     config.keyframes_dir.mkdir(parents=True, exist_ok=True)
@@ -95,27 +96,48 @@ def run_vlm_analysis(
     keyframes = _write_keyframes(config, rows_by_frame, video_info)
     all_track_summaries = _summarize_tracks(rows, video_info)
     track_summaries = _select_track_summaries(all_track_summaries, config)
+    selected_track_ids = {int(row["track_id"]) for row in track_summaries}
     crops = _write_track_crops(
         config,
         rows,
         video_info,
-        allowed_track_ids={int(row["track_id"]) for row in track_summaries},
+        allowed_track_ids=selected_track_ids,
+    )
+    track_contexts = _write_track_context_frames(
+        config,
+        rows,
+        video_info,
+        allowed_track_ids=selected_track_ids,
     )
     context = _build_context(
         config,
         rows,
         video_info,
         metadata,
+        grounding,
         all_track_summaries,
         track_summaries,
         keyframes,
         crops,
     )
+    context["track_contexts"] = track_contexts
+    model_crops = _merge_grounded_crops(
+        crops,
+        context["grounding_evidence"],
+        max_crops_per_track=config.max_crops_per_track,
+    )
+    model_crops = _compose_track_evidence_panels(
+        model_crops,
+        output_dir=config.output_dir / "model_panels",
+        panel_size=config.crop_output_size,
+    )
     model_batches = _build_model_batches(
         context,
         keyframes,
-        crops,
+        model_crops,
+        track_contexts=track_contexts,
         max_images=config.max_model_images,
+        max_tracks=config.max_tracks_per_batch,
     )
     context["model_batches"] = [
         {
@@ -123,6 +145,7 @@ def run_vlm_analysis(
             "track_ids": batch["track_ids"],
             "image_paths": [str(path) for path in batch["image_paths"]],
             "image_labels": batch["image_labels"],
+            "evidence_frames_by_track": batch["evidence_frames_by_track"],
         }
         for batch in model_batches
     ]
@@ -155,6 +178,9 @@ def run_vlm_analysis(
                         "image_paths": batch["image_paths"],
                         "image_labels": batch["image_labels"],
                         "track_ids": batch["track_ids"],
+                        "evidence_frames_by_track": batch[
+                            "evidence_frames_by_track"
+                        ],
                         "prompt_path": str(batch_prompt_path),
                     }
                 )
@@ -210,6 +236,7 @@ def run_vlm_analysis(
             "track_observation_count": context["tracking_summary"]["track_observation_count"],
             "keyframe_count": len(keyframes),
             "crop_count": len(crops),
+            "track_context_count": len(track_contexts),
             "selected_track_count": len(track_summaries),
             "model_batch_count": len(model_batches),
             "modeled_track_count": len(
@@ -226,6 +253,7 @@ def run_vlm_analysis(
             "prompt_md": str(prompt_path),
             "keyframes_dir": str(config.keyframes_dir),
             "crops_dir": str(config.crops_dir),
+            "track_contexts_dir": str(config.output_dir / "track_contexts"),
             "answer_md": str(config.output_dir / "vlm_answer.md") if config.run_model else None,
             "answer_json": str(config.output_dir / "vlm_answer.json") if config.run_model else None,
         },
@@ -252,17 +280,160 @@ def _select_track_summaries(
     return [by_id[track_id] for track_id in config.track_ids]
 
 
+def _merge_grounded_crops(
+    crops: list[dict[str, Any]],
+    grounding: dict[str, Any],
+    *,
+    max_crops_per_track: int,
+) -> list[dict[str, Any]]:
+    """Prefer one Locate-grounded ROI, then retain independent temporal crops."""
+
+    by_track: dict[int, list[dict[str, Any]]] = {}
+    for row in crops:
+        item = {**row, "source": "tracking_crop"}
+        by_track.setdefault(int(row["track_id"]), []).append(item)
+    grounded_by_track = {
+        int(row["track_id"]): row
+        for row in grounding.get("tracks", [])
+        if isinstance(row, dict) and int(row.get("track_id", 0)) > 0
+    }
+    merged: list[dict[str, Any]] = []
+    for track_id in sorted(by_track):
+        original = by_track[track_id]
+        grounded = grounded_by_track.get(track_id)
+        selected: list[dict[str, Any]] = []
+        if grounded:
+            grounded_path = Path(str(grounded.get("crop_path", "")))
+            if grounded_path.is_file():
+                selected.append(
+                    {
+                        "track_id": track_id,
+                        "frame_index": grounded.get("frame_index"),
+                        "path": str(grounded_path),
+                        "source": "locateanything",
+                    }
+                )
+        grounded_frame = (
+            int(grounded.get("frame_index", -1)) if grounded is not None else -1
+        )
+        selected.extend(
+            row for row in original if int(row.get("frame_index", -2)) != grounded_frame
+        )
+        if len(selected) < max_crops_per_track:
+            selected.extend(
+                row for row in original if row not in selected
+            )
+        merged.extend(selected[:max_crops_per_track])
+    return merged
+
+
+def _compose_track_evidence_panels(
+    crops: list[dict[str, Any]],
+    *,
+    output_dir: Path,
+    panel_size: int,
+) -> list[dict[str, Any]]:
+    """Pack multi-time crops for one identity into one bounded model image."""
+
+    import cv2  # type: ignore[import-not-found]
+    import numpy as np
+
+    by_track: dict[int, list[dict[str, Any]]] = {}
+    for row in crops:
+        by_track.setdefault(int(row["track_id"]), []).append(row)
+    panels: list[dict[str, Any]] = []
+    for track_id, rows in sorted(by_track.items()):
+        valid: list[tuple[dict[str, Any], Any]] = []
+        for row in rows:
+            image = cv2.imread(str(row["path"]))
+            if image is not None:
+                valid.append((row, image))
+        if len(valid) < 2:
+            panels.extend(rows[:1])
+            continue
+        output_dir.mkdir(parents=True, exist_ok=True)
+        header_height = 28
+        canvas = np.full(
+            (panel_size + header_height, panel_size * len(valid), 3),
+            24,
+            dtype=np.uint8,
+        )
+        frame_indices: list[int] = []
+        sources: list[str] = []
+        for index, (row, image) in enumerate(valid):
+            tile = _letterbox_image(image, panel_size)
+            left = index * panel_size
+            canvas[header_height:, left : left + panel_size] = tile
+            frame_index = int(row.get("frame_index", 0))
+            source = str(row.get("source", "tracking_crop"))
+            frame_indices.append(frame_index)
+            sources.append(source)
+            label = (
+                f"ID {track_id} | frame {frame_index} | "
+                f"{'Locate' if source == 'locateanything' else 'track'}"
+            )
+            cv2.putText(
+                canvas,
+                label,
+                (left + 5, 19),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.42,
+                (245, 245, 245),
+                1,
+                cv2.LINE_AA,
+            )
+        panel_path = output_dir / f"track_{track_id:06d}.jpg"
+        if not cv2.imwrite(str(panel_path), canvas):
+            raise VlmAnalysisError(f"Could not write model evidence panel: {panel_path}")
+        panels.append(
+            {
+                "track_id": track_id,
+                "frame_index": frame_indices[0],
+                "frame_indices": frame_indices,
+                "path": str(panel_path),
+                "source": "evidence_panel",
+                "panel_sources": sources,
+            }
+        )
+    return panels
+
+
+def _letterbox_image(image: Any, size: int) -> Any:
+    import cv2  # type: ignore[import-not-found]
+    import numpy as np
+
+    height, width = image.shape[:2]
+    scale = min(size / max(width, 1), size / max(height, 1))
+    resized = cv2.resize(
+        image,
+        (max(1, round(width * scale)), max(1, round(height * scale))),
+        interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC,
+    )
+    canvas = np.full((size, size, 3), 32, dtype=np.uint8)
+    top = (size - resized.shape[0]) // 2
+    left = (size - resized.shape[1]) // 2
+    canvas[top : top + resized.shape[0], left : left + resized.shape[1]] = resized
+    return canvas
+
+
 def _build_model_batches(
     context: dict[str, Any],
     keyframes: list[dict[str, Any]],
     crops: list[dict[str, Any]],
     *,
+    track_contexts: list[dict[str, Any]] | None = None,
     max_images: int,
+    max_tracks: int = 3,
 ) -> list[dict[str, Any]]:
-    """Pack selected tracks into bounded batches while retaining global context."""
+    """Pack selected tracks with local scene context into bounded batches."""
     if max_images < 1:
         raise VlmAnalysisError("sampling.max_model_images must be positive.")
-    global_limit = min(len(keyframes), max(max_images - 1, 0))
+    if max_tracks < 1:
+        raise VlmAnalysisError("sampling.max_tracks_per_batch must be positive.")
+    context_rows = list(track_contexts or [])
+    # A target-local full frame is more useful than one repeated early keyframe
+    # for role and fine-class inference later in a long video.
+    global_limit = 0 if context_rows else min(len(keyframes), max(max_images - 1, 0))
     global_rows = keyframes[:global_limit]
     global_images = [Path(row["path"]) for row in global_rows]
     global_labels = [
@@ -277,16 +448,59 @@ def _build_model_batches(
         raise VlmAnalysisError(
             "At least one model image slot must remain for a track crop."
         )
-    crops_by_track: dict[int, list[tuple[Path, str]]] = {}
-    for row in crops:
+    global_frames_by_track: dict[int, set[int]] = {}
+    for row in global_rows:
+        frame_index = _positive_frame_index(row.get("frame_index"))
+        if frame_index is None:
+            continue
+        for visible_track_id in row.get("visible_track_ids", []):
+            try:
+                track_id = int(visible_track_id)
+            except (TypeError, ValueError):
+                continue
+            global_frames_by_track.setdefault(track_id, set()).add(frame_index)
+
+    evidence_by_track: dict[int, list[tuple[Path, str, tuple[int, ...]]]] = {}
+    for row in context_rows:
         track_id = int(row["track_id"])
-        crops_by_track.setdefault(track_id, []).append(
+        frame_index = _positive_frame_index(row.get("frame_index"))
+        evidence_by_track.setdefault(track_id, []).append(
             (
                 Path(row["path"]),
                 (
-                    f"Appearance crop for track ID {track_id} at frame "
-                    f"{row.get('frame_index', 'unknown')}."
+                    f"Track-local scene context for target ID {track_id} at frame "
+                    f"{row.get('frame_index', 'unknown')}; the highlighted box is "
+                    "the target track."
                 ),
+                (frame_index,) if frame_index is not None else (),
+            )
+        )
+    for row in crops:
+        track_id = int(row["track_id"])
+        source = str(row.get("source", "tracking_crop"))
+        if source == "evidence_panel":
+            frames = [
+                frame_index
+                for value in row.get("frame_indices", [])
+                if (frame_index := _positive_frame_index(value)) is not None
+            ]
+            description = (
+                f"Multi-time evidence panel for track ID {track_id}; "
+                f"frames left-to-right: {frames}."
+            )
+        else:
+            frame_index = _positive_frame_index(row.get("frame_index"))
+            frames = [frame_index] if frame_index is not None else []
+            description = (
+                f"{'Locate-grounded' if source == 'locateanything' else 'Appearance'} "
+                f"crop for track ID {track_id} at frame "
+                f"{row.get('frame_index', 'unknown')}."
+            )
+        evidence_by_track.setdefault(track_id, []).append(
+            (
+                Path(row["path"]),
+                description,
+                tuple(frames),
             )
         )
     selected_ids = [int(row["track_id"]) for row in context["tracks"]]
@@ -294,6 +508,7 @@ def _build_model_batches(
     current_ids: list[int] = []
     current_crops: list[Path] = []
     current_crop_labels: list[str] = []
+    current_frames: dict[int, set[int]] = {}
 
     def flush() -> None:
         if not current_ids:
@@ -304,21 +519,34 @@ def _build_model_batches(
                 "track_ids": list(current_ids),
                 "image_paths": [*global_images, *current_crops],
                 "image_labels": [*global_labels, *current_crop_labels],
+                "evidence_frames_by_track": {
+                    str(track_id): sorted(current_frames.get(track_id, set()))
+                    for track_id in current_ids
+                },
             }
         )
         current_ids.clear()
         current_crops.clear()
         current_crop_labels.clear()
+        current_frames.clear()
 
     for track_id in selected_ids:
-        track_crop_items = crops_by_track.get(track_id, [])[:crop_capacity]
+        track_crop_items = evidence_by_track.get(track_id, [])[:crop_capacity]
         if not track_crop_items:
             continue
-        if current_ids and len(current_crops) + len(track_crop_items) > crop_capacity:
+        if current_ids and (
+            len(current_ids) >= max_tracks
+            or len(current_crops) + len(track_crop_items) > crop_capacity
+        ):
             flush()
         current_ids.append(track_id)
-        current_crops.extend(path for path, _label in track_crop_items)
-        current_crop_labels.extend(label for _path, label in track_crop_items)
+        current_frames[track_id] = set(global_frames_by_track.get(track_id, set()))
+        current_crops.extend(path for path, _label, _frames in track_crop_items)
+        current_crop_labels.extend(
+            label for _path, label, _frames in track_crop_items
+        )
+        for _path, _label, frames in track_crop_items:
+            current_frames[track_id].update(frames)
     flush()
     if selected_ids and not batches:
         raise VlmAnalysisError("No valid track crops were available for Qwen inference.")
@@ -335,6 +563,11 @@ def _context_for_track_ids(
     ]
     subset["crops"] = [
         row for row in context["crops"] if int(row["track_id"]) in track_ids
+    ]
+    subset["track_contexts"] = [
+        row
+        for row in context.get("track_contexts", [])
+        if int(row["track_id"]) in track_ids
     ]
     subset["keyframes"] = [
         {
@@ -376,6 +609,13 @@ def _context_for_track_ids(
             if int(track_id) in track_ids
         ]
     subset["tracking_diagnostics"] = diagnostics
+    grounding = dict(context.get("grounding_evidence") or {})
+    grounding["tracks"] = [
+        row
+        for row in grounding.get("tracks", [])
+        if int(row.get("track_id", -1)) in track_ids
+    ]
+    subset["grounding_evidence"] = grounding
     return subset
 
 
@@ -387,6 +627,7 @@ def _merge_qwen_batch_results(
     predictions: dict[int, dict[str, Any]] = {}
     notes: list[str] = []
     parse_failures: list[dict[str, str]] = []
+    validation_warnings: list[dict[str, Any]] = []
     expected_ids = {
         int(track_id) for job in jobs for track_id in job.get("track_ids", [])
     }
@@ -396,6 +637,9 @@ def _merge_qwen_batch_results(
             int(track_id)
             for track_id in jobs_by_id.get(batch_id, {}).get("track_ids", [])
         }
+        evidence_map = jobs_by_id.get(batch_id, {}).get(
+            "evidence_frames_by_track"
+        )
         try:
             parsed = _parse_qwen_json_object(str(batch.get("answer", "")))
         except ValueError as exc:
@@ -410,14 +654,31 @@ def _merge_qwen_batch_results(
         for row in rows:
             if not isinstance(row, dict) or row.get("track_id") is None:
                 continue
-            track_id = int(row["track_id"])
+            try:
+                track_id = int(row["track_id"])
+            except (TypeError, ValueError):
+                continue
             if track_id not in allowed_ids:
                 continue
+            allowed_frames = _allowed_evidence_frames(evidence_map, track_id)
+            sanitized, row_warnings = _sanitize_qwen_prediction(
+                row,
+                track_id=track_id,
+                allowed_frames=allowed_frames,
+            )
+            validation_warnings.extend(
+                {
+                    "batch_id": batch_id,
+                    "track_id": track_id,
+                    **warning,
+                }
+                for warning in row_warnings
+            )
             previous = predictions.get(track_id)
-            if previous is None or float(row.get("confidence", 0.0)) > float(
+            if previous is None or float(sanitized.get("confidence", 0.0)) > float(
                 previous.get("confidence", 0.0)
             ):
-                predictions[track_id] = dict(row)
+                predictions[track_id] = sanitized
         parsed_notes = parsed.get("notes", [])
         if isinstance(parsed_notes, list):
             notes.extend(str(note) for note in parsed_notes)
@@ -428,6 +689,9 @@ def _merge_qwen_batch_results(
             "class_label": "unknown",
             "attributes": {},
             "confidence": 0.0,
+            "fine_label": "unknown",
+            "fine_label_type": "unknown",
+            "fine_confidence": 0.0,
             "evidence_frames": [],
             "evidence": "",
             "unknown_reason": "no_valid_prediction_returned_by_qwen",
@@ -446,16 +710,149 @@ def _merge_qwen_batch_results(
             "missing_track_ids": missing_ids,
         },
         "parse_failures": parse_failures,
+        "validation_warnings": validation_warnings,
         "jobs": [
             {
                 "batch_id": job["batch_id"],
                 "track_ids": job["track_ids"],
                 "image_count": len(job["image_paths"]),
                 "prompt_path": job["prompt_path"],
+                "evidence_frames_by_track": job.get(
+                    "evidence_frames_by_track", {}
+                ),
             }
             for job in jobs
         ],
     }
+
+
+def _positive_frame_index(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if isinstance(value, float) and not value.is_integer():
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _allowed_evidence_frames(
+    evidence_map: Any,
+    track_id: int,
+) -> set[int] | None:
+    # A missing map denotes a legacy caller. Production jobs always carry the
+    # exact frames represented by their model images.
+    if not isinstance(evidence_map, dict):
+        return None
+    raw_frames = evidence_map.get(str(track_id), evidence_map.get(track_id, []))
+    if not isinstance(raw_frames, list | tuple | set):
+        return set()
+    return {
+        frame_index
+        for value in raw_frames
+        if (frame_index := _positive_frame_index(value)) is not None
+    }
+
+
+def _sanitize_qwen_prediction(
+    row: dict[str, Any],
+    *,
+    track_id: int,
+    allowed_frames: set[int] | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    sanitized = dict(row)
+    warnings: list[dict[str, Any]] = []
+    sanitized["track_id"] = track_id
+    class_label = str(row.get("class_label", "")).strip()
+    sanitized["class_label"] = class_label or "unknown"
+    if not isinstance(row.get("attributes", {}), dict):
+        sanitized["attributes"] = {}
+        warnings.append({"code": "invalid_attributes_replaced"})
+    else:
+        sanitized["attributes"] = dict(row.get("attributes", {}))
+
+    for field in ("confidence", "fine_confidence"):
+        bounded, changed = _bounded_confidence(row.get(field, 0.0))
+        sanitized[field] = bounded
+        if changed:
+            warnings.append(
+                {
+                    "code": "invalid_confidence_bounded",
+                    "field": field,
+                    "value": row.get(field),
+                }
+            )
+
+    fine_label = str(row.get("fine_label", "unknown")).strip() or "unknown"
+    fine_type = (
+        str(row.get("fine_label_type", "unknown"))
+        .strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+    allowed_fine_types = {
+        "role",
+        "subtype",
+        "species",
+        "breed",
+        "make",
+        "model",
+        "make_model",
+        "medical",
+        "diagnosis",
+        "identity",
+        "unknown",
+    }
+    if fine_type not in allowed_fine_types:
+        warnings.append(
+            {
+                "code": "unsupported_fine_label_type",
+                "value": fine_type,
+            }
+        )
+        fine_type = "unknown"
+        fine_label = "unknown"
+        sanitized["fine_confidence"] = 0.0
+    sanitized["fine_label"] = fine_label
+    sanitized["fine_label_type"] = fine_type
+
+    raw_frames = row.get("evidence_frames", [])
+    if not isinstance(raw_frames, list | tuple | set):
+        raw_frames = []
+        warnings.append({"code": "invalid_evidence_frames_replaced"})
+    parsed_frames = {
+        frame_index
+        for value in raw_frames
+        if (frame_index := _positive_frame_index(value)) is not None
+    }
+    if allowed_frames is None:
+        validated_frames = parsed_frames
+    else:
+        validated_frames = parsed_frames & allowed_frames
+        unsupported = sorted(parsed_frames - allowed_frames)
+        if unsupported:
+            warnings.append(
+                {
+                    "code": "unsupported_evidence_frames_removed",
+                    "values": unsupported,
+                }
+            )
+    sanitized["evidence_frames"] = sorted(validated_frames)
+    return sanitized, warnings
+
+
+def _bounded_confidence(value: Any) -> tuple[float, bool]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0, True
+    if not math.isfinite(parsed):
+        return 0.0, True
+    bounded = min(max(parsed, 0.0), 1.0)
+    return bounded, bounded != parsed
 
 
 def _parse_qwen_json_object(answer: str) -> dict[str, Any]:
@@ -533,6 +930,11 @@ def build_prompt(config: VlmTrackingConfig, context: dict[str, Any]) -> str:
             "entries for any other visible ID.",
             "Use visual evidence from keyframes and crops. Do not infer a semantic "
             "label from track duration, confidence, or motion alone.",
+            "LocateAnything evidence was produced before this inference. It verifies "
+            "where a tracked object remains visible, including partial visibility, but "
+            "its class query is not fine-label ground truth.",
+            "Treat detector_label as the stable base class unless the images clearly "
+            "contradict it. Infer role, subtype, or species only from visual cues.",
             "When visual evidence is insufficient, return unknown.",
             "Each provided keyframe image is annotated with tracking IDs.",
             "The metadata below is supporting context, not semantic ground truth:",
@@ -552,10 +954,13 @@ def build_prompt(config: VlmTrackingConfig, context: dict[str, Any]) -> str:
                 "visually supported class that is absent from it.",
                 "Keep color, clothing, state, and action in attributes. A role belongs in "
                 "fine_label only when it is the requested taxonomy facet.",
+                "Set fine_label_type to exactly one of: role, subtype, species, breed, "
+                "make, model, make_model, medical, diagnosis, identity, or unknown.",
                 "Never infer species, breed, brand, model, medical diagnosis, or personal "
                 "identity from context alone. Prefer fine_label=unknown over guessing.",
                 "A fine label needs a discriminative visual cue visible in at least two "
-                "independent appearance crops of that requested track. Repeated global "
+                "independent appearance views of that requested track. The views may be "
+                "separate crops or tiles in a multi-time evidence panel. Repeated global "
                 "keyframes do not count as independent fine-label evidence. If this "
                 "condition is not met, set fine_label=unknown and fine_confidence=0.",
                 "Set class_label=unknown only when the base class is unclear. A clear base "
@@ -565,6 +970,7 @@ def build_prompt(config: VlmTrackingConfig, context: dict[str, Any]) -> str:
                 "Return one compact JSON object only, without Markdown fences or prose:",
                 '{"track_predictions":[{"track_id":7,"class_label":"car",'
                 '"fine_label":"sedan",'
+                '"fine_label_type":"subtype",'
                 '"attributes":{"color":"red"},"confidence":0.85,'
                 '"fine_confidence":0.72,"evidence_frames":[5,20],'
                 '"unknown_reason":null,"fine_unknown_reason":null}]}',
@@ -597,6 +1003,22 @@ def _compact_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
     video = context["video"]
     summary = context["tracking_summary"]
     diagnostics = context["tracking_diagnostics"]
+    selected_ids = {
+        int(row["track_id"])
+        for row in context["tracks"]
+        if isinstance(row, dict) and row.get("track_id") is not None
+    }
+    metadata = context.get("tracking_metadata") or {}
+    detector_labels = [
+        {
+            "track_id": int(row["track_id"]),
+            "detector_label": row.get("class_name"),
+            "consensus": _rounded(row.get("class_consensus"), 3),
+        }
+        for row in metadata.get("track_classes", [])
+        if isinstance(row, dict) and int(row.get("track_id", -1)) in selected_ids
+    ]
+    grounding = context.get("grounding_evidence") or {}
     return {
         "video": {
             "frames": video.get("frame_count"),
@@ -625,6 +1047,22 @@ def _compact_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
             ),
         },
         "selected_tracks": _prompt_tracks(context["tracks"], limit=40),
+        "detector_labels": detector_labels,
+        "locateanything": {
+            "status": grounding.get("status"),
+            "tracks": [
+                {
+                    "track_id": row.get("track_id"),
+                    "query_class": row.get("class_label"),
+                    "confidence": _rounded(row.get("confidence"), 3),
+                    "iou": _rounded(row.get("iou"), 3),
+                    "partially_visible": row.get("partially_visible"),
+                    "frame": row.get("frame_index"),
+                }
+                for row in grounding.get("tracks", [])
+                if int(row.get("track_id", -1)) in selected_ids
+            ],
+        },
         "keyframes": [
             {
                 "frame": row.get("frame_index"),
@@ -675,6 +1113,10 @@ def _dry_run_plan(config: VlmTrackingConfig) -> dict[str, Any]:
             "tracks_exists": config.tracks_path.is_file(),
             "metadata": str(config.metadata_path) if config.metadata_path else None,
             "metadata_exists": config.metadata_path.is_file() if config.metadata_path else None,
+            "grounding": str(config.grounding_path) if config.grounding_path else None,
+            "grounding_exists": (
+                config.grounding_path.is_file() if config.grounding_path else None
+            ),
         },
         "output": {
             "dir": str(config.output_dir),
@@ -699,6 +1141,8 @@ def _validate_inputs(config: VlmTrackingConfig) -> None:
         raise VlmAnalysisError(f"MOT tracks file does not exist: {config.tracks_path}")
     if config.metadata_path is not None and not config.metadata_path.is_file():
         raise VlmAnalysisError(f"Tracking metadata does not exist: {config.metadata_path}")
+    if config.grounding_path is not None and not config.grounding_path.is_file():
+        raise VlmAnalysisError(f"Grounding result does not exist: {config.grounding_path}")
     if config.tracked_video is not None and not config.tracked_video.is_file():
         raise VlmAnalysisError(f"Tracked video does not exist: {config.tracked_video}")
 
@@ -952,6 +1396,69 @@ def _write_keyframes(
     return keyframes
 
 
+def _write_track_context_frames(
+    config: VlmTrackingConfig,
+    rows: list[MotTrackRow],
+    video_info: VideoInfo,
+    *,
+    allowed_track_ids: set[int],
+) -> list[dict[str, Any]]:
+    """Write one target-highlighted full frame per track for scene-aware semantics."""
+    import cv2  # type: ignore[import-not-found]
+
+    output_dir = config.output_dir / "track_contexts"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    contexts: list[dict[str, Any]] = []
+    capture = cv2.VideoCapture(str(config.source_video))
+    try:
+        for track_id, track_rows in _group_rows_by_track(rows).items():
+            if track_id not in allowed_track_ids:
+                continue
+            representative = _select_representative_track_rows(
+                track_rows,
+                1,
+                video_info,
+            )[0]
+            frame = _read_frame(capture, representative.frame_index)
+            if frame is None:
+                continue
+            annotated = _draw_track_boxes(frame, [representative])
+            banner = f"TARGET ID {track_id} | frame {representative.frame_index}"
+            cv2.rectangle(annotated, (0, 0), (min(420, annotated.shape[1]), 34), (20, 20, 20), -1)
+            cv2.putText(
+                annotated,
+                banner,
+                (8, 23),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.62,
+                (40, 240, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            path = output_dir / (
+                f"track_{track_id:06d}_frame_{representative.frame_index:06d}.jpg"
+            )
+            if not cv2.imwrite(str(path), annotated):
+                raise VlmAnalysisError(f"Could not write track context frame: {path}")
+            contexts.append(
+                {
+                    "track_id": track_id,
+                    "frame_index": representative.frame_index,
+                    "time_seconds": video_info.time_seconds(
+                        representative.frame_index
+                    ),
+                    "path": str(path),
+                    "selection_score": round(
+                        _track_crop_score(representative, video_info),
+                        6,
+                    ),
+                }
+            )
+    finally:
+        capture.release()
+    return contexts
+
+
 def _write_track_crops(
     config: VlmTrackingConfig,
     rows: list[MotTrackRow],
@@ -1123,11 +1630,51 @@ def _prepare_crop_for_vlm(crop: Any, output_size: int) -> Any:
     )
 
 
+def _grounding_context(payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not payload:
+        return {"status": "not_provided", "summary": {}, "tracks": []}
+    request_inputs = {
+        str(row.get("request_id")): dict(row.get("grounding_input") or {})
+        for row in payload.get("grounding_results", [])
+        if isinstance(row, dict)
+    }
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for row in payload.get("associations", []):
+        if not isinstance(row, dict) or not row.get("accepted_for_fusion", False):
+            continue
+        track_id = int(row.get("track_id", 0))
+        if track_id <= 0:
+            continue
+        grouped.setdefault(track_id, []).append(row)
+    tracks: list[dict[str, Any]] = []
+    for track_id, rows in sorted(grouped.items()):
+        best = max(rows, key=lambda row: float(row.get("confidence", 0.0)))
+        prepared = request_inputs.get(str(best.get("request_id")), {})
+        tracks.append(
+            {
+                "track_id": track_id,
+                "class_label": str(best.get("class_label", "unknown")),
+                "confidence": float(best.get("confidence", 0.0)),
+                "iou": float(best.get("iou", 0.0)),
+                "frame_index": int(best.get("frame_index", 0)),
+                "crop_path": prepared.get("image_path"),
+                "input_mode": prepared.get("mode"),
+                "partially_visible": float(best.get("iou", 0.0)) < 0.5,
+            }
+        )
+    return {
+        "status": "available",
+        "summary": dict(payload.get("summary") or {}),
+        "tracks": tracks,
+    }
+
+
 def _build_context(
     config: VlmTrackingConfig,
     rows: list[MotTrackRow],
     video_info: VideoInfo,
     metadata: dict[str, Any] | None,
+    grounding: dict[str, Any] | None,
     all_track_summaries: list[dict[str, Any]],
     track_summaries: list[dict[str, Any]],
     keyframes: list[dict[str, Any]],
@@ -1143,6 +1690,7 @@ def _build_context(
         "tracked_video": str(config.tracked_video) if config.tracked_video else None,
         "tracks_path": str(config.tracks_path),
         "metadata_path": str(config.metadata_path) if config.metadata_path else None,
+        "grounding_path": str(config.grounding_path) if config.grounding_path else None,
         "video": video_info.to_dict(),
         "tracking_summary": {
             "track_count": len(track_ids),
@@ -1159,6 +1707,7 @@ def _build_context(
         "keyframes": keyframes,
         "crops": crops,
         "tracking_metadata": metadata,
+        "grounding_evidence": _grounding_context(grounding),
         "runtime": runtime_versions(),
     }
 

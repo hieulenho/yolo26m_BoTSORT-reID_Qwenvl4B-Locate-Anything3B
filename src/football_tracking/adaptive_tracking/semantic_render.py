@@ -22,6 +22,7 @@ def render_semantic_video(
     source_video: str | Path,
     tracks_path: str | Path,
     semantics_path: str | Path,
+    tracking_metadata_path: str | Path | None = None,
     output_video: str | Path,
     overwrite: bool = False,
     show_confidence: bool = True,
@@ -40,6 +41,16 @@ def render_semantic_video(
         raise SemanticRenderError("max_frames must be positive when provided.")
     semantic_data = json.loads(semantics.read_text(encoding="utf-8"))
     labels = {int(row["track_id"]): row for row in semantic_data.get("tracks", [])}
+    detector_labels: dict[int, dict[str, Any]] = {}
+    tracking_metadata: Path | None = None
+    if tracking_metadata_path is not None:
+        tracking_metadata = Path(tracking_metadata_path)
+        if not tracking_metadata.is_file():
+            raise SemanticRenderError(f"Missing tracking metadata: {tracking_metadata}")
+        tracking_data = json.loads(tracking_metadata.read_text(encoding="utf-8"))
+        detector_labels = {
+            int(row["track_id"]): row for row in tracking_data.get("track_classes", [])
+        }
     rows = read_mot_tracks(tracks)
     rows_by_frame: dict[int, list[MotTrackRow]] = defaultdict(list)
     for row in rows:
@@ -72,6 +83,7 @@ def render_semantic_video(
     rendered_frames = 0
     box_count = 0
     accepted_boxes = 0
+    fallback_boxes = 0
     render_succeeded = False
     try:
         frame_index = 1
@@ -83,22 +95,40 @@ def render_semantic_video(
                 break
             frame_rows = rows_by_frame.get(frame_index, [])
             crowded_frame = len(frame_rows) >= 4
+            occupied_labels: list[tuple[int, int, int, int]] = []
             for row in frame_rows:
                 semantic = labels.get(row.track_id, {})
+                modeled = row.track_id in labels
                 accepted = bool(semantic.get("accepted", False))
-                label = (
-                    str(semantic.get("display_label", semantic.get("class_label", "unknown")))
-                    if accepted
-                    else "unknown"
+                detector = detector_labels.get(row.track_id, {})
+                fallback = (
+                    not accepted
+                    and not modeled
+                    and bool(detector.get("class_name"))
                 )
-                confidence = float(semantic.get("confidence", 0.0))
-                color = _track_color(row.track_id, accepted=accepted)
+                if accepted:
+                    label = str(
+                        semantic.get("display_label", semantic.get("class_label", "unknown"))
+                    )
+                    confidence = float(semantic.get("confidence", 0.0))
+                elif modeled:
+                    label = "unknown"
+                    confidence = float(semantic.get("confidence", 0.0))
+                elif fallback:
+                    label = str(detector["class_name"])
+                    confidence = float(detector.get("class_consensus", 0.0))
+                else:
+                    label = "unknown"
+                    confidence = 0.0
+                color = _track_color(row.track_id, accepted=accepted, fallback=fallback)
                 x1, y1, x2, y2 = _clip_bbox(row.bbox_xyxy(), width, height)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
                 base_text = f"ID {row.track_id} | {_truncate_label(label)}"
                 attributes = _short_attributes(semantic.get("attributes", {}))
                 confidence_text = (
-                    f" {confidence:.2f}" if show_confidence and accepted else ""
+                    f" {confidence:.2f}"
+                    if show_confidence and (accepted or fallback)
+                    else ""
                 )
                 candidates = []
                 if attributes and not crowded_frame:
@@ -108,9 +138,17 @@ def render_semantic_video(
                     candidates,
                     max_width=max(min(width - 12, int(width * 0.55)), 24),
                 )
-                _draw_label(frame, text, x1, y1, color)
+                label_rect = _draw_label(
+                    frame,
+                    text,
+                    bbox=(x1, y1, x2, y2),
+                    color=color,
+                    occupied=occupied_labels,
+                )
+                occupied_labels.append(label_rect)
                 box_count += 1
                 accepted_boxes += int(accepted)
+                fallback_boxes += int(fallback)
             writer.write(frame)
             rendered_frames += 1
             frame_index += 1
@@ -135,10 +173,22 @@ def render_semantic_video(
         for track_id in unique_track_ids
         if bool(labels.get(track_id, {}).get("accepted", False))
     }
+    modeled_ids = unique_track_ids & set(labels)
+    rejected_ids = modeled_ids - accepted_ids
+    unmodeled_ids = unique_track_ids - modeled_ids
+    fallback_ids = {
+        track_id
+        for track_id in unmodeled_ids
+        if bool(detector_labels.get(track_id, {}).get("class_name"))
+    }
+    labeled_ids = accepted_ids | fallback_ids
     result = {
         "source_video": str(source.resolve()),
         "tracks": str(tracks.resolve()),
         "semantics": str(semantics.resolve()),
+        "tracking_metadata": (
+            str(tracking_metadata.resolve()) if tracking_metadata is not None else None
+        ),
         "output_video": str(output.resolve()),
         "video": {
             "fps": fps,
@@ -154,14 +204,29 @@ def render_semantic_video(
         },
         "semantics_summary": {
             "track_count": len(unique_track_ids),
+            "modeled_track_count": len(modeled_ids),
+            "unmodeled_track_count": len(unmodeled_ids),
             "accepted_track_count": len(accepted_ids),
-            "unknown_track_count": len(unique_track_ids) - len(accepted_ids),
+            "semantic_rejected_track_count": len(rejected_ids),
+            "semantic_unaccepted_track_count": len(unique_track_ids) - len(accepted_ids),
+            "unknown_track_count": len(unique_track_ids) - len(labeled_ids),
             "track_coverage": (
                 len(accepted_ids) / len(unique_track_ids) if unique_track_ids else 0.0
             ),
             "box_count": box_count,
             "accepted_box_count": accepted_boxes,
             "box_coverage": accepted_boxes / box_count if box_count else 0.0,
+            "detector_fallback_track_count": len(fallback_ids),
+            "detector_fallback_box_count": fallback_boxes,
+            "labeled_track_count": len(labeled_ids),
+            "unlabeled_track_count": len(unique_track_ids) - len(labeled_ids),
+            "label_track_coverage": (
+                len(labeled_ids) / len(unique_track_ids) if unique_track_ids else 0.0
+            ),
+            "labeled_box_count": accepted_boxes + fallback_boxes,
+            "label_box_coverage": (
+                (accepted_boxes + fallback_boxes) / box_count if box_count else 0.0
+            ),
         },
     }
     metadata_path = output.with_name(f"{output.stem}.semantic.metadata.json")
@@ -186,9 +251,16 @@ def _clip_bbox(
     )
 
 
-def _track_color(track_id: int, *, accepted: bool) -> tuple[int, int, int]:
-    if not accepted:
+def _track_color(
+    track_id: int,
+    *,
+    accepted: bool,
+    fallback: bool = False,
+) -> tuple[int, int, int]:
+    if not accepted and not fallback:
         return (128, 128, 128)
+    if fallback:
+        return (96, 170, 220)
     return (
         64 + (track_id * 47) % 192,
         64 + (track_id * 79) % 192,
@@ -232,27 +304,70 @@ def _select_fitting_text(candidates: list[str], *, max_width: int) -> str:
 def _draw_label(
     frame: Any,
     text: str,
-    x: int,
-    y: int,
+    bbox: tuple[int, int, int, int],
     color: tuple[int, int, int],
-) -> None:
+    occupied: list[tuple[int, int, int, int]],
+) -> tuple[int, int, int, int]:
     font = cv2.FONT_HERSHEY_SIMPLEX
     scale = 0.48
     thickness = 1
     (text_width, text_height), baseline = cv2.getTextSize(text, font, scale, thickness)
-    left = min(max(x, 0), max(frame.shape[1] - text_width - 8, 0))
-    top = max(y - text_height - baseline - 6, 0)
-    right = min(left + text_width + 8, frame.shape[1] - 1)
-    cv2.rectangle(frame, (left, top), (right, y), color, -1)
+    x1, y1, x2, y2 = bbox
+    label_width = text_width + 8
+    label_height = text_height + baseline + 6
+    candidates = (
+        (x1, y1 - label_height),
+        (x1, y2),
+        (x2 - label_width, y1 - label_height),
+        (x2, y1),
+        (x1, y1),
+    )
+    frame_width = frame.shape[1]
+    frame_height = frame.shape[0]
+    rectangles = [
+        _clip_label_rect(left, top, label_width, label_height, frame_width, frame_height)
+        for left, top in candidates
+    ]
+    left, top, right, bottom = min(
+        rectangles,
+        key=lambda rect: (
+            sum(_rect_overlap(rect, other) for other in occupied),
+            rectangles.index(rect),
+        ),
+    )
+    cv2.rectangle(frame, (left, top), (right, bottom), color, -1)
     luminance = 0.114 * color[0] + 0.587 * color[1] + 0.299 * color[2]
     text_color = (0, 0, 0) if luminance > 150 else (255, 255, 255)
     cv2.putText(
         frame,
         text,
-        (left + 4, max(y - baseline - 3, text_height)),
+        (left + 4, min(top + text_height + 2, bottom - baseline)),
         font,
         scale,
         text_color,
         thickness,
         cv2.LINE_AA,
     )
+    return (left, top, right, bottom)
+
+
+def _clip_label_rect(
+    left: int,
+    top: int,
+    width: int,
+    height: int,
+    frame_width: int,
+    frame_height: int,
+) -> tuple[int, int, int, int]:
+    left = min(max(left, 0), max(frame_width - width, 0))
+    top = min(max(top, 0), max(frame_height - height, 0))
+    return (left, top, min(left + width, frame_width - 1), min(top + height, frame_height - 1))
+
+
+def _rect_overlap(
+    first: tuple[int, int, int, int],
+    second: tuple[int, int, int, int],
+) -> int:
+    width = max(0, min(first[2], second[2]) - max(first[0], second[0]))
+    height = max(0, min(first[3], second[3]) - max(first[1], second[1]))
+    return width * height

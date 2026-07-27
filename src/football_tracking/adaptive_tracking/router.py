@@ -10,8 +10,25 @@ from football_tracking.adaptive_tracking.ontology import COCO80_CLASSES
 from football_tracking.adaptive_tracking.schemas import SceneDiscovery
 
 FOOTBALL_DOMAINS = {"football", "soccer", "football_match", "sports_football"}
-MICROSCOPY_DOMAINS = {"microscopy", "medical_microscopy", "cell_microscopy"}
-MICROSCOPY_CLASSES = {"cell", "cells", "nuclei", "nucleus", "cell nucleus"}
+MICROSCOPY_DOMAINS = {
+    "microscopy",
+    "microscopic",
+    "microscopic_imaging",
+    "medical_microscopy",
+    "cell_microscopy",
+    "cell_imaging",
+    "brightfield_microscopy",
+}
+MICROSCOPY_CLASSES = {
+    "cell",
+    "cells",
+    "nuclei",
+    "nucleus",
+    "cell nucleus",
+    "particle",
+    "particles",
+    "microscopic particle",
+}
 REALTIME_PROFILES = {"realtime", "realtime_stable"}
 FOOTBALL_PERSON_CLASSES = {
     "person",
@@ -47,11 +64,33 @@ PERSISTENT_NAME_TOKENS = {
 }
 PERSISTENT_TAXONOMY_HINTS = {
     "animal",
+    "animal_species",
     "human",
     "person",
-    "role",
     "species",
     "vehicle",
+    "vehicle_subtype",
+}
+STATIC_INFRASTRUCTURE_NAMES = {
+    "building",
+    "ceiling",
+    "crosswalk",
+    "field",
+    "floor",
+    "goal",
+    "goalpost",
+    "lane marking",
+    "pitch",
+    "road",
+    "road marking",
+    "road sign",
+    "sign",
+    "sky",
+    "street",
+    "traffic light",
+    "traffic sign",
+    "wall",
+    "zebra crossing",
 }
 
 
@@ -177,8 +216,8 @@ def _general_route(
     tracking_names, tracking_fallback = _tracking_names(detector_objects)
     promoted_names = ", ".join(sorted(tracking_names))
     fallback_reason = (
-        " No class was explicitly marked for tracking, so persistent entities "
-        f"[{promoted_names}] were promoted."
+        " Persistent entities were promoted from detect to track where needed; "
+        f"the final tracking set is [{promoted_names}]."
         if tracking_fallback
         else ""
     )
@@ -223,7 +262,9 @@ def _general_route(
             for item, output_id in zip(open_items, open_output_ids, strict=True)
             if item.canonical_name in tracking_names
         }
-        open_classes_need_identity = any(item.action == "track" for item in open_items)
+        open_classes_need_identity = any(
+            item.canonical_name in tracking_names for item in open_items
+        )
         interval = (
             {
                 "realtime": 6,
@@ -295,17 +336,18 @@ def _general_route(
 
 def _tracking_names(detector_objects: tuple[Any, ...]) -> tuple[set[str], bool]:
     explicit = {
-        item.canonical_name for item in detector_objects if item.action == "track"
+        item.canonical_name
+        for item in detector_objects
+        if item.action == "track" and _is_trackable_entity(item)
     }
-    if explicit:
-        return explicit, False
     persistent = {
         item.canonical_name
         for item in detector_objects
         if _is_persistent_entity(item)
     }
-    if persistent:
-        return persistent, True
+    combined = explicit | persistent
+    if combined:
+        return combined, bool(persistent - explicit)
     promoted = max(
         detector_objects,
         key=lambda item: (float(item.confidence), -len(item.canonical_name)),
@@ -314,6 +356,8 @@ def _tracking_names(detector_objects: tuple[Any, ...]) -> tuple[set[str], bool]:
 
 
 def _is_persistent_entity(item: Any) -> bool:
+    if _is_static_infrastructure(item):
+        return False
     if item.coco_id is not None and int(item.coco_id) in TRACKABLE_COCO_IDS:
         return True
     name_tokens = set(str(item.canonical_name).lower().replace("-", " ").split())
@@ -321,6 +365,20 @@ def _is_persistent_entity(item: Any) -> bool:
         return True
     taxonomy = str(getattr(item, "taxonomy_hint", "")).strip().lower()
     return taxonomy in PERSISTENT_TAXONOMY_HINTS
+
+
+def _is_trackable_entity(item: Any) -> bool:
+    """Reject known static infrastructure while preserving open moving classes."""
+    if _is_static_infrastructure(item):
+        return False
+    if item.coco_id is not None:
+        return int(item.coco_id) in TRACKABLE_COCO_IDS
+    return item.action == "track" or _is_persistent_entity(item)
+
+
+def _is_static_infrastructure(item: Any) -> bool:
+    name = str(item.canonical_name).strip().lower().replace("_", " ")
+    return name in STATIC_INFRASTRUCTURE_NAMES
 
 
 def _is_football_scene(discovery: SceneDiscovery) -> bool:

@@ -69,7 +69,7 @@ def _parser() -> argparse.ArgumentParser:
     discover.add_argument(
         "--quantization",
         choices=("none", "8bit", "4bit"),
-        default="4bit",
+        default="8bit",
     )
     discover.add_argument("--max-keyframes", type=int, default=4)
     discover.add_argument("--sample-fps", type=float, default=2.0)
@@ -139,6 +139,12 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional VLM context providing representative frames/crops per track.",
     )
+    grounding_plan.add_argument("--tracking-metadata", type=Path, default=None)
+    grounding_plan.add_argument(
+        "--verify-all-tracks",
+        action="store_true",
+        help="Build identity-scoped Locate requests for every tracked class.",
+    )
     grounding_plan.add_argument(
         "--verify-track-ids",
         type=_positive_track_ids,
@@ -165,8 +171,19 @@ def _parser() -> argparse.ArgumentParser:
     grounding.add_argument("--quantization", choices=("none", "8bit", "4bit"), default="8bit")
     grounding.add_argument("--max-new-tokens", type=int, default=512)
     grounding.add_argument("--image-max-pixels", type=int, default=512 * 512)
-    grounding.add_argument("--minimum-iou", type=float, default=0.10)
-    grounding.add_argument("--target-crop-padding", type=float, default=1.0)
+    grounding.add_argument(
+        "--minimum-iou",
+        "--minimum-association-score",
+        dest="minimum_iou",
+        type=float,
+        default=0.10,
+        help=(
+            "Minimum composite association score. --minimum-iou is retained "
+            "as a backward-compatible alias."
+        ),
+    )
+    grounding.add_argument("--minimum-identity-margin", type=float, default=0.05)
+    grounding.add_argument("--target-crop-padding", type=float, default=0.35)
     grounding.add_argument("--target-crop-size", type=int, default=384)
     grounding.add_argument("--overwrite", action="store_true")
 
@@ -181,6 +198,7 @@ def _parser() -> argparse.ArgumentParser:
     fusion.add_argument("--minimum-margin", type=float, default=0.10)
     fusion.add_argument("--fine-unknown-threshold", type=float, default=0.85)
     fusion.add_argument("--fine-minimum-margin", type=float, default=0.15)
+    fusion.add_argument("--domain", default=None)
     fusion.add_argument("--semantic-memory", type=Path, default=None)
     fusion.add_argument("--memory-context-id", default=None)
     fusion.add_argument("--max-memory-observations", type=int, default=32)
@@ -198,6 +216,7 @@ def _parser() -> argparse.ArgumentParser:
     render.add_argument("--source", type=Path, required=True)
     render.add_argument("--tracks", type=Path, required=True)
     render.add_argument("--semantics", type=Path, required=True)
+    render.add_argument("--tracking-metadata", type=Path, default=None)
     render.add_argument("--output-video", type=Path, required=True)
     render.add_argument("--max-frames", type=int, default=None)
     render.add_argument("--hide-confidence", action="store_true")
@@ -462,6 +481,8 @@ def _build_grounding_plan(args: argparse.Namespace) -> dict:
         max_expected_tracks_per_class=args.max_expected_tracks_per_class,
         qwen_answer=args.qwen_answer,
         semantic_context=args.semantic_context,
+        tracking_metadata=args.tracking_metadata,
+        verify_all_tracks=args.verify_all_tracks,
         verify_track_ids=args.verify_track_ids,
         reacquisition_min_gap_frames=args.reacquisition_min_gap_frames,
         max_reacquisition_tracks=args.max_reacquisition_tracks,
@@ -482,6 +503,7 @@ def _execute_grounding_plan(args: argparse.Namespace) -> dict:
         max_new_tokens=args.max_new_tokens,
         image_max_pixels=args.image_max_pixels,
         minimum_iou=args.minimum_iou,
+        minimum_identity_margin=args.minimum_identity_margin,
         target_crop_padding=args.target_crop_padding,
         target_crop_size=args.target_crop_size,
         overwrite=args.overwrite,
@@ -498,6 +520,7 @@ def _fuse_semantics(args: argparse.Namespace) -> dict:
         fine_unknown_threshold=args.fine_unknown_threshold,
         fine_minimum_margin=args.fine_minimum_margin,
         registry_path=args.registry,
+        domain=args.domain,
         memory_path=args.semantic_memory,
         memory_context_id=args.memory_context_id,
         max_memory_observations_per_track=args.max_memory_observations,
@@ -510,6 +533,7 @@ def _render_semantics(args: argparse.Namespace) -> dict:
         source_video=args.source,
         tracks_path=args.tracks,
         semantics_path=args.semantics,
+        tracking_metadata_path=args.tracking_metadata,
         output_video=args.output_video,
         overwrite=args.overwrite,
         show_confidence=not args.hide_confidence,

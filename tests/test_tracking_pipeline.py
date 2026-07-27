@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -280,7 +281,19 @@ def test_tracking_pipeline_allows_custom_output_video_name(tmp_path, monkeypatch
     assert Path(sequence["output_mot"]) == output_video.with_suffix(".txt")
     assert output_video.is_file()
     assert output_video.with_suffix(".txt").is_file()
-    assert output_video.with_name("my_custom_tracking.metadata.json").is_file()
+    metadata_path = output_video.with_name("my_custom_tracking.metadata.json")
+    assert metadata_path.is_file()
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["track_classes"] == [
+        {
+            "track_id": 1,
+            "class_id": 0,
+            "class_name": "player",
+            "observation_count": 2,
+            "class_consensus": 1.0,
+            "mean_confidence": 0.9,
+        }
+    ]
 
 
 def test_tracker_output_uses_project_bbox_model() -> None:

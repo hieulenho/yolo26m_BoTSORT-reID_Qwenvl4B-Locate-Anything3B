@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from football_tracking.adaptive_tracking.run_report import build_adaptive_run_report
+from football_tracking.adaptive_tracking.run_report import (
+    _batch_timing_metrics,
+    _locate_metrics,
+    _qwen_metrics,
+    build_adaptive_run_report,
+)
 
 
 def _write(path: Path, payload: dict) -> Path:
@@ -55,3 +60,45 @@ def test_adaptive_run_report_separates_coverage_from_gt_accuracy(tmp_path: Path)
     assert report["scene"]["domain"] == "traffic"
     assert report["evaluation_scope"]["ground_truth_accuracy_available"] is False
     assert report["semantic_fusion"]["coverage"] == 2 / 3
+
+
+def test_qwen_batch_timing_separates_warmup_from_steady_state() -> None:
+    metrics = _batch_timing_metrics(
+        {
+            "batches": [
+                {"inference_seconds": 90.0},
+                {"inference_seconds": 20.0},
+                {"inference_seconds": 30.0},
+            ]
+        }
+    )
+
+    assert metrics["first_batch_seconds"] == 90.0
+    assert metrics["median_seconds"] == 30.0
+    assert metrics["steady_state_mean_seconds"] == 25.0
+    assert metrics["max_to_median_ratio"] == 3.0
+
+
+def test_run_report_preserves_semantic_validation_provenance() -> None:
+    qwen = _qwen_metrics(
+        {
+            "status": "ok",
+            "validation_warnings": [
+                {"code": "unsupported_evidence_frames_removed"}
+            ],
+        }
+    )
+    locate = _locate_metrics(
+        {
+            "summary": {"request_count": 1},
+            "association_policy": {
+                "minimum_association_score": 0.1,
+                "minimum_identity_margin": 0.05,
+            },
+        }
+    )
+
+    assert qwen["validation_warning_count"] == 1
+    assert (
+        locate["association_policy"]["minimum_identity_margin"] == 0.05
+    )

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -24,32 +26,39 @@ def build_grounding_plan(
     max_expected_tracks_per_class: int = 3,
     qwen_answer: str | Path | None = None,
     semantic_context: str | Path | None = None,
+    tracking_metadata: str | Path | None = None,
+    verify_all_tracks: bool = False,
     verify_track_ids: list[int] | tuple[int, ...] | None = None,
     reacquisition_min_gap_frames: int = 15,
     max_reacquisition_tracks: int = 3,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     candidates: dict[str, dict[str, Any]] = {}
-    for item in discovery.detector_objects:
-        if not item.open_vocabulary and item.confidence >= confidence_trigger:
-            continue
-        candidates[item.canonical_name] = {
-            "class_label": item.canonical_name,
-            "display_name": item.display_name,
-            "trigger": (
-                "open_vocabulary_class"
-                if item.open_vocabulary
-                else "low_discovery_confidence"
-            ),
-            "expected_track_ids": [],
-        }
-    if max_expected_tracks_per_class <= 0:
-        raise ValueError("max_expected_tracks_per_class must be positive.")
+    explicit_track_ids = {int(track_id) for track_id in verify_track_ids or ()}
+    identity_verification = verify_all_tracks or bool(explicit_track_ids)
+    if not identity_verification:
+        for item in discovery.detector_objects:
+            if not item.open_vocabulary and item.confidence >= confidence_trigger:
+                continue
+            candidates[item.canonical_name] = {
+                "class_label": item.canonical_name,
+                "display_name": item.display_name,
+                "trigger": (
+                    "open_vocabulary_class"
+                    if item.open_vocabulary
+                    else "low_discovery_confidence"
+                ),
+                "expected_track_ids": [],
+            }
+    if max_expected_tracks_per_class < 0:
+        raise ValueError(
+            "max_expected_tracks_per_class must be zero (all) or positive."
+        )
     if reacquisition_min_gap_frames < 1:
         raise ValueError("reacquisition_min_gap_frames must be positive.")
     if max_reacquisition_tracks < 0:
         raise ValueError("max_reacquisition_tracks must be non-negative.")
-    uncertain_track_ids = {int(track_id) for track_id in verify_track_ids or ()}
+    uncertain_track_ids = set(explicit_track_ids)
     if any(track_id <= 0 for track_id in uncertain_track_ids):
         raise ValueError("verify_track_ids must contain positive track IDs.")
     semantic_keyframes: list[dict[str, Any]] = []
@@ -68,6 +77,63 @@ def build_grounding_plan(
                 "fragmented_tracks", []
             )
         ]
+    if identity_verification and tracking_metadata is not None:
+        metadata_path = (
+            Path(tracking_metadata) if tracking_metadata is not None else None
+        )
+        if metadata_path is None or not metadata_path.is_file():
+            raise FileNotFoundError(
+                "Identity-scoped Locate verification requires tracking metadata."
+            )
+        if context_path is None:
+            raise ValueError(
+                "Identity-scoped Locate verification requires semantic_context."
+            )
+        metadata_payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        found_track_ids: set[int] = set()
+        for row in metadata_payload.get("track_classes", []):
+            if not isinstance(row, dict):
+                continue
+            track_id = int(row.get("track_id", 0))
+            class_label = str(row.get("class_name", "")).strip()
+            if track_id <= 0 or not class_label:
+                continue
+            if explicit_track_ids and track_id not in explicit_track_ids:
+                continue
+            found_track_ids.add(track_id)
+            candidate = candidates.setdefault(
+                class_label,
+                {
+                    "class_label": class_label,
+                    "display_name": class_label,
+                    "trigger": (
+                        "post_tracking_spatial_verification"
+                        if verify_all_tracks
+                        else "explicit_track_benchmark"
+                    ),
+                    "expected_track_ids": [],
+                },
+            )
+            candidate["expected_track_ids"].append(track_id)
+        missing_track_ids = explicit_track_ids - found_track_ids
+        if missing_track_ids:
+            missing_text = ", ".join(str(track_id) for track_id in sorted(missing_track_ids))
+            raise ValueError(
+                f"Explicit track IDs are absent from tracking metadata: {missing_text}"
+            )
+    elif verify_all_tracks:
+        raise FileNotFoundError(
+            "Locate-first all-track verification requires tracking metadata."
+        )
+    elif explicit_track_ids:
+        # Compatibility path for synthetic tests or legacy callers without metadata.
+        for item in discovery.tracking_objects:
+            candidates[item.canonical_name] = {
+                "class_label": item.canonical_name,
+                "display_name": item.canonical_name,
+                "trigger": "explicit_track_benchmark",
+                "expected_track_ids": sorted(explicit_track_ids),
+            }
     qwen_labels_by_track: dict[int, str] = {}
     if qwen_answer is not None and Path(qwen_answer).is_file():
         qwen_path = Path(qwen_answer)
@@ -102,12 +168,16 @@ def build_grounding_plan(
                 },
             )
             candidate["expected_track_ids"].append(evidence.track_id)
-    reacquisition_track_ids = {
-        int(row["track_id"])
-        for row in fragmented_tracks
-        if int(row.get("track_id", 0)) > 0
-        and int(row.get("max_gap_frames", 0)) >= reacquisition_min_gap_frames
-    }
+    reacquisition_track_ids = (
+        set()
+        if identity_verification
+        else {
+            int(row["track_id"])
+            for row in fragmented_tracks
+            if int(row.get("track_id", 0)) > 0
+            and int(row.get("max_gap_frames", 0)) >= reacquisition_min_gap_frames
+        }
+    )
     reacquisition_track_ids = set(
         sorted(reacquisition_track_ids)[:max_reacquisition_tracks]
     )
@@ -128,7 +198,7 @@ def build_grounding_plan(
                 },
             )
             candidate["expected_track_ids"].append(track_id)
-    if uncertain_track_ids:
+    if uncertain_track_ids and not identity_verification:
         uncertainty_trigger = (
             "explicit_track_benchmark" if verify_track_ids else "qwen_unknown_track"
         )
@@ -149,18 +219,30 @@ def build_grounding_plan(
                 candidate["trigger"] = uncertainty_trigger
                 candidate["display_name"] = item.canonical_name
             candidate["expected_track_ids"].extend(uncertain_track_ids)
-    selected_candidates = list(candidates.values())[:max_classes]
+    selected_candidates = (
+        list(candidates.values())
+        if identity_verification
+        else list(candidates.values())[:max_classes]
+    )
     requests = _grounding_requests(
         selected_candidates,
         discovery_keyframes=list(discovery.keyframes),
         semantic_keyframes=semantic_keyframes,
         semantic_crops=semantic_crops,
         max_keyframes_per_class=max_keyframes_per_class,
-        max_expected_tracks_per_class=max_expected_tracks_per_class,
+        max_expected_tracks_per_class=(
+            0 if identity_verification else max_expected_tracks_per_class
+        ),
     )
     result = {
         "schema_version": "1.0",
-        "policy": "explicit_track_benchmark" if verify_track_ids else "event_triggered",
+        "policy": (
+            "locate_first_all_tracks"
+            if verify_all_tracks
+            else "explicit_track_benchmark"
+            if verify_track_ids
+            else "event_triggered"
+        ),
         "source_video": discovery.source_video,
         "requests": requests,
         "summary": {
@@ -168,6 +250,7 @@ def build_grounding_plan(
             "request_count": len(requests),
             "uncertain_track_count": len(uncertain_track_ids),
             "explicit_track_count": len(set(verify_track_ids or ())),
+            "all_track_verification": verify_all_tracks,
             "reacquisition_track_count": len(reacquisition_track_ids),
             "skipped": not requests,
             "skip_reason": (
@@ -199,9 +282,9 @@ def _grounding_requests(
 ) -> list[dict[str, Any]]:
     requests: list[dict[str, Any]] = []
     for class_index, item in enumerate(candidates):
-        expected_ids = sorted(set(item["expected_track_ids"]))[
-            :max_expected_tracks_per_class
-        ]
+        expected_ids = sorted(set(item["expected_track_ids"]))
+        if max_expected_tracks_per_class > 0:
+            expected_ids = expected_ids[:max_expected_tracks_per_class]
         if not expected_ids:
             for frame_index, keyframe in enumerate(
                 discovery_keyframes[:max_keyframes_per_class]
@@ -287,7 +370,8 @@ def execute_grounding_plan(
     max_new_tokens: int = 512,
     image_max_pixels: int = 512 * 512,
     minimum_iou: float = 0.10,
-    target_crop_padding: float = 1.0,
+    minimum_identity_margin: float = 0.05,
+    target_crop_padding: float = 0.35,
     target_crop_size: int = 384,
     overwrite: bool = False,
 ) -> dict[str, Any]:
@@ -297,6 +381,10 @@ def execute_grounding_plan(
     )
     from football_tracking.locate_tracking.grounding.service import GroundingService
 
+    if not 0.0 <= minimum_iou <= 1.0:
+        raise ValueError("minimum association score must be between 0 and 1.")
+    if not 0.0 <= minimum_identity_margin <= 1.0:
+        raise ValueError("minimum_identity_margin must be between 0 and 1.")
     plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
     requests = plan.get("requests", [])
     rows_by_frame: dict[int, list[MotTrackRow]] = {}
@@ -304,6 +392,10 @@ def execute_grounding_plan(
         rows_by_frame.setdefault(row.frame_index, []).append(row)
     if not requests:
         result = _grounding_execution_payload(plan, [], [], skipped=True)
+        result["association_policy"] = _association_policy(
+            minimum_score=minimum_iou,
+            minimum_identity_margin=minimum_identity_margin,
+        )
         result["runtime"] = runtime_versions()
         return _write_result(result, output_path, overwrite)
 
@@ -322,62 +414,127 @@ def execute_grounding_plan(
     )
     raw_results: list[dict[str, Any]] = []
     associations: list[dict[str, Any]] = []
-    frame_cache: dict[int, Any] = {}
+    frame_cache: OrderedDict[int, Any] = OrderedDict()
+    source_capture = _open_source_capture(plan.get("source_video"))
     _reset_peak_cuda_memory()
     execution_started = time.perf_counter()
-    for request in requests:
-        frame_index = int(request["frame_index"])
-        frame_rows = rows_by_frame.get(frame_index, [])
-        prepared = _prepare_grounding_input(
-            request=request,
-            source_video=plan.get("source_video"),
-            frame_rows=frame_rows,
-            output_dir=Path(output_path).parent / "target_crops",
-            frame_cache=frame_cache,
-            crop_padding=target_crop_padding,
-            crop_size=target_crop_size,
-        )
-        request_started = time.perf_counter()
-        result = service.ground_image(
-            image_path=prepared["image_path"],
-            query=prepared["query"],
-        )
-        raw_results.append(
-            {
-                "request_id": request["request_id"],
-                "result": result.to_dict(),
-                "grounding_input": prepared,
-                "seconds": time.perf_counter() - request_started,
-            }
-        )
-        for box in result.boxes:
-            global_bbox = _map_bbox_to_source(box.bbox_xyxy, prepared.get("roi"))
-            matched = _best_track(global_bbox, frame_rows)
-            if matched is None or matched[1] < minimum_iou:
-                continue
-            track, overlap = matched
-            grounding_confidence = box.confidence if box.confidence is not None else 1.0
-            expected_track_ids = {
-                int(track_id) for track_id in request.get("expected_track_ids", [])
-            }
-            matches_expected = not expected_track_ids or track.track_id in expected_track_ids
-            associations.append(
+    try:
+        for request_index, request in enumerate(requests, start=1):
+            request_id = str(request["request_id"])
+            request_started = time.perf_counter()
+            print(
+                f"[LocateAnything] request {request_index}/{len(requests)} "
+                f"({100 * (request_index - 1) / len(requests):.0f}%) id={request_id}",
+                file=sys.stderr,
+                flush=True,
+            )
+            frame_index = int(request["frame_index"])
+            frame_rows = rows_by_frame.get(frame_index, [])
+            prepared = _prepare_grounding_input(
+                request=request,
+                source_video=plan.get("source_video"),
+                frame_rows=frame_rows,
+                output_dir=Path(output_path).parent / "target_crops",
+                frame_cache=frame_cache,
+                crop_padding=target_crop_padding,
+                crop_size=target_crop_size,
+                source_capture=source_capture,
+            )
+            result = service.ground_image(
+                image_path=prepared["image_path"],
+                query=prepared["query"],
+            )
+            raw_results.append(
                 {
                     "request_id": request["request_id"],
-                    "frame_index": frame_index,
-                    "track_id": track.track_id,
-                    "class_label": request["class_label"],
-                    "iou": round(overlap, 6),
-                    "grounding_confidence": box.confidence,
-                    "confidence": round(float(grounding_confidence) * overlap, 6),
-                    "expected_track_ids": sorted(expected_track_ids),
-                    "matches_expected_track": matches_expected,
-                    "accepted_for_fusion": matches_expected,
-                    "grounded_bbox_xyxy": list(global_bbox),
-                    "grounded_bbox_xyxy_local": list(box.bbox_xyxy),
-                    "track_bbox_xyxy": list(track.bbox_xyxy()),
+                    "result": result.to_dict(),
+                    "grounding_input": prepared,
+                    "seconds": time.perf_counter() - request_started,
                 }
             )
+            print(
+                f"[LocateAnything] request {request_index}/{len(requests)} "
+                f"({100 * request_index / len(requests):.0f}%) completed in "
+                f"{time.perf_counter() - request_started:.1f}s",
+                file=sys.stderr,
+                flush=True,
+            )
+            for box in result.boxes:
+                global_bbox = _map_bbox_to_source(box.bbox_xyxy, prepared.get("roi"))
+                expected_track_ids = {
+                    int(track_id) for track_id in request.get("expected_track_ids", [])
+                }
+                match = _match_grounding_to_track(
+                    global_bbox,
+                    frame_rows,
+                    expected_track_ids=expected_track_ids,
+                )
+                if match is None:
+                    continue
+                track = match["track"]
+                association_score = float(match["association_score"])
+                competitor_score = float(match["competing_association_score"])
+                identity_margin = association_score - competitor_score
+                grounding_confidence = (
+                    box.confidence if box.confidence is not None else 1.0
+                )
+                # Full-frame discovery queries verify that a class exists in the
+                # scene; they do not identify a tracked object. Only a request tied
+                # to an explicit target ID may contribute identity evidence.
+                matches_expected = _matches_expected_track(
+                    expected_track_ids, track.track_id
+                )
+                clears_competitor = (
+                    match["competing_track_id"] is None
+                    or identity_margin >= minimum_identity_margin
+                )
+                accepted_for_fusion = (
+                    matches_expected
+                    and association_score >= minimum_iou
+                    and clears_competitor
+                )
+                if not expected_track_ids and association_score < minimum_iou:
+                    continue
+                associations.append(
+                    {
+                        "request_id": request["request_id"],
+                        "frame_index": frame_index,
+                        "track_id": track.track_id,
+                        "class_label": request["class_label"],
+                        "iou": round(float(match["iou"]), 6),
+                        "target_coverage": round(float(match["target_coverage"]), 6),
+                        "grounding_coverage": round(
+                            float(match["grounding_coverage"]), 6
+                        ),
+                        "association_score": round(association_score, 6),
+                        "grounding_confidence": box.confidence,
+                        "confidence": round(
+                            float(grounding_confidence) * association_score, 6
+                        ),
+                        "expected_track_ids": sorted(expected_track_ids),
+                        "matches_expected_track": matches_expected,
+                        "accepted_for_fusion": accepted_for_fusion,
+                        "rejection_reason": _association_rejection_reason(
+                            matches_expected=matches_expected,
+                            association_score=association_score,
+                            minimum_score=minimum_iou,
+                            clears_competitor=clears_competitor,
+                        ),
+                        "association_scope": (
+                            "target_track" if expected_track_ids else "scene_only"
+                        ),
+                        "competing_track_id": match["competing_track_id"],
+                        "competing_association_score": round(competitor_score, 6),
+                        "identity_margin": round(identity_margin, 6),
+                        "grounded_bbox_xyxy": list(global_bbox),
+                        "grounded_bbox_xyxy_local": list(box.bbox_xyxy),
+                        "track_bbox_xyxy": list(track.bbox_xyxy()),
+                    }
+                )
+    finally:
+        if source_capture is not None:
+            source_capture.release()
+    associations = _retain_best_fusion_association_per_request(associations)
     cold_start_total = time.perf_counter() - execution_started
     model_load_seconds = float(backend.model_load_seconds or 0.0)
     cache_statuses = [
@@ -385,6 +542,10 @@ def execute_grounding_plan(
         for row in raw_results
     ]
     result = _grounding_execution_payload(plan, raw_results, associations, skipped=False)
+    result["association_policy"] = _association_policy(
+        minimum_score=minimum_iou,
+        minimum_identity_margin=minimum_identity_margin,
+    )
     result["timing"] = {
         "model_load_seconds": model_load_seconds,
         "execution_seconds": max(cold_start_total - model_load_seconds, 0.0),
@@ -412,11 +573,15 @@ def _prepare_grounding_input(
     frame_cache: dict[int, Any],
     crop_padding: float,
     crop_size: int,
+    source_capture: Any | None = None,
+    frame_cache_limit: int = 8,
 ) -> dict[str, Any]:
     if crop_padding < 0:
         raise ValueError("target_crop_padding must be non-negative.")
     if crop_size < 64:
         raise ValueError("target_crop_size must be at least 64 pixels.")
+    if frame_cache_limit < 1:
+        raise ValueError("frame_cache_limit must be positive.")
     target_track_id = request.get("target_track_id")
     if target_track_id is None:
         return {
@@ -440,8 +605,14 @@ def _prepare_grounding_input(
 
     frame_index = int(request["frame_index"])
     frame = frame_cache.get(frame_index)
+    if frame is not None and isinstance(frame_cache, OrderedDict):
+        frame_cache.move_to_end(frame_index)
     if frame is None:
-        frame = _read_source_frame(source_video, frame_index)
+        frame = (
+            _read_source_frame_from_capture(source_capture, frame_index)
+            if source_capture is not None
+            else _read_source_frame(source_video, frame_index)
+        )
         if frame is None:
             import cv2
 
@@ -455,6 +626,11 @@ def _prepare_grounding_input(
                 "fallback_reason": "source_frame_unreadable",
             }
         frame_cache[frame_index] = frame
+        while len(frame_cache) > frame_cache_limit:
+            if isinstance(frame_cache, OrderedDict):
+                frame_cache.popitem(last=False)
+            else:
+                frame_cache.pop(next(iter(frame_cache)))
 
     frame_height, frame_width = frame.shape[:2]
     x1, y1, x2, y2 = (float(value) for value in target.bbox_xyxy())
@@ -507,17 +683,36 @@ def _prepare_grounding_input(
 
 
 def _read_source_frame(source_video: str | None, frame_index: int) -> Any | None:
+    capture = _open_source_capture(source_video)
+    if capture is None:
+        return None
+    try:
+        return _read_source_frame_from_capture(capture, frame_index)
+    finally:
+        capture.release()
+
+
+def _open_source_capture(source_video: str | None) -> Any | None:
     if not source_video or not Path(source_video).is_file():
         return None
     import cv2
 
     capture = cv2.VideoCapture(str(source_video))
-    try:
-        capture.set(cv2.CAP_PROP_POS_FRAMES, max(frame_index - 1, 0))
-        ok, frame = capture.read()
-        return frame if ok else None
-    finally:
-        capture.release()
+    if capture.isOpened():
+        return capture
+    capture.release()
+    return None
+
+
+def _read_source_frame_from_capture(
+    capture: Any,
+    frame_index: int,
+) -> Any | None:
+    import cv2
+
+    capture.set(cv2.CAP_PROP_POS_FRAMES, max(frame_index - 1, 0))
+    ok, frame = capture.read()
+    return frame if ok else None
 
 
 def _map_bbox_to_source(
@@ -566,6 +761,166 @@ def _grounding_execution_payload(
     }
 
 
+def _matches_expected_track(expected_track_ids: set[int], track_id: int) -> bool:
+    """Return true only for identity-scoped grounding requests."""
+    return bool(expected_track_ids) and int(track_id) in expected_track_ids
+
+
+def _match_grounding_to_track(
+    bbox: tuple[float, float, float, float],
+    rows: list[MotTrackRow],
+    *,
+    expected_track_ids: set[int],
+) -> dict[str, Any] | None:
+    """Associate a grounded region, honoring an identity-scoped request."""
+    if not rows:
+        return None
+    if expected_track_ids:
+        target_rows = [row for row in rows if row.track_id in expected_track_ids]
+        if not target_rows:
+            return None
+        target = max(
+            (_scored_track(bbox, row) for row in target_rows),
+            key=lambda item: item["association_score"],
+        )
+        competitors = [
+            _scored_track(bbox, row)
+            for row in rows
+            if row.track_id not in expected_track_ids
+        ]
+        competitor = (
+            max(competitors, key=lambda item: item["association_score"])
+            if competitors
+            else None
+        )
+    else:
+        target = max(
+            (_scored_track(bbox, row) for row in rows),
+            key=lambda item: item["association_score"],
+        )
+        competitor = None
+    return {
+        **target,
+        "competing_track_id": (
+            int(competitor["track"].track_id) if competitor is not None else None
+        ),
+        "competing_association_score": (
+            float(competitor["association_score"]) if competitor is not None else 0.0
+        ),
+    }
+
+
+def _scored_track(
+    bbox: tuple[float, float, float, float],
+    row: MotTrackRow,
+) -> dict[str, Any]:
+    metrics = _overlap_metrics(
+        bbox,
+        tuple(float(value) for value in row.bbox_xyxy()),
+    )
+    return {"track": row, **metrics}
+
+
+def _overlap_metrics(
+    grounded: tuple[float, float, float, float],
+    tracked: tuple[float, float, float, float],
+) -> dict[str, float]:
+    x1 = max(grounded[0], tracked[0])
+    y1 = max(grounded[1], tracked[1])
+    x2 = min(grounded[2], tracked[2])
+    y2 = min(grounded[3], tracked[3])
+    intersection = max(x2 - x1, 0.0) * max(y2 - y1, 0.0)
+    grounded_area = _bbox_area(grounded)
+    tracked_area = _bbox_area(tracked)
+    union = grounded_area + tracked_area - intersection
+    iou = intersection / union if union > 0 else 0.0
+    target_coverage = intersection / tracked_area if tracked_area > 0 else 0.0
+    grounding_coverage = intersection / grounded_area if grounded_area > 0 else 0.0
+    # A visible fragment can lie wholly inside the tracked box and still have
+    # low IoU. The geometric overlap keeps that evidence while penalizing tiny
+    # accidental intersections.
+    partial_overlap = math.sqrt(target_coverage * grounding_coverage)
+    return {
+        "iou": iou,
+        "target_coverage": target_coverage,
+        "grounding_coverage": grounding_coverage,
+        "association_score": max(iou, partial_overlap),
+    }
+
+
+def _bbox_area(bbox: tuple[float, float, float, float]) -> float:
+    return max(bbox[2] - bbox[0], 0.0) * max(bbox[3] - bbox[1], 0.0)
+
+
+def _association_rejection_reason(
+    *,
+    matches_expected: bool,
+    association_score: float,
+    minimum_score: float,
+    clears_competitor: bool,
+) -> str | None:
+    if not matches_expected:
+        return "not_identity_scoped"
+    if association_score < minimum_score:
+        return "insufficient_target_overlap"
+    if not clears_competitor:
+        return "insufficient_identity_margin"
+    return None
+
+
+def _association_policy(
+    *,
+    minimum_score: float,
+    minimum_identity_margin: float,
+) -> dict[str, Any]:
+    return {
+        "score_name": "association_score",
+        "score_formula": (
+            "max(iou, sqrt(target_coverage * grounding_coverage))"
+        ),
+        "minimum_association_score": minimum_score,
+        "minimum_identity_margin": minimum_identity_margin,
+        "identity_margin_formula": (
+            "target_association_score - best_competing_association_score"
+        ),
+        "max_fusion_associations_per_request": 1,
+        "scene_only_requests_are_identity_evidence": False,
+    }
+
+
+def _retain_best_fusion_association_per_request(
+    associations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Prevent duplicate boxes from multiplying one request's fusion weight."""
+
+    accepted_by_request: dict[str, list[int]] = {}
+    normalized = [dict(row) for row in associations]
+    for index, row in enumerate(normalized):
+        if row.get("accepted_for_fusion") is True:
+            accepted_by_request.setdefault(str(row.get("request_id", "")), []).append(
+                index
+            )
+    for indices in accepted_by_request.values():
+        if len(indices) <= 1:
+            continue
+        best_index = max(
+            indices,
+            key=lambda index: (
+                float(normalized[index].get("confidence", 0.0)),
+                float(normalized[index].get("identity_margin", 0.0)),
+                float(normalized[index].get("association_score", 0.0)),
+            ),
+        )
+        for index in indices:
+            if index == best_index:
+                continue
+            normalized[index]["accepted_for_fusion"] = False
+            normalized[index]["rejection_reason"] = (
+                "lower_ranked_grounding_candidate"
+            )
+    return normalized
+
+
 def _best_track(
     bbox: tuple[float, float, float, float],
     rows: list[MotTrackRow],
@@ -577,15 +932,10 @@ def _best_track(
 
 
 def _iou(a: tuple[float, ...], b: tuple[float, ...]) -> float:
-    x1 = max(a[0], b[0])
-    y1 = max(a[1], b[1])
-    x2 = min(a[2], b[2])
-    y2 = min(a[3], b[3])
-    intersection = max(x2 - x1, 0.0) * max(y2 - y1, 0.0)
-    area_a = max(a[2] - a[0], 0.0) * max(a[3] - a[1], 0.0)
-    area_b = max(b[2] - b[0], 0.0) * max(b[3] - b[1], 0.0)
-    union = area_a + area_b - intersection
-    return intersection / union if union > 0 else 0.0
+    return _overlap_metrics(
+        tuple(float(value) for value in a),
+        tuple(float(value) for value in b),
+    )["iou"]
 
 
 def _write_result(

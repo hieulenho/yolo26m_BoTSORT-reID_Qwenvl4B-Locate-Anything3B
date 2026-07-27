@@ -19,6 +19,15 @@ _DOMAIN_FAMILIES = {
     "education": {"education", "classroom", "lecture hall", "school"},
     "wildlife": {"wildlife", "nature", "animal", "bird"},
     "sports": {"sports", "football", "soccer"},
+    "medical_microscopy": {
+        "medical microscopy",
+        "microscopy",
+        "microscopic",
+        "microscopic imaging",
+        "cell microscopy",
+        "cell imaging",
+        "brightfield microscopy",
+    },
 }
 _CLASS_ALIASES = {
     "automobile": "car",
@@ -215,6 +224,11 @@ def _record(sample: dict[str, Any], run_root: Path) -> dict[str, Any]:
         "base_semantic_coverage_modeled": fusion.get("coverage"),
         "fine_semantic_coverage_modeled": fusion.get("fine_coverage"),
         "render_track_coverage_all": render_semantics.get("track_coverage"),
+        "render_detector_fallback_coverage_all": (
+            float(render_semantics.get("detector_fallback_track_count", 0))
+            / float(render_semantics.get("track_count", 1) or 1)
+        ),
+        "render_label_coverage_all": render_semantics.get("label_track_coverage"),
         "accepted_fine_labels": fine_outputs,
         "semantic_track_accuracy": None,
         "accuracy_status": "requires_human_per_track_ground_truth",
@@ -342,6 +356,32 @@ def _write_charts(output_dir: Path, rows: list[dict[str, Any]]) -> list[str]:
     figure.savefig(path, dpi=180)
     plt.close(figure)
     chart_paths.append(str(path))
+
+    figure, axis = plt.subplots(figsize=(9, 4.8))
+    axis.bar(
+        x,
+        [row["render_track_coverage_all"] or 0 for row in rows],
+        0.55,
+        label="Deep semantic label",
+    )
+    axis.bar(
+        x,
+        [row["render_detector_fallback_coverage_all"] or 0 for row in rows],
+        0.55,
+        bottom=[row["render_track_coverage_all"] or 0 for row in rows],
+        label="Detector fallback",
+    )
+    axis.set_xticks(list(x), labels)
+    axis.set_ylim(0, 1.05)
+    axis.set_ylabel("Fraction of rendered tracks")
+    axis.set_title("Final label coverage by evidence source")
+    axis.grid(axis="y", alpha=0.25)
+    axis.legend()
+    figure.tight_layout()
+    path = output_dir / "multidomain_render_label_sources.png"
+    figure.savefig(path, dpi=180)
+    plt.close(figure)
+    chart_paths.append(str(path))
     return chart_paths
 
 
@@ -354,8 +394,9 @@ def _write_markdown(path: Path, rows: list[dict[str, Any]], summary: dict[str, A
         "so semantic track accuracy remains unreported until manual track annotation exists.",
         "",
         "| Sample | Length | Domain | Class recall | Tracks | Steady FPS | Short tracks | "
-        "Base coverage | Fine coverage | Raw/stable class changes | Accepted fine labels |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "Base coverage | Fine coverage | Direct/final labels | "
+        "Raw/stable class changes | Accepted fine labels |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for row in rows:
         fine = ", ".join(row["accepted_fine_labels"]) or "none"
@@ -367,6 +408,8 @@ def _write_markdown(path: Path, rows: list[dict[str, Any]], summary: dict[str, A
             f"{100 * float(row['short_track_ratio'] or 0):.1f}% | "
             f"{100 * float(row['base_semantic_coverage_modeled'] or 0):.1f}% | "
             f"{100 * float(row['fine_semantic_coverage_modeled'] or 0):.1f}% | "
+            f"{100 * float(row['render_track_coverage_all'] or 0):.1f}%/"
+            f"{100 * float(row['render_label_coverage_all'] or 0):.1f}% | "
             f"{row['raw_class_switches'] or 0}/{row['stable_class_switches'] or 0} | "
             f"{fine} |"
         )
@@ -387,6 +430,8 @@ def _write_markdown(path: Path, rows: list[dict[str, Any]], summary: dict[str, A
             "![Throughput](multidomain_fps.png)",
             "",
             "![Semantic coverage](multidomain_semantic_coverage.png)",
+            "",
+            "![Rendered label evidence](multidomain_render_label_sources.png)",
             "",
             "![Class stability](multidomain_class_stability.png)",
             "",

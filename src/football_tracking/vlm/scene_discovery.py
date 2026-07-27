@@ -25,7 +25,7 @@ from football_tracking.paths import get_project_root, resolve_project_path
 from football_tracking.vlm.model_loader import first_model_device
 
 LOGGER = logging.getLogger(__name__)
-PROMPT_VERSION = "dynamic-v4-hierarchical-pixel-bounded"
+PROMPT_VERSION = "dynamic-v5-detector-base-taxonomy-only"
 DEFAULT_REGISTRY = Path("configs/ontology/vocabulary_registry.yaml")
 DEFAULT_IMAGE_MIN_PIXELS = 64 * 32 * 32
 DEFAULT_IMAGE_MAX_PIXELS = 512 * 32 * 32
@@ -38,19 +38,25 @@ or any fixed dataset. Build a compact object vocabulary that a detector and trac
 Rules:
 1. Separate a stable base object class from attributes and fine-grained identity. Example:
    canonical_name="car", attributes=["red"], fine_grained_candidates=["sedan"].
+   canonical_name must be a detector-level class that remains valid across viewpoints. Use
+   "bird" rather than "seabird" or a species name, and keep the species as a fine candidate.
 2. Use action="track" for persistent moving entities, "detect" for useful objects that do not
    need identity over time, and "context" for background regions.
 3. Include classes outside COCO when they are visually supported. Do not force an unknown class
    into a COCO label.
 4. Merge synonyms and use a singular, short English canonical_name.
 5. Do not include speculative or invisible objects. Return at most {max_classes} object entries.
-6. For each detected class, describe the useful semantic facet (for example species,
-   vehicle_subtype, make_model, instrument_type, or role) and list at most six visually
+6. For each detected class, describe at most three useful semantic facets (for example species,
+   vehicle_subtype, make_model, instrument_type, or role) and list at most three visually
    plausible fine-grained candidates. Candidates guide later crop analysis; they are not
    final predictions and may be empty.
 7. Never invent a species, breed, brand, model, medical diagnosis, or personal identity.
    Add a fine candidate only when the representative shots contain supporting visual cues.
-8. Confidence is a number from 0 to 1.
+8. A fine candidate must be a taxonomic subtype, species, breed, make/model, role, or instrument
+   type. Never put color, clothing, material, pose, action, state, or activity in
+   fine_grained_candidates; keep those in attributes. If no subtype is visible, return [].
+9. Confidence is a number from 0 to 1. Keep descriptions and attributes short so the JSON is
+   complete within the output budget.
 
 Return one valid JSON object only:
 {{
@@ -201,6 +207,7 @@ def discover_scene(
     objects = normalize_objects(
         [item for item in raw_objects if isinstance(item, dict)],
         registry=registry,
+        domain=str(domain_data.get("name", "unknown")),
         max_classes=max_classes,
     )
     warnings = [parse_warning] if parse_warning else []

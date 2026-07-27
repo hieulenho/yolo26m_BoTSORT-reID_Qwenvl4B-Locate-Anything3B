@@ -1,1 +1,1 @@
-"""Visualization package placeholder for future milestones."""
+"""Rendering and benchmark visualization helpers."""

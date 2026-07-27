@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "status": "manual_review_required",
+  "created_at": "2026-07-26T18:31:34.111410+00:00",
+  "sample_id": "multidomain_traffic_ua_detrac_30s",
+  "track_count": 52,
+  "observation_count": 7817,
+  "inputs": {
+    "source_video": {
+      "path": "F:\\videos\\multidomain_traffic_ua_detrac_30s.mp4",
+      "sha256": "96bf2001c30a74b631cece2241b355a97452f46da515f902a6bb09c0360efc23"
+    },
+    "tracks": {
+      "path": "F:\\videos\\multidomain_traffic_ua_detrac_30s_8bit_realtime_stable_tracking.txt",
+      "sha256": "116ed96306619415fa6b06df828a94c00f74136b8f209459cda49be4f8ec4e07"
+    },
+    "discovery": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_traffic_ua_detrac_30s\\discovery\\scene_discovery.json",
+      "sha256": "7a5acc6f68e1073d79b1aeb8bda555c2fe58e899c3aa8683ba0f10ea67c3e22e"
+    },
+    "route": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_traffic_ua_detrac_30s\\plan\\detector_route.json",
+      "sha256": "a4d658a7f363bb6960a585bd1534395e8482cc0d52028142ab430da3f3dde927"
+    },
+    "semantics": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_traffic_ua_detrac_30s\\fused_track_semantics.json",
+      "sha256": "c06d55d22a26f821fb2d5f68257c578a958db45ae90e406d2d942ad585d8d31e"
+    },
+    "run_report": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_traffic_ua_detrac_30s\\adaptive_run_report.json",
+      "sha256": "f11573f217f388f76cdad8810fd0457aab01b44ef9c7e54d91b204115a5fe785"
+    }
+  },
+  "outputs": {
+    "track_csv": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_ua_detrac_30s\\track_annotations.csv",
+    "review_yaml": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_ua_detrac_30s\\ground_truth_review.yaml",
+    "draft_manifest": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_ua_detrac_30s\\manifest.draft.yaml",
+    "package_json": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_ua_detrac_30s\\annotation_package.json",
+    "readme": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_ua_detrac_30s\\README.md"
+  }
+}

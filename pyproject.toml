@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "football-tracking"
 version = "0.1.0"
-description = "Reusable YOLO detection, multi-object tracking, TrackEval evaluation, and Qwen VLM analysis pipeline."
+description = "Adaptive multi-domain YOLO/YOLOE tracking with LocateAnything and Qwen VLM semantics."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 classifiers = [

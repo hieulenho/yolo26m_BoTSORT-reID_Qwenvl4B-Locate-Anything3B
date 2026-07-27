@@ -2,6 +2,10 @@
 
 Supported entry points are grouped by purpose. Run them from `F:\Tracking` in PowerShell.
 
+`run_multidomain_video_suite.ps1` runs the normalized 30-60 second suite sequentially, keeps
+Qwen and LocateAnything in separate 8-bit processes, writes MP4 products beside the source
+videos, and builds the aggregate trial report.
+
 ## Adaptive Video Pipeline
 
 ```powershell
@@ -10,14 +14,14 @@ Supported entry points are grouped by purpose. Run them from `F:\Tracking` in Po
   -OutputVideo F:\videos\1_adaptive_tracking.mp4 `
   -SemanticOutputVideo F:\videos\1_adaptive_semantic.mp4 `
   -Profile realtime `
-  -QwenQuantization 4bit `
+  -QwenQuantization 8bit `
   -Device cuda `
   -Overwrite
 ```
 
 This is the primary offline entry point. It performs scene discovery, class normalization,
-detector routing, tracking, Qwen track semantics, event-triggered LocateAnything, fusion,
-unknown rejection, rendering, and run-report consolidation.
+detector routing, tracking, all-track LocateAnything spatial verification, batched Qwen track
+semantics, fusion, unknown rejection, rendering, and run-report consolidation.
 
 Useful controls:
 
@@ -29,9 +33,17 @@ Useful controls:
 | `-Profile accuracy` | class-routed identity-stable BoT-SORT ReID |
 | `-MaxFrames 120` | bounded smoke run |
 | `-SemanticMaxTracks 0` | analyze all tracks; use a positive value only for a bounded smoke run |
+| `-SemanticMaxTracksPerBatch 1` | process one identity at a time on an 8 GB GPU |
+| `-SemanticMaxImages 2` | send one target-local frame and one multi-time crop panel |
+| `-SemanticMaxNewTokens 192` | keep structured output bounded and reduce latency |
+| `-LocateCropPadding 0.35` | retain local context without pulling many neighboring tracks into the crop |
 | `-RunTrackSemantics $false` | skip downstream Qwen track labeling |
 | `-RunLocateVerification $false` | skip LocateAnything verification |
 | `-RefreshSemanticCache` | rerun discovery for the same source |
+
+With `-SemanticMaxTracks 0`, the script enforces all-ID coverage before rendering. A positive
+limit is intended only for smoke tests and will leave the remaining IDs as detector fallback
+in that deliberately partial output.
 
 ## Realtime Stream
 
@@ -41,7 +53,7 @@ Useful controls:
   -RunName webcam_01 `
   -CalibrationSeconds 8 `
   -DiscoveryKeyframes 2 `
-  -QwenQuantization 4bit `
+  -QwenQuantization 8bit `
   -SemanticWorkerMode deferred `
   -Device cuda `
   -Overwrite
@@ -52,6 +64,10 @@ plan, and starts the camera/RTSP/file stream. Track crops are written to a non-b
 queue. `deferred` drains the queue automatically after capture; `live` starts a persistent Qwen
 worker that loads the model once and updates the semantic cache while tracking continues.
 Use `-NoWindow` for headless measurement.
+
+On one 8 GB GPU, deferred mode is a two-phase semantic job: event-triggered LocateAnything
+8-bit processes the queued target crops, releases VRAM, then Qwen 8-bit labels those verified
+regions. Live mode remains Qwen-only unless LocateAnything is hosted on a separate GPU/service.
 
 `-DiscoveryKeyframes 2` is the 8 GB GPU default. Increase it only for videos with several
 visually different shots. `-DiscoveryMaxNewTokens 768` protects complete structured JSON; the
@@ -67,6 +83,7 @@ manually:
   --semantic-output outputs\adaptive_realtime\webcam_01\semantic_cache.json `
   --memory outputs\adaptive_realtime\webcam_01\semantic_memory.json `
   --max-events 8 `
+  --locate-first `
   --drain
 ```
 

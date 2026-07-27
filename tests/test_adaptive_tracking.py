@@ -13,8 +13,14 @@ from football_tracking.adaptive_tracking.config_builder import (
     write_adaptive_plan,
 )
 from football_tracking.adaptive_tracking.grounding_verification import (
+    _association_rejection_reason,
+    _grounding_execution_payload,
     _map_bbox_to_source,
+    _match_grounding_to_track,
+    _matches_expected_track,
+    _overlap_metrics,
     _prepare_grounding_input,
+    _retain_best_fusion_association_per_request,
     build_grounding_plan,
 )
 from football_tracking.adaptive_tracking.ontology import (
@@ -38,6 +44,8 @@ from football_tracking.adaptive_tracking.semantic_fusion import (
 from football_tracking.adaptive_tracking.semantic_queue import (
     SemanticCacheView,
     SemanticEventQueue,
+    _validated_target_bbox,
+    prepare_pending_events_with_locate,
     process_semantic_queue,
 )
 from football_tracking.adaptive_tracking.semantic_render import (
@@ -107,6 +115,22 @@ def test_vocabulary_maps_vehicle_subtypes_to_car_base_class() -> None:
     assert objects[0].action == "track"
     assert objects[0].coco_id == 2
     assert "yellow" in objects[0].attributes
+
+
+def test_vocabulary_uses_domain_scoped_microscopy_alias() -> None:
+    registry = _registry()
+    microscopy = normalize_objects(
+        [{"name": "particle", "action": "track", "confidence": 0.9}],
+        registry=registry,
+        domain="microscopic",
+    )
+    generic = normalize_objects(
+        [{"name": "particle", "action": "track", "confidence": 0.9}],
+        registry=registry,
+    )
+
+    assert microscopy[0].canonical_name == "cell"
+    assert generic[0].canonical_name == "particle"
 
 
 def test_vocabulary_registry_rejects_conflicting_aliases(tmp_path: Path) -> None:
@@ -215,6 +239,22 @@ def test_router_uses_validated_microscopy_adapter_when_available(
     assert route.class_names == ("cell",)
 
 
+def test_router_accepts_qwen_microscopic_domain_alias(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "cell_best.pt"
+    checkpoint.write_bytes(b"checkpoint")
+
+    route = build_detector_route(
+        _discovery(
+            "microscopic",
+            [{"name": "particle", "action": "detect", "confidence": 0.50}],
+        ),
+        microscopy_checkpoint=str(checkpoint),
+    )
+
+    assert route.route_name == "microscopy_finetuned"
+    assert route.class_names == ("cell",)
+
+
 def test_realtime_stable_profile_keeps_small_detector_and_uses_tracktrack() -> None:
     discovery = _discovery(
         "traffic",
@@ -247,6 +287,26 @@ def test_router_promotes_highest_confidence_detect_class_when_no_track_class() -
     assert route.route_name == "open_vocabulary"
     assert route.tracker_class_ids == (0,)
     assert "promoted" in route.reason
+
+
+def test_open_vocabulary_route_keeps_yoloe_in_fp32() -> None:
+    route = build_detector_route(
+        _discovery(
+            "wildlife",
+            [{"name": "kingfisher", "action": "track", "confidence": 0.98}],
+        ),
+        profile="realtime_stable",
+    )
+
+    tracking = build_tracking_payload(
+        source_video="F:/videos/wildlife.mp4",
+        output_video="F:/videos/wildlife_tracking.mp4",
+        route=route,
+        device="cuda",
+    )
+
+    assert route.backend == "ultralytics_yoloe"
+    assert tracking["detector"]["half"] is False
 
 
 def test_router_promotes_people_instead_of_classroom_furniture() -> None:
@@ -337,6 +397,59 @@ def test_route_keeps_detect_only_classes_out_of_tracker() -> None:
 
     assert route.class_ids == (2, 9)
     assert route.tracker_class_ids == (2,)
+
+
+def test_router_promotes_persistent_detect_classes_alongside_explicit_track() -> None:
+    route = build_detector_route(
+        _discovery(
+            "traffic",
+            [
+                {"name": "person", "action": "track", "confidence": 0.9},
+                {"name": "car", "action": "detect", "confidence": 0.9},
+                {"name": "bus", "action": "detect", "confidence": 0.8},
+                {"name": "traffic light", "action": "detect", "confidence": 0.8},
+            ],
+        )
+    )
+
+    assert route.class_ids == (0, 2, 5, 9)
+    assert route.tracker_class_ids == (0, 2, 5)
+    assert "promoted from detect to track" in route.reason
+
+
+def test_router_does_not_track_static_role_infrastructure() -> None:
+    discovery = _discovery(
+        "urban_transport",
+        [
+            {
+                "name": "trolleybus",
+                "action": "track",
+                "confidence": 0.9,
+                "taxonomy_hint": "vehicle_subtype",
+            },
+            {
+                "name": "traffic light",
+                "action": "detect",
+                "confidence": 0.9,
+                "taxonomy_hint": "role",
+            },
+            {
+                "name": "sign",
+                "action": "detect",
+                "confidence": 0.9,
+                "taxonomy_hint": "role",
+            },
+        ],
+    )
+
+    route = build_detector_route(discovery, profile="realtime_stable")
+
+    tracked_names = {
+        name
+        for name, class_id in zip(route.class_names, route.class_ids, strict=True)
+        if class_id in route.tracker_class_ids
+    }
+    assert tracked_names == {"trolleybus"}
 
 
 def test_generated_plan_uses_profile_tracker_and_runtime_vocabulary(tmp_path: Path) -> None:
@@ -771,6 +884,136 @@ def test_grounding_plan_can_benchmark_explicit_tracks_without_qwen(
     }
 
 
+def test_explicit_track_benchmark_uses_metadata_instead_of_scene_candidates(
+    tmp_path: Path,
+) -> None:
+    discovery = SceneDiscovery(
+        source_video="classroom.mp4",
+        domain="education",
+        domain_confidence=0.9,
+        description="classroom",
+        objects=normalize_objects(
+            [
+                {
+                    "name": "blackboard",
+                    "confidence": 0.9,
+                    "action": "detect",
+                    "open_vocabulary": True,
+                },
+                {
+                    "name": "desk",
+                    "confidence": 0.9,
+                    "action": "detect",
+                    "open_vocabulary": True,
+                },
+                {"name": "person", "confidence": 0.95, "action": "track"},
+            ],
+            registry=_registry(),
+        ),
+        keyframes=({"frame_index": 5, "path": "discovery.jpg"},),
+    )
+    context = tmp_path / "vlm_context.json"
+    context.write_text(
+        json.dumps(
+            {
+                "keyframes": [],
+                "crops": [
+                    {"track_id": 2, "frame_index": 20, "path": "track2.jpg"},
+                    {"track_id": 4, "frame_index": 40, "path": "track4.jpg"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    metadata = tmp_path / "tracking.metadata.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "track_classes": [
+                    {"track_id": 2, "class_name": "person"},
+                    {"track_id": 4, "class_name": "person"},
+                    {"track_id": 8, "class_name": "person"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = build_grounding_plan(
+        discovery,
+        output_path=tmp_path / "plan.json",
+        semantic_context=context,
+        tracking_metadata=metadata,
+        verify_track_ids=[2, 4],
+        max_classes=1,
+        max_expected_tracks_per_class=1,
+        overwrite=True,
+    )
+
+    assert plan["summary"]["request_count"] == 2
+    assert {row["class_label"] for row in plan["requests"]} == {"person"}
+    assert {row["target_track_id"] for row in plan["requests"]} == {2, 4}
+    assert {row["trigger"] for row in plan["requests"]} == {
+        "explicit_track_benchmark"
+    }
+
+
+def test_grounding_plan_verifies_every_metadata_track_when_limit_is_zero(
+    tmp_path: Path,
+) -> None:
+    discovery = _discovery(
+        "education",
+        [{"name": "person", "confidence": 0.95, "action": "track"}],
+    )
+    context = tmp_path / "vlm_context.json"
+    context.write_text(
+        json.dumps(
+            {
+                "keyframes": [],
+                "crops": [
+                    {
+                        "track_id": track_id,
+                        "frame_index": 10 + track_id,
+                        "path": f"track{track_id}.jpg",
+                    }
+                    for track_id in (1, 2, 3)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    metadata = tmp_path / "tracking.metadata.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "track_classes": [
+                    {"track_id": track_id, "class_name": "person"}
+                    for track_id in (1, 2, 3)
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = build_grounding_plan(
+        discovery,
+        output_path=tmp_path / "plan.json",
+        semantic_context=context,
+        tracking_metadata=metadata,
+        verify_all_tracks=True,
+        max_expected_tracks_per_class=0,
+        overwrite=True,
+    )
+
+    assert plan["policy"] == "locate_first_all_tracks"
+    assert plan["summary"]["all_track_verification"] is True
+    assert plan["summary"]["request_count"] == 3
+    assert {
+        tuple(row["expected_track_ids"]) for row in plan["requests"]
+    } == {(1,), (2,), (3,)}
+    assert all(row["target_track_id"] is not None for row in plan["requests"])
+
+
 def test_grounding_plan_triggers_identity_reacquisition_for_long_gap(
     tmp_path: Path,
 ) -> None:
@@ -893,6 +1136,48 @@ def test_target_grounding_crop_maps_local_box_back_to_source(tmp_path: Path) -> 
         30.0,
         50.0,
     )
+
+
+def test_target_grounding_frame_cache_is_bounded(tmp_path: Path) -> None:
+    import cv2
+
+    source = tmp_path / "source.mp4"
+    writer = cv2.VideoWriter(
+        str(source),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        5.0,
+        (100, 100),
+    )
+    try:
+        for _frame_index in range(12):
+            writer.write(np.zeros((100, 100, 3), dtype=np.uint8))
+    finally:
+        writer.release()
+    frame_cache = {
+        frame_index: np.zeros((100, 100, 3), dtype=np.uint8)
+        for frame_index in range(1, 10)
+    }
+    request = {
+        "request_id": "track_7",
+        "frame_index": 10,
+        "image_path": str(tmp_path / "unused.jpg"),
+        "query": "the car",
+        "target_track_id": 7,
+    }
+
+    _prepare_grounding_input(
+        request=request,
+        source_video=str(source),
+        frame_rows=[MotTrackRow(10, 7, 20, 30, 10, 20, 0.9)],
+        output_dir=tmp_path / "crops",
+        frame_cache=frame_cache,
+        crop_padding=0.0,
+        crop_size=100,
+        frame_cache_limit=8,
+    )
+
+    assert len(frame_cache) == 8
+    assert 10 in frame_cache
 
 
 def test_grounding_plan_uses_track_crop_frame_when_keyframe_misses_target(
@@ -1067,6 +1352,69 @@ def test_hierarchical_fusion_rejects_under_threshold_subtype() -> None:
     assert row["fine_unknown_reason"] == ("low_confidence_or_conflicting_fine_grained_evidence")
 
 
+def test_hierarchical_fusion_can_reject_overconfident_single_model_guess() -> None:
+    result = fuse_track_semantics(
+        [
+            TrackSemanticEvidence(
+                8,
+                "bird",
+                0.9,
+                "qwen",
+                evidence_frames=(10, 30),
+                fine_label="sooty tern",
+                fine_confidence=0.95,
+            )
+        ],
+        fine_unknown_threshold=0.97,
+    )
+
+    row = result["tracks"][0]
+    assert row["class_label"] == "bird"
+    assert row["fine_label"] == "unknown"
+    assert row["fine_accepted"] is False
+
+
+def test_risk_aware_fine_threshold_accepts_role_but_rejects_species() -> None:
+    role = fuse_track_semantics(
+        [
+            TrackSemanticEvidence(
+                1,
+                "person",
+                0.95,
+                "qwen",
+                evidence_frames=(10, 30),
+                fine_label="teacher",
+                fine_confidence=0.85,
+                fine_label_type="role",
+            )
+        ],
+        fine_unknown_threshold=0.82,
+        domain="education",
+    )["tracks"][0]
+    species = fuse_track_semantics(
+        [
+            TrackSemanticEvidence(
+                2,
+                "bird",
+                0.95,
+                "qwen",
+                evidence_frames=(10, 30),
+                fine_label="sooty tern",
+                fine_confidence=0.95,
+                fine_label_type="species",
+            )
+        ],
+        fine_unknown_threshold=0.82,
+        domain="coastal_wildlife",
+    )["tracks"][0]
+
+    assert role["fine_label"] == "teacher"
+    assert role["fine_required_threshold"] == 0.82
+    assert role["fine_independent_evidence_frames"] == 2
+    assert species["fine_label"] == "unknown"
+    assert species["fine_required_threshold"] == 0.97
+
+
 def test_scene_schema_round_trips_fine_grained_discovery_fields() -> None:
     payload = {
         "source_video": "bird.webm",
@@ -1141,6 +1489,102 @@ def test_semantic_event_queue_drops_work_when_pending_limit_is_reached(
     assert queue.enqueue(frame=frame, frame_index=2, track=second, reason="new") is None
     assert queue.pending_count == 1
     assert queue.dropped_full == 1
+
+
+def test_realtime_deferred_locate_prepares_verified_qwen_images(
+    tmp_path: Path,
+) -> None:
+    queue, vlm_config = _semantic_worker_fixture(tmp_path)
+
+    class GroundedBox:
+        bbox_xyxy = (6.0, 9.0, 46.0, 69.0)
+        confidence = 0.9
+
+    class RuntimeInfo:
+        @staticmethod
+        def to_dict() -> dict:
+            return {"backend": "fixture"}
+
+    class Result:
+        boxes = [GroundedBox()]
+        runtime_info = RuntimeInfo()
+
+    class Service:
+        @staticmethod
+        def ground_image(*, image_path: Path, query: str) -> Result:
+            assert image_path.is_file()
+            assert query == "the object"
+            return Result()
+
+    summary = prepare_pending_events_with_locate(
+        queue_dir=queue.root,
+        service=Service(),
+    )
+    event_path = next(queue.pending_dir.glob("*.json"))
+    event = json.loads(event_path.read_text(encoding="utf-8"))
+
+    assert summary["prepared_event_count"] == 1
+    assert summary["accepted_event_count"] == 1
+    assert event["locateanything"]["accepted"] is True
+    assert len(event["qwen_image_paths"]) == 2
+    assert Path(event["qwen_image_paths"][1]).is_file()
+    assert len(event["target_bbox_in_crop_xyxy"]) == 4
+
+    captured_jobs: list[dict] = []
+
+    def fake_runner(_config, jobs):
+        captured_jobs.extend(jobs)
+        return {
+            "batches": [
+                {
+                    "batch_id": jobs[0]["batch_id"],
+                    "answer": json.dumps(
+                        {
+                            "track_predictions": [
+                                {
+                                    "track_id": 7,
+                                    "class_label": "car",
+                                    "confidence": 0.99,
+                                    "observations": [
+                                        {
+                                            "frame_index": 999,
+                                            "class_label": "car",
+                                            "confidence": 0.99,
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    ),
+                }
+            ]
+        }
+
+    memory_path = tmp_path / "memory.json"
+    process_semantic_queue(
+        queue_dir=queue.root,
+        vlm_config_path=vlm_config,
+        semantic_output=tmp_path / "semantic.json",
+        memory_path=memory_path,
+        runner=fake_runner,
+    )
+    memory = json.loads(memory_path.read_text(encoding="utf-8"))
+
+    assert len(captured_jobs[0]["image_paths"]) == 2
+    assert {row["source"] for row in memory["observations"]} == {"qwen"}
+    assert {
+        frame
+        for observation in memory["observations"]
+        for frame in observation["evidence_frames"]
+    } == {10}
+
+
+def test_realtime_locate_target_bbox_falls_back_after_invalid_clipping() -> None:
+    assert _validated_target_bbox(
+        (100.0, 10.0, 120.0, 40.0),
+        width=64,
+        height=64,
+    ) == (0.0, 0.0, 64.0, 64.0)
 
 
 def test_qwen_temporal_observations_are_fused_in_frame_order() -> None:
@@ -1246,6 +1690,21 @@ def test_semantic_evidence_maps_generated_subclass_to_registry_parent() -> None:
     assert rows[0].attributes["specific_class"] == "forward"
 
 
+def test_semantic_evidence_uses_domain_scoped_alias() -> None:
+    microscopy = normalize_semantic_evidence(
+        [TrackSemanticEvidence(9, "particle", 0.9, "qwen")],
+        _registry(),
+        domain="microscopic",
+    )
+    generic = normalize_semantic_evidence(
+        [TrackSemanticEvidence(9, "particle", 0.9, "qwen")],
+        _registry(),
+    )
+
+    assert microscopy[0].class_label == "cell"
+    assert generic[0].class_label == "particle"
+
+
 def test_semantic_fusion_rejects_single_low_confidence_prediction() -> None:
     result = fuse_track_semantics(
         [TrackSemanticEvidence(3, "ambulance", 0.2, "qwen")],
@@ -1309,6 +1768,155 @@ def test_parse_locate_ignores_wrong_expected_track() -> None:
     assert [row.track_id for row in rows] == [8]
 
 
+def test_parse_locate_rejects_legacy_scene_only_associations() -> None:
+    rows = parse_locate_evidence(
+        {
+            "associations": [
+                {
+                    "track_id": 7,
+                    "frame_index": 10,
+                    "class_label": "uniform",
+                    "confidence": 0.9,
+                    "association_scope": "scene_only",
+                    "accepted_for_fusion": True,
+                    "expected_track_ids": [],
+                },
+                {
+                    "track_id": 8,
+                    "frame_index": 10,
+                    "class_label": "student",
+                    "confidence": 0.8,
+                    "accepted_for_fusion": True,
+                    "expected_track_ids": [8],
+                },
+            ]
+        }
+    )
+
+    assert [row.track_id for row in rows] == [8]
+
+
+def test_parse_qwen_moves_action_out_of_fine_label() -> None:
+    rows = parse_qwen_answer(
+        {
+            "answer": {
+                "track_predictions": [
+                    {
+                        "track_id": 2,
+                        "class_label": "student",
+                        "fine_label": "standing, gesturing",
+                        "fine_confidence": 0.95,
+                        "confidence": 0.8,
+                    }
+                ]
+            }
+        }
+    )
+
+    assert rows[0].fine_label == "unknown"
+    assert rows[0].fine_confidence == 0.0
+    assert rows[0].attributes["observed_action_or_state"] == "standing, gesturing"
+
+
+def test_scene_only_grounding_is_not_counted_as_identity_evidence() -> None:
+    assert _matches_expected_track(set(), 7) is False
+    assert _matches_expected_track({8}, 7) is False
+    assert _matches_expected_track({7, 8}, 7) is True
+
+    payload = _grounding_execution_payload(
+        {"requests": [{"request_id": "scene_00"}]},
+        [],
+        [
+            {
+                "request_id": "scene_00",
+                "track_id": 7,
+                "association_scope": "scene_only",
+                "accepted_for_fusion": False,
+            }
+        ],
+        skipped=False,
+    )
+
+    assert payload["summary"]["association_count"] == 1
+    assert payload["summary"]["accepted_association_count"] == 0
+    assert payload["summary"]["matched_request_count"] == 0
+
+
+def test_identity_scoped_grounding_matches_requested_track_not_global_best() -> None:
+    requested = MotTrackRow(10, 7, 10, 10, 20, 40, 0.9)
+    neighbor = MotTrackRow(10, 8, 24, 10, 20, 40, 0.9)
+
+    matched = _match_grounding_to_track(
+        (22.0, 12.0, 39.0, 48.0),
+        [requested, neighbor],
+        expected_track_ids={7},
+    )
+
+    assert matched is not None
+    assert matched["track"].track_id == 7
+    assert matched["competing_track_id"] == 8
+    assert matched["competing_association_score"] > matched["association_score"]
+
+
+def test_identity_association_requires_positive_competitor_margin() -> None:
+    assert (
+        _association_rejection_reason(
+            matches_expected=True,
+            association_score=0.72,
+            minimum_score=0.10,
+            clears_competitor=False,
+        )
+        == "insufficient_identity_margin"
+    )
+    assert (
+        _association_rejection_reason(
+            matches_expected=True,
+            association_score=0.72,
+            minimum_score=0.10,
+            clears_competitor=True,
+        )
+        is None
+    )
+
+
+def test_only_best_grounding_box_per_request_contributes_to_fusion() -> None:
+    rows = _retain_best_fusion_association_per_request(
+        [
+            {
+                "request_id": "track_7",
+                "track_id": 7,
+                "accepted_for_fusion": True,
+                "confidence": 0.70,
+                "identity_margin": 0.30,
+                "association_score": 0.80,
+            },
+            {
+                "request_id": "track_7",
+                "track_id": 7,
+                "accepted_for_fusion": True,
+                "confidence": 0.85,
+                "identity_margin": 0.20,
+                "association_score": 0.90,
+            },
+        ]
+    )
+
+    assert [row["accepted_for_fusion"] for row in rows] == [False, True]
+    assert rows[0]["rejection_reason"] == "lower_ranked_grounding_candidate"
+
+
+def test_partial_grounding_uses_coverage_without_claiming_full_iou() -> None:
+    metrics = _overlap_metrics(
+        (20.0, 20.0, 30.0, 40.0),
+        (10.0, 10.0, 50.0, 60.0),
+    )
+
+    assert metrics["iou"] == pytest.approx(0.1)
+    assert metrics["grounding_coverage"] == pytest.approx(1.0)
+    assert metrics["target_coverage"] == pytest.approx(0.1)
+    assert metrics["association_score"] == pytest.approx(0.1**0.5)
+
+
 def test_semantic_renderer_keeps_unknown_tracks_visible(tmp_path: Path) -> None:
     import cv2
 
@@ -1354,11 +1962,24 @@ def test_semantic_renderer_keeps_unknown_tracks_visible(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
+    metadata = tmp_path / "tracking.metadata.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "track_classes": [
+                    {"track_id": 1, "class_name": "person", "class_consensus": 0.99},
+                    {"track_id": 2, "class_name": "person", "class_consensus": 0.99},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
 
     result = render_semantic_video(
         source_video=source,
         tracks_path=tracks,
         semantics_path=semantics,
+        tracking_metadata_path=metadata,
         output_video=tmp_path / "rendered.mp4",
         overwrite=True,
         max_frames=2,
@@ -1367,9 +1988,58 @@ def test_semantic_renderer_keeps_unknown_tracks_visible(tmp_path: Path) -> None:
     assert result["video"]["rendered_frame_count"] == 2
     assert result["video"]["requested_max_frames"] == 2
     assert result["semantics_summary"]["track_count"] == 2
+    assert result["semantics_summary"]["modeled_track_count"] == 2
+    assert result["semantics_summary"]["unmodeled_track_count"] == 0
+    assert result["semantics_summary"]["semantic_rejected_track_count"] == 1
+    assert result["semantics_summary"]["detector_fallback_track_count"] == 0
     assert result["semantics_summary"]["track_coverage"] == 0.5
     assert result["semantics_summary"]["box_count"] == 4
     assert Path(result["output_video"]).is_file()
+
+
+def test_semantic_renderer_uses_detector_class_as_fallback(tmp_path: Path) -> None:
+    import cv2
+
+    source = tmp_path / "source.mp4"
+    writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"mp4v"), 5.0, (64, 48))
+    try:
+        writer.write(np.zeros((48, 64, 3), dtype=np.uint8))
+    finally:
+        writer.release()
+    tracks = tmp_path / "tracks.txt"
+    tracks.write_text("1,7,4,5,12,18,0.9,1,1\n", encoding="utf-8")
+    semantics = tmp_path / "semantics.json"
+    semantics.write_text(json.dumps({"tracks": []}), encoding="utf-8")
+    metadata = tmp_path / "tracking.metadata.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "track_classes": [
+                    {
+                        "track_id": 7,
+                        "class_name": "car",
+                        "class_consensus": 0.95,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = render_semantic_video(
+        source_video=source,
+        tracks_path=tracks,
+        semantics_path=semantics,
+        tracking_metadata_path=metadata,
+        output_video=tmp_path / "rendered.mp4",
+        overwrite=True,
+    )
+
+    summary = result["semantics_summary"]
+    assert summary["accepted_track_count"] == 0
+    assert summary["detector_fallback_track_count"] == 1
+    assert summary["labeled_track_count"] == 1
+    assert summary["label_track_coverage"] == 1.0
 
 
 def test_semantic_label_text_is_bounded_to_frame_width() -> None:

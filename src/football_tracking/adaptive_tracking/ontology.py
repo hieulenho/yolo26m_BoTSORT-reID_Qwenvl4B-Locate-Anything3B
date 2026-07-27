@@ -42,6 +42,7 @@ def normalize_phrase(value: str) -> str:
 class RegistryEntry:
     canonical_name: str
     aliases: tuple[str, ...]
+    domain_aliases: tuple[tuple[str, tuple[str, ...]], ...]
     coco_id: int | None
     default_action: str
 
@@ -67,6 +68,27 @@ class VocabularyRegistry:
                         )
                     aliases[normalized] = entry
         self._aliases = aliases
+        domain_aliases: dict[str, dict[str, RegistryEntry]] = {}
+        for entry in entries:
+            for domain, names in entry.domain_aliases:
+                normalized_domain = normalize_phrase(domain)
+                scoped = domain_aliases.setdefault(normalized_domain, {})
+                for name in names:
+                    normalized = normalize_phrase(name)
+                    if not normalized:
+                        continue
+                    previous = scoped.get(normalized)
+                    if (
+                        previous is not None
+                        and previous.canonical_name != entry.canonical_name
+                    ):
+                        raise VocabularyRegistryError(
+                            f"Domain alias '{normalized}' in '{normalized_domain}' "
+                            f"maps to both '{previous.canonical_name}' and "
+                            f"'{entry.canonical_name}'."
+                        )
+                    scoped[normalized] = entry
+        self._domain_aliases = domain_aliases
 
     @classmethod
     def load(cls, path: str | Path) -> VocabularyRegistry:
@@ -95,14 +117,37 @@ class VocabularyRegistry:
                 RegistryEntry(
                     canonical_name=name,
                     aliases=tuple(str(item) for item in row.get("aliases", ())),
+                    domain_aliases=_parse_domain_aliases(
+                        row.get("domain_aliases", {}),
+                        canonical_name=name,
+                    ),
                     coco_id=coco_id,
                     default_action=default_action,
                 )
             )
         return cls(tuple(entries))
 
-    def resolve(self, raw_name: str) -> tuple[RegistryEntry | None, tuple[str, ...]]:
+    def resolve(
+        self,
+        raw_name: str,
+        *,
+        domain: str | None = None,
+    ) -> tuple[RegistryEntry | None, tuple[str, ...]]:
         normalized = normalize_phrase(raw_name)
+        normalized_domain = normalize_phrase(domain or "")
+        if normalized_domain:
+            scoped = self._domain_aliases.get(normalized_domain, {})
+            if normalized in scoped:
+                return scoped[normalized], ()
+            matches = [
+                (alias, entry)
+                for alias, entry in scoped.items()
+                if re.search(rf"\b{re.escape(alias)}\b", normalized)
+            ]
+            if matches:
+                alias, entry = max(matches, key=lambda item: len(item[0]))
+                attributes = normalize_phrase(normalized.replace(alias, " ")).split()
+                return entry, tuple(attributes)
         if normalized in self._aliases:
             return self._aliases[normalized], ()
         matches = [
@@ -121,6 +166,7 @@ def normalize_objects(
     raw_objects: list[dict[str, Any]],
     *,
     registry: VocabularyRegistry,
+    domain: str | None = None,
     max_classes: int = 24,
     minimum_confidence: float = 0.15,
 ) -> tuple[DiscoveredObject, ...]:
@@ -145,7 +191,7 @@ def normalize_objects(
         confidence = min(max(confidence, 0.0), 1.0)
         if confidence < minimum_confidence:
             continue
-        entry, inferred_attributes = registry.resolve(raw_name)
+        entry, inferred_attributes = registry.resolve(raw_name, domain=domain)
         normalized_name = normalize_phrase(raw_name)
         canonical = entry.canonical_name if entry is not None else normalized_name
         if not canonical:
@@ -223,3 +269,24 @@ def normalize_objects(
         key=lambda item: (action_rank[item.action], -item.confidence, item.canonical_name),
     )
     return tuple(ordered[:max_classes])
+
+
+def _parse_domain_aliases(
+    raw: Any,
+    *,
+    canonical_name: str,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    if raw in (None, {}):
+        return ()
+    if not isinstance(raw, dict):
+        raise VocabularyRegistryError(
+            f"domain_aliases for '{canonical_name}' must be a mapping."
+        )
+    parsed: list[tuple[str, tuple[str, ...]]] = []
+    for domain, names in raw.items():
+        if not isinstance(names, (list, tuple)):
+            raise VocabularyRegistryError(
+                f"Domain aliases for '{canonical_name}' in '{domain}' must be a list."
+            )
+        parsed.append((str(domain), tuple(str(item) for item in names)))
+    return tuple(parsed)

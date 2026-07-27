@@ -1,1 +1,1 @@
-"""Data package placeholder for future milestones."""
+"""Dataset adapters, validation, conversion, and manifest utilities."""

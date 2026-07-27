@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "status": "manual_review_required",
+  "created_at": "2026-07-26T18:31:36.650175+00:00",
+  "sample_id": "multidomain_traffic_street_35s",
+  "track_count": 87,
+  "observation_count": 9686,
+  "inputs": {
+    "source_video": {
+      "path": "F:\\videos\\multidomain_traffic_street_35s.mp4",
+      "sha256": "93405060e2bc8d0bfba95f11774184eba475f3cf6d59e461ccf2ce8493f20b8e"
+    },
+    "tracks": {
+      "path": "F:\\videos\\multidomain_traffic_street_35s_8bit_realtime_stable_tracking.txt",
+      "sha256": "68f7c5c95e2a138128f23fbe699245c7ebf5dafa78db5ca41903989a4c5af0a3"
+    },
+    "discovery": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_traffic_street_35s\\discovery\\scene_discovery.json",
+      "sha256": "b05338eea56e410fd6308c64b20962e6d059f35c7ee12890d24a7b226e2ede2d"
+    },
+    "route": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_traffic_street_35s\\plan\\detector_route.json",
+      "sha256": "b29b2ea1f5d45bb82d2ff07c4304fbd9f3474ffe7441082bc22027826ca31ffa"
+    },
+    "semantics": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_traffic_street_35s\\fused_track_semantics.json",
+      "sha256": "ec83293d96f0471cb43922f68fe8516314f11250c17d6678a22c615d8d34b7d7"
+    },
+    "run_report": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_traffic_street_35s\\adaptive_run_report.json",
+      "sha256": "337bfe51e882adcf69275565c50d3f073a406938b77bde583dda329adeeb008b"
+    }
+  },
+  "outputs": {
+    "track_csv": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_street_35s\\track_annotations.csv",
+    "review_yaml": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_street_35s\\ground_truth_review.yaml",
+    "draft_manifest": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_street_35s\\manifest.draft.yaml",
+    "package_json": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_street_35s\\annotation_package.json",
+    "readme": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_street_35s\\README.md"
+  }
+}

@@ -54,6 +54,7 @@ class TemporalSemanticMemory:
                     evidence=str(row.get("evidence", "")),
                     fine_label=str(row.get("fine_label", "unknown")),
                     fine_confidence=float(row.get("fine_confidence", 0.0)),
+                    fine_label_type=str(row.get("fine_label_type", "unknown")),
                     taxonomy_path=tuple(row.get("taxonomy_path", ())),
                 )
                 for row in payload.get("observations", [])
@@ -86,6 +87,7 @@ class TemporalSemanticMemory:
                 row.evidence,
                 row.fine_label,
                 round(row.fine_confidence, 6),
+                row.fine_label_type,
                 row.taxonomy_path,
             )
             deduplicated[key] = row

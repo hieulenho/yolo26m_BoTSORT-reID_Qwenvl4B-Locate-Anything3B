@@ -256,6 +256,12 @@ def _add_vlm_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tracked-video", type=Path, default=None)
     parser.add_argument("--tracks", type=Path, default=None)
     parser.add_argument("--metadata", type=Path, default=None)
+    parser.add_argument(
+        "--grounding",
+        type=Path,
+        default=None,
+        help="Optional LocateAnything result consumed as spatial evidence by Qwen.",
+    )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--task-prompt", default=None)
     parser.add_argument("--model-id", default=None)
@@ -281,6 +287,7 @@ def _add_vlm_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--max-crops-per-track", type=int, default=None)
     parser.add_argument("--max-model-images", type=int, default=None)
+    parser.add_argument("--max-tracks-per-batch", type=int, default=None)
     parser.add_argument("--crop-padding", type=float, default=None)
     parser.add_argument("--crop-size", type=int, default=None)
     parser.add_argument(
@@ -288,7 +295,12 @@ def _add_vlm_options(parser: argparse.ArgumentParser) -> None:
         choices=("football_team_role", "dynamic"),
         default=None,
     )
-    parser.add_argument("--run-model", action="store_true")
+    parser.add_argument(
+        "--run-model",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Run Qwen inference; use --no-run-model to prepare artifacts only.",
+    )
     parser.add_argument("--do-sample", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -744,6 +756,7 @@ def _vlm_overrides(args: argparse.Namespace) -> dict[str, object]:
         "tracked_video": getattr(args, "tracked_video", None),
         "tracks": getattr(args, "tracks", None),
         "metadata": getattr(args, "metadata", None),
+        "grounding": getattr(args, "grounding", None),
         "output_dir": getattr(args, "output_dir", None),
         "task_prompt": getattr(args, "task_prompt", None),
         "model_id": getattr(args, "model_id", None),
@@ -760,10 +773,11 @@ def _vlm_overrides(args: argparse.Namespace) -> dict[str, object]:
         "track_ids": getattr(args, "track_ids", None),
         "max_crops_per_track": getattr(args, "max_crops_per_track", None),
         "max_model_images": getattr(args, "max_model_images", None),
+        "max_tracks_per_batch": getattr(args, "max_tracks_per_batch", None),
         "crop_padding": getattr(args, "crop_padding", None),
         "crop_output_size": getattr(args, "crop_size", None),
         "output_schema": getattr(args, "output_schema", None),
-        "run_model": True if getattr(args, "run_model", False) else None,
+        "run_model": getattr(args, "run_model", None),
         "do_sample": True if getattr(args, "do_sample", False) else None,
         "overwrite": True if getattr(args, "overwrite", False) else None,
     }

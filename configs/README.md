@@ -7,7 +7,7 @@ run directory and should not be edited by hand.
 
 `adaptive_tracking.yaml` defines:
 
-- Qwen discovery model, 4-bit quantization, shot sampling, and class limit;
+- Qwen discovery model, 8-bit quantization, shot sampling, and class limit;
 - ontology registry and semantic cache root;
 - football, COCO, and open-vocabulary detector checkpoints;
 - realtime, realtime_stable, balanced, and accuracy tracker profiles;
@@ -50,9 +50,11 @@ final report fails instead of silently accepting missing or incompatible inputs.
 
 ## Dynamic Semantic Config
 
-`semantics/dynamic_track.yaml` uses an open output schema. Qwen receives global keyframes,
-track crops, and structured MOT metadata, then emits labels with evidence and confidence. It is
-separate from scene discovery because the two stages have different image and token budgets.
+`semantics/dynamic_track.yaml` uses an open output schema. LocateAnything first verifies a
+track-local region; two temporal views are then packed into one evidence panel. Qwen receives
+one global keyframe, at most three track panels per batch, and structured MOT metadata before
+emitting labels with evidence and confidence. Scene discovery remains a separate call because
+domain vocabulary and per-track fine labels need different image and token budgets.
 
 ## Historical Configs
 

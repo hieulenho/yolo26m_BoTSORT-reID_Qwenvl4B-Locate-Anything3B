@@ -11,7 +11,7 @@ param(
     [ValidateRange(2.0, 30.0)]
     [double]$CalibrationSeconds = 8.0,
     [ValidateSet("none", "8bit", "4bit")]
-    [string]$QwenQuantization = "4bit",
+    [string]$QwenQuantization = "8bit",
     [string]$Device = "cuda",
     [string]$ReuseGeneratedConfig = "",
     [switch]$IncludeLiveSemantic,

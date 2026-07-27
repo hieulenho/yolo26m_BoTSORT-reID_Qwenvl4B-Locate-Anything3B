@@ -76,6 +76,7 @@ mobileclip*.ts
 
 data/samples/multidomain/samples_manifest.json
 data/semantic_benchmark/review/**/contact_sheets/
+data/semantic_gt/**/contact_sheets/
 
 .env
 .vscode/

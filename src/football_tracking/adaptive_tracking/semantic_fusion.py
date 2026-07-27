@@ -18,6 +18,29 @@ class SemanticFusionError(RuntimeError):
     """Raised when semantic evidence cannot be parsed or fused."""
 
 
+_ACTION_STATE_TERMS = {
+    "driving",
+    "gesturing",
+    "holding",
+    "looking",
+    "moving",
+    "parked",
+    "playing",
+    "reading",
+    "riding",
+    "running",
+    "sitting",
+    "standing",
+    "talking",
+    "teaching",
+    "walking",
+    "wearing",
+    "working",
+    "writing",
+}
+_ACTION_CONNECTORS = {"a", "an", "at", "in", "of", "on", "the", "to", "with"}
+
+
 @dataclass(frozen=True)
 class TrackSemanticEvidence:
     track_id: int
@@ -29,6 +52,7 @@ class TrackSemanticEvidence:
     evidence: str = ""
     fine_label: str = "unknown"
     fine_confidence: float = 0.0
+    fine_label_type: str = "unknown"
     taxonomy_path: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -55,6 +79,11 @@ class TrackSemanticEvidence:
             "fine_confidence",
             min(max(fine_confidence, 0.0), 1.0),
         )
+        fine_label_type = (
+            str(self.fine_label_type).strip().lower().replace("-", "_").replace(" ", "_")
+            or "unknown"
+        )
+        object.__setattr__(self, "fine_label_type", fine_label_type)
         object.__setattr__(
             self,
             "taxonomy_path",
@@ -141,6 +170,33 @@ def _qwen_evidence_from_row(
         label = role if team == "unknown" else f"{team} {role}"
     attributes = dict(parent.get("attributes", {}))
     attributes.update(dict(row.get("attributes", {})))
+    fine_label = str(
+        row.get(
+            "fine_label",
+            row.get(
+                "fine_grained_label",
+                parent.get(
+                    "fine_label",
+                    parent.get("fine_grained_label", "unknown"),
+                ),
+            ),
+        )
+    )
+    fine_confidence = float(
+        row.get("fine_confidence", parent.get("fine_confidence", 0.0))
+    )
+    fine_label_type = str(
+        row.get("fine_label_type", parent.get("fine_label_type", "unknown"))
+    )
+    taxonomy_path = tuple(
+        row.get("taxonomy_path", parent.get("taxonomy_path", ()))
+    )
+    if _looks_like_action_or_state(fine_label):
+        attributes.setdefault("observed_action_or_state", fine_label)
+        fine_label = "unknown"
+        fine_confidence = 0.0
+        fine_label_type = "unknown"
+        taxonomy_path = ()
     frame_value = row.get("frame_index")
     evidence_frames = (
         (int(frame_value),)
@@ -155,23 +211,22 @@ def _qwen_evidence_from_row(
         attributes=attributes,
         evidence_frames=evidence_frames,
         evidence=str(row.get("evidence", parent.get("evidence", ""))),
-        fine_label=str(
-            row.get(
-                "fine_label",
-                row.get(
-                    "fine_grained_label",
-                    parent.get(
-                        "fine_label",
-                        parent.get("fine_grained_label", "unknown"),
-                    ),
-                ),
-            )
-        ),
-        fine_confidence=float(
-            row.get("fine_confidence", parent.get("fine_confidence", 0.0))
-        ),
-        taxonomy_path=tuple(row.get("taxonomy_path", parent.get("taxonomy_path", ()))),
+        fine_label=fine_label,
+        fine_confidence=fine_confidence,
+        fine_label_type=fine_label_type,
+        taxonomy_path=taxonomy_path,
     )
+
+
+def _looks_like_action_or_state(value: str) -> bool:
+    normalized = str(value).strip().lower().replace("_", " ")
+    if normalized in {"", "unknown"}:
+        return False
+    tokens = set(re.findall(r"[a-z]+", normalized))
+    action_tokens = tokens & _ACTION_STATE_TERMS
+    if not action_tokens:
+        return False
+    return "," in str(value) or tokens <= (_ACTION_STATE_TERMS | _ACTION_CONNECTORS)
 
 
 def parse_locate_evidence(data: dict[str, Any]) -> list[TrackSemanticEvidence]:
@@ -182,6 +237,14 @@ def parse_locate_evidence(data: dict[str, Any]) -> list[TrackSemanticEvidence]:
             continue
         if row.get("accepted_for_fusion") is False:
             continue
+        if row.get("association_scope") == "scene_only":
+            continue
+        if "expected_track_ids" in row:
+            expected = {
+                int(item) for item in (row.get("expected_track_ids") or ())
+            }
+            if not expected or int(row["track_id"]) not in expected:
+                continue
         evidence.append(
             TrackSemanticEvidence(
                 track_id=int(row["track_id"]),
@@ -206,6 +269,7 @@ def fuse_track_semantics(
     fine_minimum_margin: float = 0.15,
     fine_minimum_temporal_stability: float = 0.67,
     source_weights: dict[str, float] | None = None,
+    domain: str | None = None,
 ) -> dict[str, Any]:
     """Fuse repeated observations, then reject weak or ambiguous labels."""
     if temporal_half_life_frames <= 0:
@@ -305,6 +369,8 @@ def fuse_track_semantics(
             unknown_threshold=fine_unknown_threshold,
             minimum_margin=fine_minimum_margin,
             minimum_temporal_stability=fine_minimum_temporal_stability,
+            domain=domain,
+            base_class=best_label,
         )
         fine_accepted = bool(accepted and fine["accepted"])
         fine_label = str(fine["label"]) if fine_accepted else "unknown"
@@ -338,11 +404,20 @@ def fuse_track_semantics(
                 ),
                 "attributes": attributes,
                 "fine_label": fine_label,
+                "fine_label_type": (
+                    str(fine["label_type"]) if fine_accepted else "unknown"
+                ),
                 "fine_confidence": round(float(fine["confidence"]), 6),
+                "fine_required_threshold": round(
+                    float(fine["required_threshold"]), 6
+                ),
                 "fine_consensus": round(float(fine["consensus"]), 6),
                 "fine_margin": round(float(fine["margin"]), 6),
                 "fine_temporal_stability": round(
                     float(fine["temporal_stability"]), 6
+                ),
+                "fine_independent_evidence_frames": int(
+                    fine["independent_evidence_frames"]
                 ),
                 "fine_accepted": fine_accepted,
                 "fine_unknown_reason": (
@@ -379,6 +454,8 @@ def fuse_track_semantics(
             "fine_unknown_threshold": fine_unknown_threshold,
             "fine_minimum_margin": fine_minimum_margin,
             "fine_minimum_temporal_stability": fine_minimum_temporal_stability,
+            "fine_threshold_policy": "risk_aware_v1",
+            "domain": domain,
             "source_weights": weights,
         },
         "summary": {
@@ -397,13 +474,15 @@ def fuse_track_semantics(
 def normalize_semantic_evidence(
     evidence: list[TrackSemanticEvidence],
     registry: VocabularyRegistry,
+    *,
+    domain: str | None = None,
 ) -> list[TrackSemanticEvidence]:
     normalized: list[TrackSemanticEvidence] = []
     for row in evidence:
         if row.class_label == "unknown":
             normalized.append(row)
             continue
-        entry, _attributes = registry.resolve(row.class_label)
+        entry, _attributes = registry.resolve(row.class_label, domain=domain)
         if entry is None or entry.canonical_name == row.class_label:
             normalized.append(row)
             continue
@@ -428,6 +507,14 @@ def normalize_semantic_evidence(
                     if row.fine_label != "unknown"
                     else row.confidence
                 ),
+                fine_label_type=(
+                    row.fine_label_type
+                    if row.fine_label != "unknown"
+                    else _infer_fine_label_type(
+                        domain=domain,
+                        base_class=entry.canonical_name,
+                    )
+                ),
                 taxonomy_path=row.taxonomy_path,
             )
         )
@@ -444,6 +531,7 @@ def fuse_semantic_files(
     fine_unknown_threshold: float = 0.85,
     fine_minimum_margin: float = 0.15,
     registry_path: str | Path | None = None,
+    domain: str | None = None,
     memory_path: str | Path | None = None,
     memory_context_id: str | None = None,
     max_memory_observations_per_track: int = 32,
@@ -470,6 +558,7 @@ def fuse_semantic_files(
         evidence = normalize_semantic_evidence(
             evidence,
             VocabularyRegistry.load(resolved_registry),
+            domain=domain,
         )
     resolved_memory: Path | None = None
     if memory_path is not None:
@@ -494,10 +583,12 @@ def fuse_semantic_files(
         minimum_margin=minimum_margin,
         fine_unknown_threshold=fine_unknown_threshold,
         fine_minimum_margin=fine_minimum_margin,
+        domain=domain,
     )
     result["policy"]["ontology_registry"] = (
         str(resolved_registry) if resolved_registry is not None else None
     )
+    result["policy"]["domain"] = domain
     result["policy"]["temporal_memory"] = (
         str(resolved_memory.resolve()) if resolved_memory is not None else None
     )
@@ -537,6 +628,8 @@ def _fuse_fine_labels(
     unknown_threshold: float,
     minimum_margin: float,
     minimum_temporal_stability: float,
+    domain: str | None,
+    base_class: str,
 ) -> dict[str, Any]:
     candidates = [
         row
@@ -553,6 +646,9 @@ def _fuse_fine_labels(
         "accepted": False,
         "unknown_reason": "no_visually_supported_fine_label",
         "label_scores": {},
+        "label_type": "unknown",
+        "required_threshold": unknown_threshold,
+        "independent_evidence_frames": 0,
     }
     if not candidates:
         return empty
@@ -575,11 +671,23 @@ def _fuse_fine_labels(
         scores[row.fine_label] += weighted
         weight_totals[row.fine_label] += effective_weight
         total += weighted
-        if row_frame is not None:
-            by_frame[int(row_frame)].append(row)
+        for frame in row.evidence_frames or (
+            (int(row_frame),) if row_frame is not None else ()
+        ):
+            by_frame[int(frame)].append(row)
 
     ranking = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
     label, score = ranking[0]
+    label_rows = [row for row in candidates if row.fine_label == label]
+    label_type = _resolve_fine_label_type(
+        label_rows,
+        domain=domain,
+        base_class=base_class,
+    )
+    required_threshold = _fine_required_threshold(
+        label_type,
+        default=unknown_threshold,
+    )
     second = ranking[1][1] if len(ranking) > 1 else 0.0
     consensus = score / total if total > 0 else 0.0
     absolute = score / weight_totals[label] if weight_totals[label] > 0 else 0.0
@@ -597,10 +705,12 @@ def _fuse_fine_labels(
         else consensus
     )
     temporal_met = len(by_frame) < 2 or temporal_stability >= minimum_temporal_stability
+    independent_evidence_met = len(by_frame) >= 2
     accepted = (
-        confidence >= unknown_threshold
+        confidence >= required_threshold
         and margin >= minimum_margin
         and temporal_met
+        and independent_evidence_met
     )
     return {
         "label": label,
@@ -609,9 +719,14 @@ def _fuse_fine_labels(
         "margin": margin,
         "temporal_stability": temporal_stability,
         "accepted": accepted,
+        "label_type": label_type,
+        "required_threshold": required_threshold,
+        "independent_evidence_frames": len(by_frame),
         "unknown_reason": (
             None
             if accepted
+            else "insufficient_independent_fine_label_evidence"
+            if not independent_evidence_met
             else "low_confidence_or_conflicting_fine_grained_evidence"
         ),
         "label_scores": {
@@ -619,6 +734,59 @@ def _fuse_fine_labels(
             for name, value in ranking
         },
     }
+
+
+def _resolve_fine_label_type(
+    rows: list[TrackSemanticEvidence],
+    *,
+    domain: str | None,
+    base_class: str,
+) -> str:
+    weighted: dict[str, float] = defaultdict(float)
+    for row in rows:
+        label_type = row.fine_label_type
+        if label_type not in {"", "unknown"}:
+            weighted[label_type] += row.fine_confidence
+    if weighted:
+        return min(weighted, key=lambda value: (-weighted[value], value))
+    return _infer_fine_label_type(domain=domain, base_class=base_class)
+
+
+def _infer_fine_label_type(*, domain: str | None, base_class: str) -> str:
+    normalized_domain = str(domain or "").strip().lower().replace("-", "_")
+    normalized_class = str(base_class).strip().lower().replace("_", " ")
+    if any(
+        token in normalized_domain
+        for token in ("wildlife", "animal", "ecology", "coastal")
+    ):
+        return "species"
+    if normalized_class in {"person", "player"} and any(
+        token in normalized_domain
+        for token in ("education", "classroom", "school", "sport", "soccer", "football")
+    ):
+        return "role"
+    if any(
+        token in normalized_domain
+        for token in ("medical", "clinical", "microscopic", "health")
+    ):
+        return "medical"
+    return "subtype"
+
+
+def _fine_required_threshold(label_type: str, *, default: float) -> float:
+    thresholds = {
+        "role": 0.82,
+        "subtype": 0.85,
+        "species": 0.97,
+        "breed": 0.97,
+        "make": 0.95,
+        "model": 0.97,
+        "make_model": 0.97,
+        "medical": 0.99,
+        "diagnosis": 0.99,
+        "identity": 0.99,
+    }
+    return max(float(default), thresholds.get(label_type, 0.92))
 
 
 def _select_taxonomy_path(

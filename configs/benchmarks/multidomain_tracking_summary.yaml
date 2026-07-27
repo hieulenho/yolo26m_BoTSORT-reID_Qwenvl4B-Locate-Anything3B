@@ -52,6 +52,21 @@ benchmarks:
         - ../../outputs/benchmarks/multidomain/ua_detrac_mvi_40774/runs/MVI_40774_750/adaptive_run_report.json
     scope_note: Qwen recovered a truncated JSON response, normalized taxi to car, and routed person/bicycle/car/bus to the COCO detector; GT evaluation covers UA-DETRAC vehicles.
 
+  - id: ua_detrac_adaptive_suite
+    domain: traffic
+    dataset: UA-DETRAC MVI_40774, first 750 frames (30 seconds)
+    profile: adaptive multi-class realtime
+    detector: YOLO26n pretrained + sparse YOLOE-26s
+    tracker: adaptive routed TrackTrack
+    evaluation_mode: official UA-DETRAC vehicle GT; multi-class predictions are not class-filtered
+    metrics_source: ../../outputs/adaptive_runs/multidomain_suite_8bit/evaluation_ua_detrac/trackeval_summary.json
+    sequence_count: 1
+    frame_count: 750
+    fps:
+      reports:
+        - ../../outputs/adaptive_runs/multidomain_suite_8bit/multidomain_traffic_ua_detrac_30s/adaptive_run_report.json
+    scope_note: End-to-end adaptive profile. Person and bicycle predictions count as FP against vehicle-only UA-DETRAC GT, so DetA/MOTA are not a tracker-only comparison.
+
   - id: ctc_zero_shot
     domain: medical microscopy
     dataset: CTC Fluo-N2DH-GOWT1, sequences 01+02
@@ -114,3 +129,18 @@ benchmarks:
       reports:
         - ../../outputs/benchmarks/multidomain/ctc_fluo_n2dh_gowt1/runs_botsort/02/adaptive_run_report.json
     scope_note: Accuracy profile changes detector settings as well as tracker; this is not a fixed-detection tracker-only ablation.
+
+  - id: ctc_adaptive_suite
+    domain: medical microscopy
+    dataset: CTC Fluo-N2DH-GOWT1, held-out sequence 02
+    profile: adaptive realtime stable
+    detector: YOLO26s adapter, trained on sequence 01 only
+    tracker: adaptive routed TrackTrack
+    evaluation_mode: leakage-safe held-out bbox TrackEval with GT scaled to the 960x960 video
+    metrics_source: ../../outputs/adaptive_runs/multidomain_suite_8bit/evaluation_ctc_medical_scaled/trackeval_summary.json
+    sequence_count: 1
+    frame_count: 92
+    fps:
+      reports:
+        - ../../outputs/adaptive_runs/multidomain_suite_8bit/multidomain_medical_cells_31s/adaptive_run_report.json
+    scope_note: GT coordinates are scaled from 1024x1024 CTC masks to the 960x960 rendered source. Sequence 02 is unseen during detector training.

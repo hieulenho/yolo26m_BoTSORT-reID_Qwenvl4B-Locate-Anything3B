@@ -18,12 +18,16 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
   -SourceVideo $SourceVideo `
   -OutputVideo $TrackingVideo `
   -SemanticOutputVideo $SemanticVideo `
-  -Profile realtime `
-  -QwenQuantization 4bit `
+  -Profile realtime_stable `
+  -QwenQuantization 8bit `
   -Device cuda `
   -MaxKeyframes 4 `
   -SemanticMaxTracks 0 `
-  -SemanticMaxImages 8 `
+  -SemanticMaxImages 2 `
+  -SemanticMaxTracksPerBatch 1 `
+  -SemanticMaxNewTokens 192 `
+  -LocateMaxTracks 0 `
+  -LocateCropPadding 0.35 `
   -Overwrite
 
 # 3. Short end-to-end smoke run before a long video.
@@ -53,7 +57,7 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
   -RunName webcam_01 `
   -CalibrationSeconds 8 `
   -DiscoveryKeyframes 2 `
-  -QwenQuantization 4bit `
+  -QwenQuantization 8bit `
   -SemanticWorkerMode deferred `
   -Device cuda `
   -Overwrite
@@ -61,13 +65,14 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
 # 6. Tracker smoke benchmark against SportsMOT GT.
 .\scripts\run_tracking_benchmark.ps1 -Smoke -SmokeFrames 300 -Overwrite
 
-# Optional retry: drain a saved realtime semantic queue with one persistent model load.
+# Optional retry: Locate 8-bit first, release VRAM, then drain with one Qwen load.
 .\.venv\Scripts\python.exe scripts\runtime\run_realtime_semantic_worker.py `
   --queue-dir outputs\adaptive_realtime\webcam_01\semantic_queue `
   --vlm-config configs\semantics\dynamic_track.yaml `
   --semantic-output outputs\adaptive_realtime\webcam_01\semantic_cache.json `
   --memory outputs\adaptive_realtime\webcam_01\semantic_memory.json `
   --max-events 8 `
+  --locate-first `
   --drain
 
 # 7. Rebuild canonical detector/tracker/final reports from saved full experiments.
@@ -88,6 +93,23 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
 # 9. Download the licensed public multi-domain samples (internet required).
 .\.venv\Scripts\python.exe scripts\data\download_multidomain_samples.py
 
+# Normalize five 30-60 second domain clips and write them to F:\videos with provenance.
+.\.venv\Scripts\python.exe scripts\data\prepare_multidomain_video_suite.py `
+  --config configs\benchmarks\multidomain_video_suite.yaml `
+  --overwrite
+
+# Run Qwen3-VL-4B + LocateAnything-3B in 8-bit over all normalized domains.
+.\scripts\run_multidomain_video_suite.ps1 `
+  -Manifest F:\videos\multidomain_video_suite_manifest.json `
+  -OutputDir F:\videos `
+  -Profile realtime_stable `
+  -SemanticMaxTracks 0 `
+  -LocateMaxTracks 0 `
+  -SemanticMaxImages 2 `
+  -SemanticMaxTracksPerBatch 1 `
+  -SemanticMaxNewTokens 192 `
+  -Overwrite
+
 # Run any downloaded sample (all canonical samples are at least 30 seconds).
 .\scripts\run_adaptive_tracking.ps1 `
   -SourceVideo data\samples\multidomain\wildlife_black_noddies.webm `
@@ -95,9 +117,12 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
   -SemanticOutputVideo outputs\videos\multidomain_long\wildlife_black_noddies_semantic.mp4 `
   -OutputRoot outputs\adaptive_runs\multidomain_long `
   -Profile realtime `
-  -QwenQuantization 4bit `
+  -QwenQuantization 8bit `
   -Device cuda `
-  -SemanticMaxTracks 8 `
+  -SemanticMaxTracks 0 `
+  -SemanticMaxImages 2 `
+  -SemanticMaxTracksPerBatch 1 `
+  -SemanticMaxNewTokens 192 `
   -Overwrite
 
 # Repeat for traffic_street.webm and education_classroom_long.webm, changing
@@ -110,16 +135,20 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
   -SemanticOutputVideo outputs\videos\traffic_street_stable_semantic.mp4 `
   -OutputRoot outputs\adaptive_runs\realtime_stable `
   -Profile realtime_stable `
-  -QwenQuantization 4bit `
-  -SemanticMaxTracks 8 `
+  -QwenQuantization 8bit `
+  -SemanticMaxTracks 0 `
+  -SemanticMaxImages 2 `
+  -SemanticMaxTracksPerBatch 1 `
+  -SemanticMaxNewTokens 192 `
   -Device cuda `
   -Overwrite
 
-# Consolidate domain/vocabulary coverage, FPS, VRAM, and continuity proxies.
+# Consolidate domain/vocabulary coverage, FPS, VRAM, continuity proxies, and
+# direct-semantic versus detector-fallback label coverage.
 .\.venv\Scripts\python.exe scripts\benchmarks\build_multidomain_trial_report.py `
-  --manifest data\samples\multidomain\samples_manifest.json `
-  --run-root outputs\adaptive_runs\multidomain_long `
-  --output-dir outputs\adaptive_runs\multidomain_long\summary `
+  --manifest F:\videos\multidomain_video_suite_manifest.json `
+  --run-root outputs\adaptive_runs\multidomain_suite_8bit `
+  --output-dir outputs\adaptive_runs\multidomain_suite_8bit\summary `
   --overwrite
 
 # Main local report:
@@ -127,34 +156,44 @@ $SemanticVideo = "F:\videos\1_adaptive_semantic.mp4"
 # GitHub-ready report:
 # F:\Tracking\docs\benchmarks\final_experiment_report.md
 # Public multi-domain report:
-# F:\Tracking\outputs\adaptive_runs\multidomain_long\summary\multidomain_trial_report.md
+# F:\Tracking\outputs\adaptive_runs\multidomain_suite_8bit\summary\multidomain_trial_report.md
 
 # 10. Human-reviewed multi-domain semantic GT.
-# First review every contact sheet, CSV row, and ground_truth_review.yaml in each package.
+# First review every contact sheet, CSV row, and ground_truth_review.yaml in all five packages.
 .\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py status `
-  --package-dir data\semantic_benchmark\review\wildlife_black_noddies `
-  --package-dir data\semantic_benchmark\review\traffic_street `
-  --package-dir data\semantic_benchmark\review\education_classroom_long `
-  --output outputs\reports\semantic_gt_status.json
+  --package-dir data\semantic_gt\multidomain_suite_8bit\multidomain_traffic_ua_detrac_30s `
+  --package-dir data\semantic_gt\multidomain_suite_8bit\multidomain_traffic_street_35s `
+  --package-dir data\semantic_gt\multidomain_suite_8bit\multidomain_wildlife_black_noddies_38s `
+  --package-dir data\semantic_gt\multidomain_suite_8bit\multidomain_education_classroom_60s `
+  --package-dir data\semantic_gt\multidomain_suite_8bit\multidomain_medical_cells_31s `
+  --output data\semantic_gt\multidomain_suite_8bit\review_status.json
 
 .\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
-  --package-dir data\semantic_benchmark\review\wildlife_black_noddies
+  --package-dir data\semantic_gt\multidomain_suite_8bit\multidomain_wildlife_black_noddies_38s
 
 .\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
-  --package-dir data\semantic_benchmark\review\traffic_street
+  --package-dir data\semantic_gt\multidomain_suite_8bit\multidomain_traffic_street_35s
 
 .\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
-  --package-dir data\semantic_benchmark\review\education_classroom_long
+  --package-dir data\semantic_gt\multidomain_suite_8bit\multidomain_education_classroom_60s
+
+.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
+  --package-dir data\semantic_gt\multidomain_suite_8bit\multidomain_traffic_ua_detrac_30s
+
+.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
+  --package-dir data\semantic_gt\multidomain_suite_8bit\multidomain_medical_cells_31s
 
 .\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py merge `
-  --manifest data\semantic_benchmark\review\wildlife_black_noddies\manifest.reviewed.yaml `
-  --manifest data\semantic_benchmark\review\traffic_street\manifest.reviewed.yaml `
-  --manifest data\semantic_benchmark\review\education_classroom_long\manifest.reviewed.yaml `
-  --output-manifest data\semantic_benchmark\multidomain.reviewed.yaml `
+  --manifest data\semantic_gt\multidomain_suite_8bit\multidomain_traffic_ua_detrac_30s\manifest.reviewed.yaml `
+  --manifest data\semantic_gt\multidomain_suite_8bit\multidomain_traffic_street_35s\manifest.reviewed.yaml `
+  --manifest data\semantic_gt\multidomain_suite_8bit\multidomain_wildlife_black_noddies_38s\manifest.reviewed.yaml `
+  --manifest data\semantic_gt\multidomain_suite_8bit\multidomain_education_classroom_60s\manifest.reviewed.yaml `
+  --manifest data\semantic_gt\multidomain_suite_8bit\multidomain_medical_cells_31s\manifest.reviewed.yaml `
+  --output-manifest data\semantic_gt\multidomain_suite_8bit\multidomain.reviewed.yaml `
   --overwrite
 
 .\.venv\Scripts\python.exe scripts\benchmarks\evaluate_adaptive_semantics.py `
-  --manifest data\semantic_benchmark\multidomain.reviewed.yaml `
+  --manifest data\semantic_gt\multidomain_suite_8bit\multidomain.reviewed.yaml `
   --output-dir outputs\benchmarks\semantics\multidomain_reviewed `
   --overwrite
 

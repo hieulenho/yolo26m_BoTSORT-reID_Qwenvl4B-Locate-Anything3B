@@ -27,7 +27,10 @@ jobs:
           python -m pip install --editable .
 
       - name: Lint
-        run: python -m ruff check src tests
+        run: python -m ruff check src scripts tests
+
+      - name: Compile
+        run: python -m compileall -q src scripts tests
 
       - name: Test
         run: python -m pytest -q

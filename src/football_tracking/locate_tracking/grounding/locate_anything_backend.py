@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import math
 import time
 from pathlib import Path
@@ -233,6 +234,20 @@ class LocateAnythingBackend:
                 "image_max_pixels": self.image_max_pixels,
             },
         )
+
+    def close(self) -> None:
+        """Release model references before another large model is loaded."""
+
+        self._worker = None
+        gc.collect()
+        try:
+            import torch  # type: ignore[import-not-found]
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _resize_image_to_pixel_budget(image: Any, max_pixels: int) -> Any:

@@ -7,7 +7,10 @@ from types import SimpleNamespace
 from football_tracking.vlm import qwen_runner
 
 
-def test_qwen_batch_session_loads_once_for_multiple_calls(monkeypatch) -> None:
+def test_qwen_batch_session_loads_once_for_multiple_calls(
+    monkeypatch,
+    capsys,
+) -> None:
     calls = {"load": 0, "release": 0}
     model = object()
     processor = object()
@@ -52,3 +55,6 @@ def test_qwen_batch_session_loads_once_for_multiple_calls(monkeypatch) -> None:
     assert first["timing"]["session_call_index"] == 1
     assert second["timing"]["session_call_index"] == 2
     assert second["timing"]["model_load_seconds"] == 0.0
+    progress = capsys.readouterr().err
+    assert "[Qwen] batch 1/1 (0%) id=event, images=0" in progress
+    assert "[Qwen] batch 1/1 (100%) completed in" in progress

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "status": "manual_review_required",
+  "created_at": "2026-07-26T18:31:44.398568+00:00",
+  "sample_id": "multidomain_medical_cells_31s",
+  "track_count": 31,
+  "observation_count": 2056,
+  "inputs": {
+    "source_video": {
+      "path": "F:\\videos\\multidomain_medical_cells_31s.mp4",
+      "sha256": "88e322bde8b56913e44154de9902e4e2eb2b123c63c97835b94761883c8e6dab"
+    },
+    "tracks": {
+      "path": "F:\\videos\\multidomain_medical_cells_31s_8bit_realtime_stable_tracking.txt",
+      "sha256": "06b404f8beca9835e427e55ae4da8ec61e17361c7f725660a8889536016b7e73"
+    },
+    "discovery": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_medical_cells_31s\\discovery\\scene_discovery.json",
+      "sha256": "4ac42112e5cdbd477c610dbca4daa82e74edcca753272ac197971d49cac972f9"
+    },
+    "route": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_medical_cells_31s\\plan\\detector_route.json",
+      "sha256": "27eb5f9e311b247c062fc41331d0cc35622ea75d9d530b21a5fb799690ff8d08"
+    },
+    "semantics": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_medical_cells_31s\\fused_track_semantics.json",
+      "sha256": "e3f288b4d051ead9a3fa2eda65ff86fb5699267f74be46cd0cddfcad6cb7a661"
+    },
+    "run_report": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_medical_cells_31s\\adaptive_run_report.json",
+      "sha256": "d6b4efc90041798028b45ef43ec4d864162c12222220a4859cef0512f81b676c"
+    }
+  },
+  "outputs": {
+    "track_csv": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_medical_cells_31s\\track_annotations.csv",
+    "review_yaml": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_medical_cells_31s\\ground_truth_review.yaml",
+    "draft_manifest": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_medical_cells_31s\\manifest.draft.yaml",
+    "package_json": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_medical_cells_31s\\annotation_package.json",
+    "readme": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_medical_cells_31s\\README.md"
+  }
+}

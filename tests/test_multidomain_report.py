@@ -4,8 +4,14 @@ import json
 from pathlib import Path
 
 from football_tracking.benchmarking.multidomain_report import (
+    _domain_family,
     build_multidomain_trial_report,
 )
+
+
+def test_multidomain_report_maps_microscopic_alias() -> None:
+    assert _domain_family("microscopic") == "medical_microscopy"
+    assert _domain_family("brightfield microscopic imaging") == "medical_microscopy"
 
 
 def test_multidomain_report_separates_video_labels_from_track_accuracy(

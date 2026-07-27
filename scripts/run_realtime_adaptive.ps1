@@ -11,7 +11,7 @@ param(
     [ValidateRange(128, 1024)]
     [int]$DiscoveryMaxNewTokens = 768,
     [ValidateSet("none", "8bit", "4bit")]
-    [string]$QwenQuantization = "4bit",
+    [string]$QwenQuantization = "8bit",
     [string]$Device = "cuda",
     [int]$SemanticEventIntervalFrames = 90,
     [int]$SemanticEventsPerFrame = 2,
@@ -24,6 +24,11 @@ param(
     [int]$SemanticWorkerMaxEvents = 64,
     [ValidateRange(1, 3600)]
     [int]$SemanticWorkerShutdownTimeoutSeconds = 600,
+    [bool]$DeferredLocateFirst = $true,
+    [ValidateSet("none", "8bit", "4bit")]
+    [string]$LocateQuantization = "8bit",
+    [ValidateRange(4096, 4194304)]
+    [int]$LocateImageMaxPixels = 65536,
     [double]$SceneCutThreshold = 0.65,
     [int]$SceneCutMinGapFrames = 15,
     [int]$SceneCutCheckIntervalFrames = 5,
@@ -203,6 +208,14 @@ elseif (
         "--max-total-events", "$SemanticWorkerMaxEvents",
         "--drain"
     )
+    if ($DeferredLocateFirst) {
+        $DrainWorkerArgs += @(
+            "--locate-first",
+            "--locate-device", $Device,
+            "--locate-quantization", $LocateQuantization,
+            "--locate-image-max-pixels", "$LocateImageMaxPixels"
+        )
+    }
     & $Python @DrainWorkerArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Deferred semantic worker failed. Queued events were kept for retry."

@@ -1,16 +1,16 @@
 pipeline:
   name: adaptive_multi_domain_tracking
   schema_version: 1
-  default_profile: realtime
+  default_profile: realtime_stable
 
 scene_discovery:
   model_id: Qwen/Qwen3-VL-4B-Instruct
-  quantization: 4bit
+  quantization: 8bit
   quantization_by_profile:
-    realtime: 4bit
-    realtime_stable: 4bit
-    balanced: 4bit
-    accuracy: 4bit
+    realtime: 8bit
+    realtime_stable: 8bit
+    balanced: 8bit
+    accuracy: 8bit
   max_keyframes: 4
   sample_fps: 2.0
   transition_threshold: 0.45

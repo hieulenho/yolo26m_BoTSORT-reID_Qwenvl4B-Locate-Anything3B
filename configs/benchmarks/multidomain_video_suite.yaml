@@ -1,0 +1,68 @@
+schema_version: 1
+output_dir: F:/videos
+minimum_duration_seconds: 30.0
+maximum_duration_seconds: 60.0
+maximum_dimension: 960
+
+videos:
+  - video_id: traffic_ua_detrac_gt
+    domain: traffic
+    source: data/benchmarks/videos/ua_detrac/MVI_40774_750.mp4
+    output_name: multidomain_traffic_ua_detrac_30s.mp4
+    source_page: https://sites.google.com/view/daweidu/projects/ua-detrac
+    license: UA-DETRAC research dataset terms
+    ground_truth_path: data/benchmarks/normalized/ua_detrac_mvi_40774/MVI_40774/gt/gt.txt
+    expected:
+      domain: traffic
+      base_classes: [car, bus, truck, van]
+    selection_reason: stable traffic camera with official identity ground truth
+
+  - video_id: traffic_street_dense
+    domain: traffic
+    source: data/samples/multidomain/traffic_street.webm
+    output_name: multidomain_traffic_street_35s.mp4
+    source_page: https://commons.wikimedia.org/wiki/File:Street_traffic.webm
+    license: CC BY 3.0
+    expected:
+      domain: traffic
+      base_classes: [car, bus, truck, person]
+    selection_reason: mixed vehicles, pedestrians and frequent occlusion
+
+  - video_id: wildlife_black_noddies
+    domain: wildlife
+    source: data/samples/multidomain/wildlife_black_noddies.webm
+    output_name: multidomain_wildlife_black_noddies_38s.mp4
+    source_page: https://commons.wikimedia.org/wiki/File:Black_noddies_(Anous_minutus).webm
+    license: Public domain
+    expected:
+      domain: wildlife
+      base_classes: [bird]
+      fine_labels: [black noddy]
+    selection_reason: many similar birds with crossings and appearance ambiguity
+
+  - video_id: education_classroom
+    domain: education
+    source: data/samples/multidomain/education_classroom_long.webm
+    output_name: multidomain_education_classroom_60s.mp4
+    source_page: https://commons.wikimedia.org/wiki/File:Students_being_tutored_by_a_teacher_in_a_dilapidated_classroom.webm
+    license: CC BY-SA 4.0
+    frame_count: 1800
+    expected:
+      domain: education
+      base_classes: [person]
+      fine_labels: [student, teacher]
+    selection_reason: teacher and students with repeated overlap in a stable indoor view
+
+  - video_id: medical_microscopy_cells
+    domain: medical_microscopy
+    source: data/external/cell_tracking_challenge/Fluo-N2DH-GOWT1/02.mp4
+    output_name: multidomain_medical_cells_31s.mp4
+    source_page: https://celltrackingchallenge.net/2d-datasets/
+    license: Cell Tracking Challenge dataset terms
+    output_fps: 3.0
+    frame_count: 92
+    ground_truth_path: data/external/cell_tracking_challenge/Fluo-N2DH-GOWT1/02_GT/TRA
+    expected:
+      domain: medical_microscopy
+      base_classes: [cell]
+    selection_reason: fixed microscopy field with official lineage and mask ground truth

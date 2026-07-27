@@ -54,11 +54,13 @@ outputs/benchmarks/final/            consolidated local report
 outputs/cache/semantic_discovery/    reusable discovery cache keyed by source/config
 outputs/detections/cache/            shared detections for fair tracker comparison
 data/semantic_benchmark/review/      human-review CSV, provenance, and contact sheets
+data/semantic_gt/                    current draft GT manifests and human-review tables
 ```
 
 Publishable lightweight results live under `docs/benchmarks/` and
 `docs/assets/benchmarks/`, so README links continue to work on GitHub even though `outputs/`
-is ignored.
+is ignored. Generated contact sheets under `data/semantic_gt/` stay local; their review
+CSV/YAML/JSON manifests can be versioned after provenance checks.
 
 ## Local Assets
 

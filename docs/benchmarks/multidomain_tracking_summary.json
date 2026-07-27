@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "created_at": "2026-07-23T09:54:30.430670+00:00",
+  "created_at": "2026-07-26T18:31:02.514718+00:00",
   "config": "F:\\Tracking\\configs\\benchmarks\\multidomain_tracking_summary.yaml",
   "hardware": {
     "python": "3.12.10",
@@ -125,6 +125,38 @@
       ],
       "performance_sha256": [
         "7a218b8aee26e7a20463355fffd12e0b227ac12dad42df021ced3da251f9b1eb"
+      ]
+    },
+    {
+      "id": "ua_detrac_adaptive_suite",
+      "domain": "traffic",
+      "dataset": "UA-DETRAC MVI_40774, first 750 frames (30 seconds)",
+      "profile": "adaptive multi-class realtime",
+      "detector": "YOLO26n pretrained + sparse YOLOE-26s",
+      "tracker": "adaptive routed TrackTrack",
+      "evaluation_mode": "official UA-DETRAC vehicle GT; multi-class predictions are not class-filtered",
+      "sequence_count": 1,
+      "frame_count": 750,
+      "HOTA": 57.257,
+      "DetA": 42.331,
+      "AssA": 77.701,
+      "LocA": 87.882,
+      "MOTA": 2.0916,
+      "IDF1": 61.766,
+      "IDSW": 3.0,
+      "FP": 3862.0,
+      "FN": 348.0,
+      "Frag": 18.0,
+      "end_to_end_fps": 22.789098,
+      "idsw_per_1000_frames": 4.0,
+      "scope_note": "End-to-end adaptive profile. Person and bicycle predictions count as FP against vehicle-only UA-DETRAC GT, so DetA/MOTA are not a tracker-only comparison.",
+      "metrics_source": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\evaluation_ua_detrac\\trackeval_summary.json",
+      "metrics_sha256": "dcbfbf8b486f1940ae7ddd602dd812482687c11efb4f930917cd09afa7513165",
+      "performance_sources": [
+        "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_traffic_ua_detrac_30s\\adaptive_run_report.json"
+      ],
+      "performance_sha256": [
+        "f11573f217f388f76cdad8810fd0457aab01b44ef9c7e54d91b204115a5fe785"
       ]
     },
     {
@@ -255,6 +287,38 @@
       ],
       "performance_sha256": [
         "428cc18ed0ed4f832db3d7aaf174fb360a1a55fe5aa6896ddd934ceb4adff225"
+      ]
+    },
+    {
+      "id": "ctc_adaptive_suite",
+      "domain": "medical microscopy",
+      "dataset": "CTC Fluo-N2DH-GOWT1, held-out sequence 02",
+      "profile": "adaptive realtime stable",
+      "detector": "YOLO26s adapter, trained on sequence 01 only",
+      "tracker": "adaptive routed TrackTrack",
+      "evaluation_mode": "leakage-safe held-out bbox TrackEval with GT scaled to the 960x960 video",
+      "sequence_count": 1,
+      "frame_count": 92,
+      "HOTA": 67.824,
+      "DetA": 60.403,
+      "AssA": 76.234,
+      "LocA": 82.937,
+      "MOTA": 75.328,
+      "IDF1": 86.42,
+      "IDSW": 0.0,
+      "FP": 80.0,
+      "FN": 541.0,
+      "Frag": 4.0,
+      "end_to_end_fps": 16.149343,
+      "idsw_per_1000_frames": 0.0,
+      "scope_note": "GT coordinates are scaled from 1024x1024 CTC masks to the 960x960 rendered source. Sequence 02 is unseen during detector training.",
+      "metrics_source": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\evaluation_ctc_medical_scaled\\trackeval_summary.json",
+      "metrics_sha256": "044f2d016ebc3b2e0c2751bb5612f52ae52a4ed362e1a27e5ba12f4b34816005",
+      "performance_sources": [
+        "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_medical_cells_31s\\adaptive_run_report.json"
+      ],
+      "performance_sha256": [
+        "d6b4efc90041798028b45ef43ec4d864162c12222220a4859cef0512f81b676c"
       ]
     }
   ]

@@ -1,0 +1,15 @@
+sample_id: multidomain_medical_cells_31s
+domain: ''
+detector_route: ''
+objects:
+- canonical_name: cell
+  action: detect
+review:
+  status: draft
+  annotator: ''
+  reviewed_at: ''
+  method: manual_video_and_contact_sheet
+  notes: Review domain, complete object vocabulary, then label every CSV row.
+proposals_not_ground_truth:
+  domain: microscopic
+  detector_route: microscopy_finetuned

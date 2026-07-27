@@ -11,6 +11,7 @@ from typing import Any
 
 from football_tracking.adaptive_tracking.semantic_queue import (
     SemanticQueueError,
+    prepare_pending_events_with_locate,
     process_semantic_queue,
 )
 from football_tracking.vlm.config import load_vlm_tracking_config
@@ -43,6 +44,25 @@ def run_worker(args: argparse.Namespace) -> dict[str, Any]:
         result = {"status": "idle", "processed_event_count": 0}
         results.append(result)
         return _worker_summary(args, totals, results, started)
+
+    locate_result: dict[str, Any] | None = None
+    if args.locate_first:
+        locate_limit = (
+            args.max_total_events
+            if args.max_total_events > 0
+            else _pending_count(args.queue_dir)
+        )
+        locate_result = prepare_pending_events_with_locate(
+            queue_dir=args.queue_dir,
+            max_events=locate_limit,
+            model_id=args.locate_model_id,
+            device=args.locate_device,
+            quantization=args.locate_quantization,
+            max_new_tokens=args.locate_max_new_tokens,
+            image_max_pixels=args.locate_image_max_pixels,
+            minimum_association_score=args.locate_minimum_association_score,
+        )
+        results.append({"locateanything": locate_result})
 
     config = load_vlm_tracking_config(args.vlm_config, overrides={"run_model": True})
     with QwenVlmBatchSession(config) as session:
@@ -77,7 +97,9 @@ def run_worker(args: argparse.Namespace) -> dict[str, Any]:
             if pending == 0:
                 time.sleep(args.poll_interval)
 
-    return _worker_summary(args, totals, results, started)
+    summary = _worker_summary(args, totals, results, started)
+    summary["locateanything"] = locate_result
+    return summary
 
 
 def _worker_summary(
@@ -106,6 +128,24 @@ def main() -> int:
     parser.add_argument("--memory", type=Path, required=True)
     parser.add_argument("--max-events", type=int, default=8)
     parser.add_argument("--max-total-events", type=int, default=0)
+    parser.add_argument("--locate-first", action="store_true")
+    parser.add_argument(
+        "--locate-model-id",
+        default="nvidia/LocateAnything-3B",
+    )
+    parser.add_argument("--locate-device", default="cuda")
+    parser.add_argument(
+        "--locate-quantization",
+        choices=("none", "8bit", "4bit"),
+        default="8bit",
+    )
+    parser.add_argument("--locate-max-new-tokens", type=int, default=256)
+    parser.add_argument("--locate-image-max-pixels", type=int, default=256 * 256)
+    parser.add_argument(
+        "--locate-minimum-association-score",
+        type=float,
+        default=0.10,
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--drain", action="store_true")
     mode.add_argument("--watch", action="store_true")
@@ -124,6 +164,17 @@ def main() -> int:
         parser.error("--max-total-events must be non-negative.")
     if args.poll_interval <= 0:
         parser.error("--poll-interval must be positive.")
+    if args.locate_first and args.watch:
+        parser.error(
+            "--locate-first is a two-phase deferred mode and cannot be combined "
+            "with --watch. Use a separate Locate service for live semantics."
+        )
+    if args.locate_max_new_tokens < 1:
+        parser.error("--locate-max-new-tokens must be positive.")
+    if args.locate_image_max_pixels < 4096:
+        parser.error("--locate-image-max-pixels must be at least 4096.")
+    if not 0.0 <= args.locate_minimum_association_score <= 1.0:
+        parser.error("--locate-minimum-association-score must be in [0, 1].")
     try:
         result = run_worker(args)
     except (SemanticQueueError, RuntimeError, ValueError, OSError) as exc:

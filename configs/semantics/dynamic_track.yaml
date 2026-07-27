@@ -14,19 +14,20 @@ sampling:
   max_keyframes: 2
   max_tracks: 0
   max_crops_per_track: 2
-  max_model_images: 8
+  max_model_images: 2
+  max_tracks_per_batch: 1
   crop_padding: 0.25
-  crop_output_size: 256
+  crop_output_size: 320
 
 model:
   provider: qwen
   model_id: Qwen/Qwen3-VL-4B-Instruct
   device: auto
   torch_dtype: auto
-  quantization: 4bit
-  max_new_tokens: 768
-  image_min_pixels: 65536
-  image_max_pixels: 524288
+  quantization: 8bit
+  max_new_tokens: 192
+  image_min_pixels: 32768
+  image_max_pixels: 196608
   temperature: 0.0
   do_sample: false
   run_model: true

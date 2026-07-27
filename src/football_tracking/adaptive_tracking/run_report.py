@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
+from statistics import fmean, median
 from typing import Any
 
 from football_tracking.detection.serialization import file_sha256, runtime_versions
@@ -148,9 +150,42 @@ def _qwen_metrics(payload: dict[str, Any] | None) -> dict[str, Any]:
         "batch_count": payload.get("batch_count"),
         "image_count": payload.get("image_count"),
         "timing": payload.get("timing", {}),
+        "batch_timing": _batch_timing_metrics(payload),
         "cuda_memory": payload.get("cuda_memory", {}),
         "coverage": payload.get("coverage", {}),
         "parse_failure_count": len(payload.get("parse_failures", [])),
+        "validation_warning_count": len(
+            payload.get("validation_warnings", [])
+        ),
+        "validation_warnings": payload.get("validation_warnings", []),
+    }
+
+
+def _batch_timing_metrics(payload: dict[str, Any]) -> dict[str, Any]:
+    values = [
+        float(batch["inference_seconds"])
+        for batch in payload.get("batches", [])
+        if isinstance(batch, dict)
+        and isinstance(batch.get("inference_seconds"), (int, float))
+    ]
+    if not values:
+        return {}
+    ordered = sorted(values)
+    p95_index = max(0, math.ceil(0.95 * len(ordered)) - 1)
+    steady_state = values[1:] if len(values) > 1 else values
+    median_seconds = float(median(values))
+    return {
+        "measured_batch_count": len(values),
+        "first_batch_seconds": values[0],
+        "min_seconds": min(values),
+        "median_seconds": median_seconds,
+        "mean_seconds": fmean(values),
+        "steady_state_mean_seconds": fmean(steady_state),
+        "p95_seconds": ordered[p95_index],
+        "max_seconds": max(values),
+        "max_to_median_ratio": (
+            max(values) / median_seconds if median_seconds > 0 else None
+        ),
     }
 
 
@@ -161,6 +196,7 @@ def _locate_metrics(payload: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "status": "skipped" if summary.get("skipped") else "ok",
         "summary": summary,
+        "association_policy": payload.get("association_policy", {}),
         "timing": payload.get("timing", {}),
         "cuda_memory": payload.get("cuda_memory", {}),
     }

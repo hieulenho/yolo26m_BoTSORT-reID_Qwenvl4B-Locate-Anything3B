@@ -38,8 +38,9 @@ responsive and makes every semantic claim auditable.
 The discovery contract is hierarchical rather than a fixed class list. It stores a stable
 base class plus a taxonomy facet and candidate subtypes. Track-level Qwen inference can then
 produce labels such as `bird > common kingfisher`. A fine label is accepted only when it is
-supported across independent track crops and its fused confidence is at least `0.95`; otherwise
-the base class remains valid and the subtype is `unknown`.
+supported across at least two independent, model-visible track frames. Thresholds are stricter
+for riskier claims: role `0.82`, subtype `0.85`, species/breed `0.97`, and medical diagnosis
+`0.99`. Otherwise the base class remains valid and the fine label is `unknown`.
 
 | Route | Detector | Use |
 |---|---|---|
@@ -56,24 +57,31 @@ detector every six frames and never reuses stale box coordinates.
 | Profile | Tracker | Intended use |
 |---|---|---|
 | `realtime` | routed OC-SORT | live streams; separate motion tuning for small fast objects |
+| `realtime_stable` | routed TrackTrack + OC-SORT | stable IDs for recorded video or live feeds that can sustain about 20 FPS |
 | `balanced` | routed TrackTrack + OC-SORT | stronger association with a dedicated small-object route |
 | `accuracy` | routed BoT-SORT ReID + OC-SORT | appearance-aware identities with a small-object route |
 
-OC-SORT is the realtime default because the local 30-sequence benchmark places it ahead of
-the other low-latency candidates on the measured quality-speed trade-off. Appearance-CNN
-trackers remain available, but Deep OC-SORT ReID and BoT-SORT ReID were slower on this 8 GB
-laptop GPU.
+Recorded video defaults to `realtime_stable`: TrackTrack had the strongest HOTA in the local
+30-sequence benchmark and substantially fewer short tracks than OC-SORT on the 35-second
+traffic trial. Strict live mode remains available as `realtime`; OC-SORT is used there because
+it has much lower association latency. Appearance-CNN trackers remain available, but Deep
+OC-SORT ReID and BoT-SORT ReID were slower on this 8 GB laptop GPU.
 
 ## Semantic Roles
 
-- **Qwen** discovers classes, reads global context, and assigns open semantic labels from
-  full-frame keyframes plus multi-time track crops.
-- **LocateAnything** is called on uncertain or query-relevant cases to ground a description
-  spatially; it is not run continuously on every frame.
+- **LocateAnything** verifies the visible region of each selected track before offline Qwen
+  labeling. Its association must clear both a `0.10` composite overlap score and a `0.05`
+  margin over the nearest competing track. It can localize a visible fragment of a partly
+  occluded object, but cannot recover an object that is fully invisible. In realtime mode it
+  is event-triggered, not run continuously on every frame. The one-GPU realtime default
+  processes queued events in two deferred phases: Locate first, release VRAM, then Qwen.
+- **Qwen** discovers classes, then assigns open semantic labels from one target-local full
+  frame plus one multi-time crop panel for each verified track. Returned evidence-frame IDs
+  are intersected with the exact frames supplied to that batch before fusion.
 - **Fusion** combines accepted evidence and emits `unknown` when confidence or score margin is
   insufficient.
 
-Models run sequentially and are quantized by default (`Qwen` 4-bit, `LocateAnything` 8-bit),
+Models run sequentially and are quantized by default (`Qwen` 8-bit, `LocateAnything` 8-bit),
 so their VRAM footprints do not add together.
 
 ## Installation
@@ -104,14 +112,27 @@ Full adaptive path on `F:\videos\1.mp4`:
   -SourceVideo F:\videos\1.mp4 `
   -OutputVideo F:\videos\1_adaptive_tracking.mp4 `
   -SemanticOutputVideo F:\videos\1_adaptive_semantic.mp4 `
-  -Profile realtime `
-  -QwenQuantization 4bit `
+  -Profile realtime_stable `
+  -QwenQuantization 8bit `
   -Device cuda `
+  -SemanticMaxTracks 0 `
+  -SemanticMaxImages 2 `
+  -SemanticMaxTracksPerBatch 1 `
+  -SemanticMaxNewTokens 192 `
   -Overwrite
 ```
 
 Change only `-SourceVideo` and output names for `2.mp4`, `3.webm`, traffic footage, classroom
 footage, or another domain. Do not reuse a discovery cache across different source videos.
+The offline semantic path verifies every tracked ID with LocateAnything first, then sends one
+target-local full frame plus one multi-time crop panel per ID to Qwen.
+`-SemanticMaxTracks 0` means all tracks; batches remain
+bounded to one track and two images on an 8 GB GPU, so this affects runtime rather than
+coverage. The script now verifies that Locate preparation, Qwen output, and semantic fusion
+contain every MOT ID before rendering. A partial semantic run stops with an error instead of
+silently showing detector labels such as `person`. Tracks examined by Qwen but rejected by the
+unknown policy render as `unknown`; detector fallback is reserved for tracks that were never
+modeled.
 On the RTX 4060 Laptop GPU, the measured cold Qwen discovery for two traffic keyframes took
 about 171 seconds including model loading. The result is cached by video hash, model, prompt,
 sampling, precision, and token budget; a matching repeat does not load Qwen again.
@@ -135,9 +156,10 @@ For a short plumbing check:
 The camera is calibrated for a few seconds and Qwen creates one vocabulary cache. During the
 stream, detector and tracker never wait for the VLM: representative track crops enter an atomic
 queue, while a worker updates temporal memory and a semantic cache. The default `deferred` mode
-drains that queue automatically after capture so an 8 GB GPU never holds the detector and Qwen
-at the same time. Use `-SemanticWorkerMode live` on a server or a separate semantic GPU when
-labels must appear during the stream.
+drains that queue automatically after capture, running LocateAnything 8-bit first and Qwen
+8-bit second so an 8 GB GPU never holds both models at once. `live` keeps tracking non-blocking
+and runs Qwen only; use a separate Locate service/GPU when Locate-first labels must appear
+during the stream.
 
 ```powershell
 .\scripts\run_realtime_adaptive.ps1 `
@@ -145,7 +167,7 @@ labels must appear during the stream.
   -RunName webcam_01 `
   -CalibrationSeconds 8 `
   -DiscoveryKeyframes 2 `
-  -QwenQuantization 4bit `
+  -QwenQuantization 8bit `
   -SemanticWorkerMode deferred `
   -Device cuda `
   -Overwrite
@@ -169,6 +191,11 @@ fused_track_semantics.json           accepted labels and unknown decisions
 semantic_memory.json                 bounded multi-time evidence for every track
 adaptive_run_report.json             timings, VRAM, coverage, and provenance
 ```
+
+Every rendered box now has an explicit evidence source. An accepted Qwen/Locate fusion is a
+**deep semantic label**. Tracks outside the bounded VLM budget keep the detector's temporally
+voted base class as a **detector fallback**. These are reported separately; final label coverage
+must not be presented as VLM accuracy.
 
 The MOT text rows use:
 
@@ -231,6 +258,20 @@ as spatial evidence, not treated as an independent fine-grained classifier. Stri
 accuracy is 0% because no subtype passed the conservative 0.95 acceptance threshold; before
 rejection, Qwen proposed the matched `van` subtype correctly, giving A and C 100% candidate
 fine-label accuracy on the supported candidate set.
+
+### Five-Domain 8-Bit Suite
+
+The current 30-60 second suite covers two traffic scenes, wildlife, classroom, and microscopy.
+On the RTX 4060 Laptop GPU it reached 5/5 domain-family matches and 23.15 mean steady detector+
+tracker FPS. All 338 tracks have a rendered base label; only accepted semantic tracks count as
+direct VLM coverage. Human semantic accuracy remains intentionally null until the generated
+338-track review package is completed.
+
+- [Multi-domain trial report](outputs/adaptive_runs/multidomain_suite_8bit/summary/multidomain_trial_report.md)
+- [GT-backed tracking comparison](docs/benchmarks/multidomain_tracking_summary.md)
+- Annotation packages: `data/semantic_gt/multidomain_suite_8bit/`
+
+![Rendered label evidence](docs/assets/benchmarks/multidomain_render_label_sources.png)
 
 ### Realtime Routes
 
@@ -335,7 +376,7 @@ football footage; they are not cross-domain accuracy claims.
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-The verified local state is `456 passed`. Canonical reports:
+The verified local state is `489 passed` (2026-07-27). Canonical reports:
 
 - [Final report](docs/benchmarks/final_experiment_report.md)
 - [Artifact audit](docs/benchmarks/artifact_audit.json)
@@ -354,9 +395,10 @@ covers 40 tracks across UA-DETRAC traffic and AnimalTrack wildlife. The gate rem
 
 ## Measurement Limits
 
-- Cross-domain routing is implemented and runtime-tested. Review packages now cover 395 tracks
-  and 18,814 observations across wildlife, traffic, and education, but their labels still need
-  human confirmation before a valid accuracy claim can be made.
+- Cross-domain routing is implemented and runtime-tested. The current five-domain review
+  packages cover 338 tracks and 33,671 MOT observations across traffic, wildlife, education,
+  and microscopy, but their labels still need human confirmation before a valid accuracy
+  claim can be made.
 - Comparable A/B/C semantic accuracy covers 20 UA-DETRAC traffic tracks and 20 AnimalTrack
   Zebra tracks from official annotations. Equivalent matrices are still needed for sports,
   medical, education, and a broader set of fine-grained classes.
@@ -374,11 +416,10 @@ covers 40 tracks across UA-DETRAC traffic and AnimalTrack wildlife. The gate rem
 configs/                    adaptive config, profiles, ontology, benchmark contracts
 data/                       local datasets and reviewed manifests
 docs/                       current design notes, results, and archived documentation
-legacy/                     archived demos and compatibility assets
 models/                     local promoted checkpoints
 outputs/                    generated runs, caches, metrics, and reports
 requirements/               base, development, VLM, and open-vocabulary dependencies
-scripts/                    supported entry points plus runtime/benchmark/data helpers
+scripts/                    supported entry points, helpers, and legacy compatibility workflows
 src/football_tracking/      package implementation
 tests/                      regression and benchmark-contract tests
 ```

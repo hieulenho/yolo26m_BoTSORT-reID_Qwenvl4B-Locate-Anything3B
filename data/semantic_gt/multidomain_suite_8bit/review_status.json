@@ -1,0 +1,94 @@
+{
+  "status": "review_required",
+  "package_count": 5,
+  "track_count": 338,
+  "reviewed_track_count": 0,
+  "remaining_track_count": 338,
+  "packages": [
+    {
+      "package_dir": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_ua_detrac_30s",
+      "ready_to_finalize": false,
+      "track_count": 52,
+      "reviewed_track_count": 0,
+      "labeled_track_count": 0,
+      "ignored_track_count": 0,
+      "remaining_track_count": 52,
+      "review_percent": 0.0,
+      "metadata_reviewed": false,
+      "domain_reviewed": false,
+      "objects_reviewed": true,
+      "issues": [
+        "sample review metadata is incomplete or still draft",
+        "domain has not been reviewed"
+      ]
+    },
+    {
+      "package_dir": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_traffic_street_35s",
+      "ready_to_finalize": false,
+      "track_count": 87,
+      "reviewed_track_count": 0,
+      "labeled_track_count": 0,
+      "ignored_track_count": 0,
+      "remaining_track_count": 87,
+      "review_percent": 0.0,
+      "metadata_reviewed": false,
+      "domain_reviewed": false,
+      "objects_reviewed": true,
+      "issues": [
+        "sample review metadata is incomplete or still draft",
+        "domain has not been reviewed"
+      ]
+    },
+    {
+      "package_dir": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_wildlife_black_noddies_38s",
+      "ready_to_finalize": false,
+      "track_count": 32,
+      "reviewed_track_count": 0,
+      "labeled_track_count": 0,
+      "ignored_track_count": 0,
+      "remaining_track_count": 32,
+      "review_percent": 0.0,
+      "metadata_reviewed": false,
+      "domain_reviewed": false,
+      "objects_reviewed": true,
+      "issues": [
+        "sample review metadata is incomplete or still draft",
+        "domain has not been reviewed"
+      ]
+    },
+    {
+      "package_dir": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_education_classroom_60s",
+      "ready_to_finalize": false,
+      "track_count": 136,
+      "reviewed_track_count": 0,
+      "labeled_track_count": 0,
+      "ignored_track_count": 0,
+      "remaining_track_count": 136,
+      "review_percent": 0.0,
+      "metadata_reviewed": false,
+      "domain_reviewed": false,
+      "objects_reviewed": true,
+      "issues": [
+        "sample review metadata is incomplete or still draft",
+        "domain has not been reviewed"
+      ]
+    },
+    {
+      "package_dir": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_medical_cells_31s",
+      "ready_to_finalize": false,
+      "track_count": 31,
+      "reviewed_track_count": 0,
+      "labeled_track_count": 0,
+      "ignored_track_count": 0,
+      "remaining_track_count": 31,
+      "review_percent": 0.0,
+      "metadata_reviewed": false,
+      "domain_reviewed": false,
+      "objects_reviewed": true,
+      "issues": [
+        "sample review metadata is incomplete or still draft",
+        "domain has not been reviewed"
+      ]
+    }
+  ]
+}

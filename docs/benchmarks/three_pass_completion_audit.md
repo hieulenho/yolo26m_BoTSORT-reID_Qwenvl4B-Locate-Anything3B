@@ -75,9 +75,9 @@ the retained 30-sequence benchmark.
 - A/B/C semantic evaluation uses 20 UA-DETRAC traffic tracks and 20 AnimalTrack Zebra
   tracks matched to official MOT annotations. Traffic accuracy is 75% for Qwen, 45% for
   LocateAnything, and 60% for fusion; wildlife accuracy is 10%, 25%, and 35%.
-- The cross-domain review packages contain 395 candidate tracks: 36 wildlife, 153 traffic, and
-  206 classroom. These remain draft expansion data and are not mixed into the official 40-track
-  semantic result.
+- The current five-domain review packages contain 338 candidate tracks: 139 traffic, 32
+  wildlife, 136 classroom, and 31 microscopy tracks. These remain draft expansion data and are
+  not mixed into the official 40-track semantic result.
 - The smoke IDSW taxonomy contains 52 heuristic events. Human review coverage is 0%; use official
   TrackEval IDSW for ranking until the event review sheet is completed.
 - A physical webcam matrix now contains three repeated 900-frame runs per profile. The
@@ -95,3 +95,20 @@ the retained 30-sequence benchmark.
 - Wildlife A/B/C comparison: `outputs/benchmarks/semantic/animaltrack_zebra/comparison/`
 - Completion gate: `outputs/benchmarks/multidomain/completion/completion_gate.md`
 - Canonical retained report: `docs/benchmarks/final_experiment_report.md`
+
+## Final integrity hardening (2026-07-27)
+
+- Full regression suite: **489 passed**; Ruff, compileall, and `git diff --check` passed.
+- **124/124 YAML** files loaded and **13/13 PowerShell** scripts parsed.
+- Environment doctor passed **15/15** checks on the RTX 4060 Laptop GPU.
+- Locate identity evidence now requires a `0.10` association score, a `0.05` margin over the
+  nearest competing track, and at most one accepted box per grounding request.
+- Qwen evidence frames are intersected with frames actually supplied to each batch before
+  temporal fusion; unsupported frame claims are retained as validation warnings.
+- Realtime deferred semantics now run LocateAnything 8-bit first, release its model, then load
+  Qwen 8-bit. Live single-GPU mode remains Qwen-only to protect tracking latency.
+- Out-of-frame target boxes fall back safely, and generic Locate queries such as `object`
+  provide spatial crops without being counted as semantic class votes.
+
+Historical benchmark numbers above were not rewritten by this code-hardening pass. New runs use
+the stricter evidence policy; published accuracy still requires the corresponding GT protocol.

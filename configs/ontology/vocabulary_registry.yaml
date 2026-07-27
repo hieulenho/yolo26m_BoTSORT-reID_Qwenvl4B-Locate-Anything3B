@@ -31,6 +31,17 @@ classes:
     aliases: [official, match official]
     coco_class: person
     default_action: track
+  - name: bird
+    aliases: [avian, seabird, sea bird]
+    coco_class: bird
+    default_action: track
+  - name: cell
+    aliases: [biological cell, cell nucleus, nucleus]
+    domain_aliases:
+      medical_microscopy: [particle, particles, microscopic particle]
+      microscopy: [particle, particles, microscopic particle]
+      microscopic: [particle, particles, microscopic particle]
+    default_action: track
   - name: car
     aliases: [automobile, sedan, taxi, cab, hatchback, suv]
     coco_class: car

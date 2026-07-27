@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "status": "manual_review_required",
+  "created_at": "2026-07-26T18:31:37.983186+00:00",
+  "sample_id": "multidomain_wildlife_black_noddies_38s",
+  "track_count": 32,
+  "observation_count": 5503,
+  "inputs": {
+    "source_video": {
+      "path": "F:\\videos\\multidomain_wildlife_black_noddies_38s.mp4",
+      "sha256": "ee0bf4d832a0f96abc6b33b158ac0e249801d1b47f6ef7d14865c869b47aa544"
+    },
+    "tracks": {
+      "path": "F:\\videos\\multidomain_wildlife_black_noddies_38s_8bit_realtime_stable_tracking.txt",
+      "sha256": "75e4d7d2eca414cc5d7f260b2c115367ef5c0f6f045403715ba52f2b7f9ad9a9"
+    },
+    "discovery": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_wildlife_black_noddies_38s\\discovery\\scene_discovery.json",
+      "sha256": "e6875e7fe0010a1a5f3d8d40357c1a0328dd15f824674a8fdd115ad4e6bcc398"
+    },
+    "route": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_wildlife_black_noddies_38s\\plan\\detector_route.json",
+      "sha256": "f61a5b7bbf2388acd767a01432d23756597125050bab4e684bb5d7dcd1bab3bf"
+    },
+    "semantics": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_wildlife_black_noddies_38s\\fused_track_semantics.json",
+      "sha256": "075e4ad4d6e6a1ba86c3e80112e4d8724985887081389a342be808931319a190"
+    },
+    "run_report": {
+      "path": "F:\\Tracking\\outputs\\adaptive_runs\\multidomain_suite_8bit\\multidomain_wildlife_black_noddies_38s\\adaptive_run_report.json",
+      "sha256": "778ab91354362d85544615ab10d812eb4f366a20f685a1de617a252e277ddb9e"
+    }
+  },
+  "outputs": {
+    "track_csv": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_wildlife_black_noddies_38s\\track_annotations.csv",
+    "review_yaml": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_wildlife_black_noddies_38s\\ground_truth_review.yaml",
+    "draft_manifest": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_wildlife_black_noddies_38s\\manifest.draft.yaml",
+    "package_json": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_wildlife_black_noddies_38s\\annotation_package.json",
+    "readme": "F:\\Tracking\\data\\semantic_gt\\multidomain_suite_8bit\\multidomain_wildlife_black_noddies_38s\\README.md"
+  }
+}
