@@ -9,6 +9,8 @@ from pathlib import Path
 
 import cv2
 
+from football_tracking.video_capture import open_video_capture
+
 
 def _source_value(value: str) -> str | int:
     text = value.strip()
@@ -27,8 +29,8 @@ def capture_clip(
         raise ValueError("seconds must be positive")
     if output.exists() and not overwrite:
         raise FileExistsError(f"Calibration clip exists: {output}")
-    capture = cv2.VideoCapture(_source_value(source))
-    if not capture.isOpened():
+    capture, capture_backend = open_video_capture(_source_value(source))
+    if capture is None:
         raise RuntimeError(f"Could not open calibration source: {source}")
     source_fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
     output_fps = source_fps if source_fps > 1.0 else fallback_fps
@@ -63,6 +65,7 @@ def capture_clip(
     return {
         "status": "ok",
         "source": source,
+        "capture_backend": capture_backend,
         "output": str(output.resolve()),
         "fps": output_fps,
         "frame_count": frame_count,

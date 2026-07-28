@@ -86,6 +86,35 @@ so their VRAM footprints do not add together.
 
 ## Installation
 
+### Clone and run a webcam
+
+On Windows with 64-bit Python 3.12, Git, and a supported NVIDIA driver:
+
+```powershell
+git clone https://github.com/hieulenho/Football-Player-Detection-and-Multi-Object-Tracking-using-YOLOv8m-and-DeepSORT.git Tracking
+cd Tracking
+.\scripts\setup_webcam.ps1
+.\scripts\run_webcam.ps1 -Overwrite
+```
+
+`run_webcam.ps1` searches camera indices `0..5`, selects the first device that returns a
+frame, and opens the realtime preview. Use `-CameraIndex 1` to select an external USB camera
+explicitly, `-DetectionOnly` to disable downstream semantic processing, or
+`-SemanticWorkerMode deferred` for the one-GPU LocateAnything-then-Qwen path. Press `Q` to
+stop. Outputs are written under `outputs/adaptive_realtime/webcam_session/`.
+
+YOLO, YOLOE, Qwen, and LocateAnything weights are not stored in Git. Their libraries download
+the public checkpoints on first use, so the first run needs internet access, sufficient disk
+space, and can take several minutes. Set `HF_TOKEN` before running when authenticated
+Hugging Face downloads are desired. An 8 GB NVIDIA GPU should keep the default 8-bit and
+deferred semantic settings.
+
+To verify an existing installation without reinstalling packages:
+
+```powershell
+.\scripts\setup_webcam.ps1 -VerifyOnly
+```
+
 Windows PowerShell, Python 3.12:
 
 ```powershell

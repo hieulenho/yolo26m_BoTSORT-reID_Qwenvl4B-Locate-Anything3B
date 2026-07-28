@@ -1,0 +1,6 @@
+# Complete runtime for adaptive webcam inference.
+-r base.txt
+-r vlm.txt
+-r locate_tracking.txt
+-r open_vocab.txt
+

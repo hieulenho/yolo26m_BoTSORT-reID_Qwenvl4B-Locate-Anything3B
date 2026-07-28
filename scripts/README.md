@@ -47,6 +47,16 @@ in that deliberately partial output.
 
 ## Realtime Stream
 
+For a fresh clone, the shortest supported path is:
+
+```powershell
+.\scripts\setup_webcam.ps1
+.\scripts\run_webcam.ps1 -Overwrite
+```
+
+The wrapper probes local camera indices and then delegates to `run_realtime_adaptive.ps1`.
+Pass `-CameraIndex 1` for a known USB camera or `-DetectionOnly` for detector and tracker only.
+
 ```powershell
 .\scripts\run_realtime_adaptive.ps1 `
   -Source 0 `

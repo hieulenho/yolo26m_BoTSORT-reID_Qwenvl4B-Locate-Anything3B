@@ -4,8 +4,13 @@ __pycache__/
 .pytest_cache/
 .pytest_tmp/
 .ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
 .coverage
 htmlcov/
+build/
+dist/
 *.egg-info/
 src/*.egg-info/
 
@@ -49,6 +54,8 @@ data/benchmarks/*
 !data/benchmarks/.gitkeep
 .cache/
 tools/.venv-download/
+.huggingface/
+hf_cache/
 
 models/**/*.pt
 models/**/*.pth
@@ -74,10 +81,28 @@ mobileclip*.ts
 *.tar.gz
 *.7z
 
+# Local logs and interrupted-run files
+*.log
+*.tmp
+*.bak
+*.pid
+
+# Local report-generation scratch files
+/.codex_*/
+/*.inspect.ndjson
+/Bao_cao_du_an_Adaptive_Tracking_LocateAnything_Qwen.pptx
+
 data/samples/multidomain/samples_manifest.json
 data/semantic_benchmark/review/**/contact_sheets/
 data/semantic_gt/**/contact_sheets/
 
 .env
+.env.*
+!.env.example
 .vscode/
 .idea/
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
