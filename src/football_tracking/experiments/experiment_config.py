@@ -44,6 +44,7 @@ class CompareTrackersConfig:
     max_sequences: int | None
     max_frames_per_sequence: int | None
     overwrite: bool
+    resume: bool
     fail_fast: bool
     log_level: str
     smoke_only: bool
@@ -145,6 +146,7 @@ def load_compare_trackers_config(
             runtime.get("max_frames"),
         ),
         overwrite=bool(runtime.get("overwrite", False)),
+        resume=bool(runtime.get("resume", False)),
         fail_fast=bool(runtime.get("fail_fast", True)),
         log_level=str(runtime.get("log_level", "INFO")),
         smoke_only=bool(runtime.get("smoke_only", False)),
@@ -174,6 +176,10 @@ def _apply_overrides(
         changes["max_frames_per_sequence"] = int(overrides["max_frames"])
     if overrides.get("overwrite") is not None:
         changes["overwrite"] = bool(overrides["overwrite"])
+    if overrides.get("resume") is not None or overrides.get("skip_completed") is not None:
+        changes["resume"] = bool(
+            overrides.get("resume", False) or overrides.get("skip_completed", False)
+        )
     return replace(config, **changes) if changes else config
 
 

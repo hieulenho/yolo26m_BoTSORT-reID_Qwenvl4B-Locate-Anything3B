@@ -543,6 +543,17 @@ def _run_sequence_from_cache(
     detection_source = CachedDetectionSource(cache_dir, config.confidence_threshold)
     mot_path = config.tracks_root / spec.name / config.split / f"{source.name}.txt"
     metadata_path = config.tracks_root / spec.name / config.split / f"{source.name}.metadata.json"
+    if mot_path.exists() and config.resume and not config.overwrite:
+        resumed = _load_completed_sequence(
+            config,
+            spec,
+            source,
+            cache_dir,
+            mot_path,
+            metadata_path,
+        )
+        if resumed is not None:
+            return resumed
     if mot_path.exists() and not config.overwrite:
         raise ExperimentRunnerError(f"MOT output exists and overwrite=false: {mot_path}")
     writer = MotPredictionWriter(mot_path, metadata_path)
@@ -613,12 +624,13 @@ def _run_sequence_from_cache(
         "tracker_seconds": tracker_seconds,
         "frame_read_seconds": frame_read_seconds,
         "cache_read_seconds": cache_read_seconds,
-        "total_seconds": time.perf_counter() - sequence_started,
         "smoke_only": config.smoke_only,
         "partial_sequence": config.max_frames_per_sequence is not None,
     }
-    writer.write_metadata(metadata)
     mot_write_seconds = time.perf_counter() - mot_started
+    metadata["mot_write_seconds"] = mot_write_seconds
+    metadata["total_seconds"] = time.perf_counter() - sequence_started
+    writer.write_metadata(metadata)
     validation = validate_mot_prediction_file(mot_path, source.seqinfo_path, metadata_path)
     return {
         **metadata,
@@ -626,6 +638,72 @@ def _run_sequence_from_cache(
         "metadata_path": str(metadata_path),
         "mot_write_seconds": mot_write_seconds,
         "track_ids": sorted(track_ids),
+    }, validation
+
+
+def _load_completed_sequence(
+    config: CompareTrackersConfig,
+    spec: TrackerSpec,
+    source: SequenceSource,
+    cache_dir: Path,
+    mot_path: Path,
+    metadata_path: Path,
+) -> tuple[dict[str, Any], TrackValidationReport] | None:
+    if not metadata_path.is_file():
+        return None
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    expected_frames = (
+        min(source.frame_count, config.max_frames_per_sequence)
+        if source.frame_count is not None and config.max_frames_per_sequence is not None
+        else source.frame_count
+    )
+    compatible = (
+        metadata.get("sequence") == source.name
+        and metadata.get("tracker") == spec.name
+        and Path(str(metadata.get("tracker_config", ""))).resolve() == spec.config.resolve()
+        and Path(str(metadata.get("cache_dir", ""))).resolve() == cache_dir.resolve()
+        and float(metadata.get("confidence_threshold", -1.0))
+        == config.confidence_threshold
+        and (expected_frames is None or int(metadata.get("frame_count", -1)) == expected_frames)
+        and bool(metadata.get("partial_sequence", False))
+        == (config.max_frames_per_sequence is not None)
+    )
+    if not compatible:
+        return None
+    validation = validate_mot_prediction_file(mot_path, source.seqinfo_path, metadata_path)
+    if validation.has_errors:
+        return None
+    track_ids: set[int] = set()
+    emitted_track_count = 0
+    try:
+        with mot_path.open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.reader(handle):
+                if not row:
+                    continue
+                track_ids.add(int(row[1]))
+                emitted_track_count += 1
+    except (OSError, ValueError, IndexError):
+        return None
+    if emitted_track_count != int(metadata.get("emitted_track_count", -1)):
+        return None
+    mot_write_seconds = metadata.get("mot_write_seconds")
+    if mot_write_seconds is None:
+        measured = (
+            float(metadata.get("tracker_seconds", 0.0))
+            + float(metadata.get("frame_read_seconds", 0.0))
+            + float(metadata.get("cache_read_seconds", 0.0))
+        )
+        mot_write_seconds = max(0.0, float(metadata.get("total_seconds", measured)) - measured)
+    return {
+        **metadata,
+        "mot_path": str(mot_path),
+        "metadata_path": str(metadata_path),
+        "mot_write_seconds": float(mot_write_seconds),
+        "track_ids": sorted(track_ids),
+        "resumed": True,
     }, validation
 
 

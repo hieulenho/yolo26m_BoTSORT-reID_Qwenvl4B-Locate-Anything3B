@@ -55,6 +55,7 @@ param(
     [bool]$RunLocateVerification = $true,
     [bool]$RunTrackSemantics = $true,
     [bool]$LocateFirstAllTracks = $true,
+    [bool]$ReuseLocateVerification = $false,
     [string]$SemanticOutputVideo = "",
 
     [switch]$SkipDiscovery,
@@ -208,7 +209,7 @@ if ($Overwrite -or -not (Test-Path -LiteralPath $TrackDiagnosticsJson -PathType 
 $TrackDiagnostics = Get-Content -LiteralPath $TrackDiagnosticsJson -Raw | ConvertFrom-Json
 $TrackingTrackCount = [int]$TrackDiagnostics.unique_track_count
 
-if ($RunLocateVerification) {
+if ($RunLocateVerification -and -not $ReuseLocateVerification) {
     Write-Host ""
     Write-Host "[4/9] Prepare all-track crops for LocateAnything"
     $PrepareArgs = @(
@@ -249,7 +250,7 @@ if ($RunLocateVerification) {
     }
 }
 
-if ($RunLocateVerification) {
+if ($RunLocateVerification -and -not $ReuseLocateVerification) {
     Write-Host ""
     Write-Host "[5/9] Build post-tracking LocateAnything plan"
     $GroundingPlanArgs = @(
@@ -300,11 +301,22 @@ if ($RunLocateVerification) {
         ($LocateData.cuda_memory.peak_allocated_bytes / 1GB)
     )
 }
+elseif ($ReuseLocateVerification) {
+    foreach ($Required in @($LocateContext, $LocateResult)) {
+        if (-not (Test-Path -LiteralPath $Required -PathType Leaf)) {
+            throw "ReuseLocateVerification requires an existing artifact: $Required"
+        }
+    }
+    Write-Host ""
+    Write-Host "[4-6/9] Reusing all-track LocateAnything artifacts"
+    Write-Host "    context : $LocateContext"
+    Write-Host "    result  : $LocateResult"
+}
 
 if ($RunTrackSemantics) {
     Write-Host ""
     $LocateEvidenceAvailable = (
-        $RunLocateVerification -and
+        ($RunLocateVerification -or $ReuseLocateVerification) -and
         (Test-Path -LiteralPath $LocateResult -PathType Leaf)
     )
     if ($LocateEvidenceAvailable) {
@@ -418,7 +430,10 @@ $FusionArgs = @(
 if ($RunTrackSemantics -and (Test-Path -LiteralPath $QwenAnswer -PathType Leaf)) {
     $FusionArgs += @("--qwen-answer", $QwenAnswer)
 }
-if ($RunLocateVerification -and (Test-Path -LiteralPath $LocateResult -PathType Leaf)) {
+if (
+    ($RunLocateVerification -or $ReuseLocateVerification) -and
+    (Test-Path -LiteralPath $LocateResult -PathType Leaf)
+) {
     $FusionArgs += @("--locate-result", $LocateResult)
 }
 if ($Overwrite) { $FusionArgs += "--overwrite" }

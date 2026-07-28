@@ -77,7 +77,12 @@ def diagnose_tracks(
     # Prefer the actual processed frame count from tracking metadata. This matters
     # for smoke runs with --max-frames, where the source video can be much longer
     # than the tracked segment.
-    frame_count = int(metadata.get("frame_count") or video.get("frame_count") or 0)
+    frame_count = int(
+        metadata.get("frame_count")
+        or metadata.get("frames")
+        or video.get("frame_count")
+        or 0
+    )
     fps = float(video.get("fps") or 0.0)
     total_boxes = sum(len(frames) for frames in tracks.values())
     lengths = [len(frames) for frames in tracks.values()]

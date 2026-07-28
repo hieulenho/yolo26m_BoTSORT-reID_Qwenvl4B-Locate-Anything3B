@@ -1,0 +1,36 @@
+{
+  "schema_version": "2.2",
+  "source_video": "F:\\videos\\multidomain_wildlife_black_noddies_38s.mp4",
+  "domain": {
+    "name": "wildlife",
+    "confidence": 1.0,
+    "description": "A wildlife video containing black noddy seabirds."
+  },
+  "objects": [
+    {
+      "canonical_name": "black noddy",
+      "display_name": "black noddy",
+      "action": "track",
+      "confidence": 1.0,
+      "aliases": ["anous minutus"],
+      "attributes": ["seabird"],
+      "coco_id": null,
+      "open_vocabulary": true,
+      "source_names": ["black noddy"],
+      "fine_grained_candidates": [],
+      "semantic_facets": ["species"],
+      "taxonomy_hint": "bird_species"
+    }
+  ],
+  "background_regions": ["sky", "nesting area"],
+  "keyframes": [],
+  "shot_starts": [1],
+  "model_id": "benchmark-controlled-vocabulary",
+  "prompt_version": "runtime-route-benchmark-v1",
+  "raw_response": "",
+  "created_at": "",
+  "warnings": [],
+  "metadata": {
+    "purpose": "Controlled 120-frame detector-router benchmark"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "schema_version": "2.2",
+  "source_video": "F:\\videos\\1.mp4",
+  "domain": {
+    "name": "football",
+    "confidence": 1.0,
+    "description": "A broadcast football match with players, goalkeepers, referees, and a ball."
+  },
+  "objects": [
+    {
+      "canonical_name": "player",
+      "display_name": "player",
+      "action": "track",
+      "confidence": 1.0,
+      "aliases": ["footballer"],
+      "attributes": [],
+      "coco_id": 0,
+      "open_vocabulary": false,
+      "source_names": ["player"],
+      "fine_grained_candidates": ["goalkeeper", "referee", "outfield player"],
+      "semantic_facets": ["team", "role"],
+      "taxonomy_hint": "football_role"
+    },
+    {
+      "canonical_name": "sports ball",
+      "display_name": "football",
+      "action": "detect",
+      "confidence": 1.0,
+      "aliases": ["ball"],
+      "attributes": [],
+      "coco_id": 32,
+      "open_vocabulary": false,
+      "source_names": ["football"],
+      "fine_grained_candidates": [],
+      "semantic_facets": [],
+      "taxonomy_hint": "sports_equipment"
+    }
+  ],
+  "background_regions": ["pitch", "stands"],
+  "keyframes": [],
+  "shot_starts": [1],
+  "model_id": "benchmark-controlled-vocabulary",
+  "prompt_version": "runtime-route-benchmark-v1",
+  "raw_response": "",
+  "created_at": "",
+  "warnings": [],
+  "metadata": {
+    "purpose": "Controlled 120-frame detector-router benchmark"
+  }
+}

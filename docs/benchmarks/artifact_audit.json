@@ -1,18 +1,8 @@
 {
   "status": "ok",
   "error_count": 0,
-  "warning_count": 6,
+  "warning_count": 4,
   "issues": [
-    {
-      "severity": "WARNING",
-      "code": "tracking_snapshot_scope",
-      "message": "Per-sequence tracking files are not embedded in the core snapshot; aggregate rows retain the original published measurement contract."
-    },
-    {
-      "severity": "WARNING",
-      "code": "core_snapshot",
-      "message": "Detector, SportsMOT tracker, IDSW, and route-runtime tables were validated from the immutable published core benchmark snapshot."
-    },
     {
       "severity": "WARNING",
       "code": "semantic_gt_scope",
@@ -34,5 +24,5 @@
       "message": "IDSW categories are diagnostic heuristics, not official TrackEval metrics."
     }
   ],
-  "source_count": 3
+  "source_count": 13
 }

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "source_root": "F:\\videos",
+  "output_root": "F:\\videos\\final",
+  "videos": [
+    {
+      "id": "football_1",
+      "path": "F:\\videos\\1.mp4",
+      "domain_hint": "football"
+    },
+    {
+      "id": "football_2",
+      "path": "F:\\videos\\2.mp4",
+      "domain_hint": "football"
+    },
+    {
+      "id": "video_3",
+      "path": "F:\\videos\\3.webm",
+      "domain_hint": "auto"
+    },
+    {
+      "id": "education_classroom",
+      "path": "F:\\videos\\multidomain_education_classroom_60s.mp4",
+      "domain_hint": "education"
+    },
+    {
+      "id": "medical_cells",
+      "path": "F:\\videos\\multidomain_medical_cells_31s.mp4",
+      "domain_hint": "medical"
+    },
+    {
+      "id": "traffic_street",
+      "path": "F:\\videos\\multidomain_traffic_street_35s.mp4",
+      "domain_hint": "traffic"
+    },
+    {
+      "id": "traffic_ua_detrac",
+      "path": "F:\\videos\\multidomain_traffic_ua_detrac_30s.mp4",
+      "domain_hint": "traffic"
+    },
+    {
+      "id": "wildlife_black_noddies",
+      "path": "F:\\videos\\multidomain_wildlife_black_noddies_38s.mp4",
+      "domain_hint": "wildlife"
+    }
+  ]
+}
