@@ -118,6 +118,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     plan.add_argument("--device", default="auto")
     plan.add_argument("--max-frames", type=int, default=None)
+    plan.add_argument(
+        "--realtime-coco-safety-net",
+        action="store_true",
+        help=(
+            "Keep all pretrained COCO detector classes available in realtime so "
+            "objects appearing after the calibration clip are not filtered out."
+        ),
+    )
     plan.add_argument("--overwrite", action="store_true")
 
     grounding_plan = subparsers.add_parser(
@@ -442,6 +450,7 @@ def _build_plan(args: argparse.Namespace) -> dict:
         microscopy_checkpoint=(
             "models/detector/microscopy/yolo26s_ctc_gowt1_seq01_best.pt"
         ),
+        realtime_coco_safety_net=args.realtime_coco_safety_net,
     )
     payload = build_tracking_payload(
         source_video=args.source,

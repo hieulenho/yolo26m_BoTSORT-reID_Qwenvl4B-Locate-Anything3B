@@ -120,6 +120,7 @@ def build_detector_route(
     microscopy_checkpoint: str | None = None,
     coco_checkpoint: str | None = None,
     open_checkpoint: str | None = None,
+    realtime_coco_safety_net: bool = False,
 ) -> DetectorRoute:
     """Choose a detector without dropping unknown classes from the discovery record."""
     normalized_profile = str(profile).strip().lower()
@@ -129,8 +130,26 @@ def build_detector_route(
         "yolo26n.pt" if normalized_profile in REALTIME_PROFILES else "yolo26s.pt"
     )
     open_checkpoint = open_checkpoint or "yoloe-26s-seg.pt"
+    safety_net_enabled = bool(
+        realtime_coco_safety_net and normalized_profile in REALTIME_PROFILES
+    )
     detector_objects = discovery.detector_objects
     if not detector_objects:
+        if safety_net_enabled:
+            return DetectorRoute(
+                route_name="coco_fallback",
+                backend="ultralytics",
+                checkpoint=coco_checkpoint,
+                class_names=tuple(COCO80_CLASSES),
+                class_ids=tuple(range(len(COCO80_CLASSES))),
+                tracker_class_ids=tuple(sorted(TRACKABLE_COCO_IDS)),
+                reason=(
+                    "No detector class survived normalization. The realtime COCO "
+                    "safety net remains enabled so common objects appearing after "
+                    "calibration are not filtered out."
+                ),
+                profile=normalized_profile,
+            )
         return DetectorRoute(
             route_name="coco_fallback",
             backend="ultralytics",
@@ -192,6 +211,7 @@ def build_detector_route(
         profile=normalized_profile,
         coco_checkpoint=coco_checkpoint,
         open_checkpoint=open_checkpoint,
+        realtime_coco_safety_net=safety_net_enabled,
     )
 
 
@@ -211,6 +231,7 @@ def _general_route(
     coco_checkpoint: str,
     open_checkpoint: str,
     reason_prefix: str = "",
+    realtime_coco_safety_net: bool = False,
 ) -> DetectorRoute:
     names = tuple(item.canonical_name for item in detector_objects)
     tracking_names, tracking_fallback = _tracking_names(detector_objects)
@@ -221,8 +242,23 @@ def _general_route(
         if tracking_fallback
         else ""
     )
+    safety_class_ids = (
+        set(range(len(COCO80_CLASSES))) if realtime_coco_safety_net else set()
+    )
+    safety_tracking_ids = set(TRACKABLE_COCO_IDS) if realtime_coco_safety_net else set()
+    safety_reason = (
+        " The realtime COCO safety net keeps all pretrained classes available for "
+        "objects that enter after calibration; only moving entity classes are sent "
+        "to the tracker."
+        if realtime_coco_safety_net
+        else ""
+    )
     if all(item.coco_id is not None for item in detector_objects):
-        class_ids = tuple(sorted({int(item.coco_id) for item in detector_objects}))
+        class_ids = tuple(
+            sorted(
+                {int(item.coco_id) for item in detector_objects} | safety_class_ids
+            )
+        )
         tracking_ids = tuple(
             sorted(
                 {
@@ -230,6 +266,7 @@ def _general_route(
                     for item in detector_objects
                     if item.canonical_name in tracking_names and item.coco_id is not None
                 }
+                | safety_tracking_ids
             )
         )
         return DetectorRoute(
@@ -243,20 +280,23 @@ def _general_route(
                 reason_prefix
                 + "All requested classes map to COCO, so the pretrained YOLO route is fastest."
                 + fallback_reason
+                + safety_reason
             ),
             profile=profile,
         )
 
     coco_items = [item for item in detector_objects if item.coco_id is not None]
     open_items = [item for item in detector_objects if item.coco_id is None]
-    if coco_items and open_items:
-        coco_ids = tuple(sorted({int(item.coco_id) for item in coco_items}))
+    if open_items and (coco_items or safety_class_ids):
+        coco_ids = tuple(
+            sorted({int(item.coco_id) for item in coco_items} | safety_class_ids)
+        )
         open_output_ids = tuple(1000 + index for index in range(len(open_items)))
         coco_tracking_ids = {
             int(item.coco_id)
             for item in coco_items
             if item.canonical_name in tracking_names
-        }
+        } | safety_tracking_ids
         open_tracking_ids = {
             output_id
             for item, output_id in zip(open_items, open_output_ids, strict=True)
@@ -295,6 +335,7 @@ def _general_route(
                 + "COCO classes use pretrained YOLO while unseen classes use a YOLOE "
                 "supplemental detector."
                 + fallback_reason
+                + safety_reason
             ),
             primary_class_ids=coco_ids,
             supplemental_detectors=(

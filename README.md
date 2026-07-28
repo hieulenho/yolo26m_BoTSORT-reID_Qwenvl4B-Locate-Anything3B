@@ -103,6 +103,14 @@ explicitly, `-DetectionOnly` to disable downstream semantic processing, or
 `-SemanticWorkerMode deferred` for the one-GPU LocateAnything-then-Qwen path. Press `Q` to
 stop. Outputs are written under `outputs/adaptive_realtime/webcam_session/`.
 
+Webcam plans enable the realtime COCO safety net by default. Qwen still discovers the initial
+domain and open vocabulary, but YOLO keeps all 80 pretrained COCO classes available so a car,
+animal, or other common object can enter after the calibration clip. Moving entity classes are
+tracked and receive IDs; other COCO classes are shown as detection-only boxes. Use
+`-DisableCocoSafetyNet` only for a deliberately closed-vocabulary deployment. Do not reuse a
+plan generated before this option was added; run with a new `-RunName` or `-Overwrite` and omit
+`-ReuseGeneratedConfig` once to regenerate it.
+
 YOLO, YOLOE, Qwen, and LocateAnything weights are not stored in Git. Their libraries download
 the public checkpoints on first use, so the first run needs internet access, sufficient disk
 space, and can take several minutes. Set `HF_TOKEN` before running when authenticated
@@ -405,7 +413,7 @@ football footage; they are not cross-domain accuracy claims.
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-The verified local state is `489 passed` (2026-07-27). Canonical reports:
+The verified local state is recorded by the latest `pytest` run. Canonical reports:
 
 - [Final report](docs/benchmarks/final_experiment_report.md)
 - [Artifact audit](docs/benchmarks/artifact_audit.json)

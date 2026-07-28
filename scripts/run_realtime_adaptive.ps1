@@ -32,6 +32,7 @@ param(
     [double]$SceneCutThreshold = 0.65,
     [int]$SceneCutMinGapFrames = 15,
     [int]$SceneCutCheckIntervalFrames = 5,
+    [switch]$DisableCocoSafetyNet,
     [switch]$DisableDetectorPrewarm,
     [switch]$DisableFrameDropping,
     [int]$MaxCatchupFrames = 5,
@@ -116,6 +117,7 @@ else {
         "--profile", "realtime",
         "--device", $Device
     )
+    if (-not $DisableCocoSafetyNet) { $PlanArgs += "--realtime-coco-safety-net" }
     if ($Overwrite) { $PlanArgs += "--overwrite" }
     & $Python @PlanArgs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

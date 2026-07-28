@@ -56,6 +56,10 @@ For a fresh clone, the shortest supported path is:
 
 The wrapper probes local camera indices and then delegates to `run_realtime_adaptive.ps1`.
 Pass `-CameraIndex 1` for a known USB camera or `-DetectionOnly` for detector and tracker only.
+The wrapper enables a COCO safety net by default: classes absent from the short calibration
+clip remain detectable later in the stream. Trackable people, vehicles, animals, and sports
+balls receive IDs; other COCO classes remain visible as detection-only observations. Pass
+`-DisableCocoSafetyNet` only when the stream has a fixed, closed vocabulary.
 
 ```powershell
 .\scripts\run_realtime_adaptive.ps1 `
@@ -74,6 +78,9 @@ plan, and starts the camera/RTSP/file stream. Track crops are written to a non-b
 queue. `deferred` drains the queue automatically after capture; `live` starts a persistent Qwen
 worker that loads the model once and updates the semantic cache while tracking continues.
 Use `-NoWindow` for headless measurement.
+
+`-ReuseGeneratedConfig` also reuses its old class filter. After changing the safety-net policy,
+omit that parameter and use `-Overwrite` (or a new run name) once so the plan is rebuilt.
 
 On one 8 GB GPU, deferred mode is a two-phase semantic job: event-triggered LocateAnything
 8-bit processes the queued target crops, releases VRAM, then Qwen 8-bit labels those verified

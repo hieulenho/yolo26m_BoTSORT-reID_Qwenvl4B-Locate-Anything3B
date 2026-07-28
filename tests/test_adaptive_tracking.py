@@ -273,6 +273,60 @@ def test_realtime_stable_profile_keeps_small_detector_and_uses_tracktrack() -> N
     assert tracking["detector"]["imgsz"] == 640
 
 
+def test_realtime_coco_safety_net_keeps_late_arrival_classes() -> None:
+    discovery = _discovery(
+        "indoor_webcam",
+        [{"name": "person", "action": "track", "confidence": 0.98}],
+    )
+
+    route = build_detector_route(
+        discovery,
+        profile="realtime",
+        realtime_coco_safety_net=True,
+    )
+    tracking = build_tracking_payload(
+        source_video="F:/videos/webcam.mp4",
+        output_video="F:/videos/webcam_tracking.mp4",
+        route=route,
+    )
+
+    assert route.route_name == "coco_pretrained"
+    assert route.class_ids == tuple(range(80))
+    assert route.class_names[0] == "person"
+    assert route.class_names[2] == "car"
+    assert {0, 1, 2, 3, 5, 7, 14, 32} <= set(route.tracker_class_ids)
+    assert tracking["detector"]["class_ids"] == list(range(80))
+    assert tracking["detector"]["source_class_names"]["2"] == "car"
+    assert "objects that enter after calibration" in route.reason
+
+
+def test_realtime_coco_safety_net_preserves_open_vocabulary_route() -> None:
+    discovery = _discovery(
+        "laboratory",
+        [
+            {"name": "person", "action": "track", "confidence": 0.98},
+            {
+                "name": "surgical instrument",
+                "action": "track",
+                "confidence": 0.88,
+            },
+        ],
+    )
+
+    route = build_detector_route(
+        discovery,
+        profile="realtime",
+        realtime_coco_safety_net=True,
+    )
+
+    assert route.route_name == "coco_open_composite"
+    assert route.primary_class_ids == tuple(range(80))
+    assert route.class_ids[-1] == 1000
+    assert route.class_names[2] == "car"
+    assert route.class_names[-1] == "surgical instrument"
+    assert route.supplemental_detectors[0]["output_class_ids"] == [1000]
+
+
 def test_router_promotes_highest_confidence_detect_class_when_no_track_class() -> None:
     route = build_detector_route(
         _discovery(

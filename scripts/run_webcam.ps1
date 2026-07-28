@@ -14,6 +14,7 @@ param(
     [int]$MaxFrames = 0,
     [string]$ReuseGeneratedConfig = "",
     [switch]$DetectionOnly,
+    [switch]$DisableCocoSafetyNet,
     [switch]$NoWindow,
     [switch]$Overwrite
 )
@@ -42,21 +43,23 @@ Write-Host (
 )
 
 if ($DetectionOnly) { $SemanticWorkerMode = "disabled" }
-$RunnerArgs = @(
-    "-Source", "$Selected",
-    "-RunName", $RunName,
-    "-CalibrationSeconds", "$CalibrationSeconds",
-    "-QwenQuantization", $Quantization,
-    "-LocateQuantization", $Quantization,
-    "-SemanticWorkerMode", $SemanticWorkerMode,
-    "-Device", $Device
-)
-if ($MaxFrames -gt 0) { $RunnerArgs += @("-MaxFrames", "$MaxFrames") }
-if ($ReuseGeneratedConfig) { $RunnerArgs += @("-ReuseGeneratedConfig", $ReuseGeneratedConfig) }
-if ($NoWindow) { $RunnerArgs += "-NoWindow" }
-if ($Overwrite) { $RunnerArgs += "-Overwrite" }
+$RunnerParams = @{
+    Source = "$Selected"
+    RunName = $RunName
+    CalibrationSeconds = $CalibrationSeconds
+    QwenQuantization = $Quantization
+    LocateQuantization = $Quantization
+    SemanticWorkerMode = $SemanticWorkerMode
+    Device = $Device
+}
+if ($MaxFrames -gt 0) { $RunnerParams.MaxFrames = $MaxFrames }
+if ($ReuseGeneratedConfig) {
+    $RunnerParams.ReuseGeneratedConfig = $ReuseGeneratedConfig
+}
+if ($DisableCocoSafetyNet) { $RunnerParams.DisableCocoSafetyNet = $true }
+if ($NoWindow) { $RunnerParams.NoWindow = $true }
+if ($Overwrite) { $RunnerParams.Overwrite = $true }
 
 Write-Host "[webcam] Press Q in the preview window to stop."
-& (Join-Path $ProjectRoot "scripts\run_realtime_adaptive.ps1") @RunnerArgs
+& (Join-Path $ProjectRoot "scripts\run_realtime_adaptive.ps1") @RunnerParams
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
