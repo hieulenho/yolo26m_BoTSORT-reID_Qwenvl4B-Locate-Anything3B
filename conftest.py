@@ -25,5 +25,6 @@ def configure_local_pytest_temp() -> Path:
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config: pytest.Config) -> None:
     temp_root = configure_local_pytest_temp()
+    
     if config.option.basetemp is None:
         config.option.basetemp = str(temp_root / f"run-{os.getpid()}")
