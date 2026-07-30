@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "measurement_scope": "CV foreground path only: detector, tracker, queue bookkeeping, and render; Qwen is benchmarked separately.",
+  "runs": [
+    {
+      "id": "football_tracktrack_300",
+      "domain": "football",
+      "task_config": "configs/tasks/football_roles.yaml",
+      "source": "F:/videos/1.mp4",
+      "max_frames": 300,
+      "preprocessing_mode": "none"
+    },
+    {
+      "id": "traffic_ua_auto_300",
+      "domain": "traffic",
+      "task_config": "configs/tasks/traffic_objects.yaml",
+      "source": "F:/videos/multidomain_traffic_ua_detrac_30s.mp4",
+      "max_frames": 300,
+      "preprocessing_mode": "auto_low_light"
+    },
+    {
+      "id": "traffic_ua_none_300",
+      "domain": "traffic",
+      "task_config": "configs/tasks/traffic_objects.yaml",
+      "source": "F:/videos/multidomain_traffic_ua_detrac_30s.mp4",
+      "max_frames": 300,
+      "preprocessing_mode": "none"
+    },
+    {
+      "id": "traffic_street_auto_300",
+      "domain": "traffic",
+      "task_config": "configs/tasks/traffic_objects.yaml",
+      "source": "F:/videos/multidomain_traffic_street_35s.mp4",
+      "max_frames": 300,
+      "preprocessing_mode": "auto_low_light"
+    },
+    {
+      "id": "classroom_auto_300",
+      "domain": "education",
+      "task_config": "configs/tasks/classroom_roles.yaml",
+      "source": "F:/videos/multidomain_education_classroom_60s.mp4",
+      "max_frames": 300,
+      "preprocessing_mode": "auto_low_light"
+    },
+    {
+      "id": "classroom_none_300",
+      "domain": "education",
+      "task_config": "configs/tasks/classroom_roles.yaml",
+      "source": "F:/videos/multidomain_education_classroom_60s.mp4",
+      "max_frames": 300,
+      "preprocessing_mode": "none"
+    },
+    {
+      "id": "wildlife_yoloe_300",
+      "domain": "wildlife",
+      "task_config": "configs/tasks/wildlife_birds.yaml",
+      "source": "F:/videos/multidomain_wildlife_black_noddies_38s.mp4",
+      "max_frames": 300,
+      "preprocessing_mode": "none"
+    },
+    {
+      "id": "microscopy_adapter_92",
+      "domain": "medical_microscopy",
+      "task_config": "configs/tasks/microscopy_cells.yaml",
+      "source": "F:/videos/multidomain_medical_cells_31s.mp4",
+      "max_frames": 92,
+      "preprocessing_mode": "auto_low_light"
+    },
+    {
+      "id": "microscopy_none_92",
+      "domain": "medical_microscopy",
+      "task_config": "configs/tasks/microscopy_cells.yaml",
+      "source": "F:/videos/multidomain_medical_cells_31s.mp4",
+      "max_frames": 92,
+      "preprocessing_mode": "none"
+    }
+  ]
+}

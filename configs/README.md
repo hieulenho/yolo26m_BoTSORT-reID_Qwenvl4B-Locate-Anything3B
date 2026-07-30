@@ -1,63 +1,48 @@
 # Config Guide
 
-Configs are source-controlled experiment definitions. Generated configs belong under an output
-run directory and should not be edited by hand.
+Human-edited configs define deployment intent and experiment contracts. Generated runtime YAML
+belongs inside a run directory and must not be edited manually.
 
-## Primary Adaptive Config
+## TaskConfig
 
-`adaptive_tracking.yaml` defines:
+`configs/tasks/` is the main interface. Each YAML defines:
 
-- Qwen discovery model, 8-bit quantization, shot sampling, and class limit;
-- ontology registry and semantic cache root;
-- football, COCO, and open-vocabulary detector checkpoints;
-- realtime, realtime_stable, balanced, and accuracy tracker profiles;
-- event-triggered Qwen/Locate policy and unknown threshold;
-- sequential GPU execution for an 8 GB device.
+- task ID, name, and objective;
+- detector backend, checkpoint, classes, thresholds, and preprocessing;
+- tracker implementation, preset, and class stabilization;
+- Qwen taxonomy, requested attributes, instruction, unknown threshold, and evidence limits;
+- render options.
 
-## Ontology
-
-`ontology/vocabulary_registry.yaml` stores canonical names, aliases, COCO mappings, default
-actions, and domain hints. It normalizes VLM output; it does not limit Qwen to only the listed
-classes. Unknown names remain eligible for the YOLOE route.
+The production semantic model is locked to `Qwen/Qwen3-VL-4B-Instruct` with 8-bit
+quantization. Closed tasks must provide an explicit allowed-label taxonomy. Open tasks may emit
+hierarchical labels, but still apply confidence and unknown rejection.
 
 ## Tracker Presets
 
-| Preset | Role |
+| Preset | Purpose |
 |---|---|
-| `ocsort_realtime.yaml` | default live tracker |
-| `tracktrack_realtime.yaml` | balanced quality profile |
-| `botsort_reid_identity_stable.yaml` | identity-focused profile |
-| `deepocsort_reid_realtime.yaml` | appearance-CNN comparison |
-| `fasttrack_realtime.yaml` | low-latency comparison |
-| `bytetrack_fast.yaml` | non-ReID baseline |
+| `tracktrack_realtime.yaml` | single-class realtime default |
+| `tracktrack_multiclass_realtime.yaml` | class-agnostic multiclass association plus temporal class stabilization |
+| `tracktrack_open_realtime.yaml` | low-threshold open-vocabulary detections |
+| `tracktrack_reid_realtime.yaml` | TrackTrack appearance-CNN ablation |
+| `botsort_reid_identity_stable.yaml` | identity-focused comparison |
+| `ocsort_realtime.yaml` | high-throughput motion-only comparison |
 
-Tracker selection is backed by `configs/benchmarks/tracking_full_report.yaml`; do not infer the
-best tracker from FPS alone.
+The tracker choice must be justified by a shared-detection benchmark, not FPS alone.
 
-## Benchmark Contracts
+## Semantic Runtime
 
-```text
-benchmarks/detector_sportsmot.yaml
-benchmarks/tracking_sportsmot_yolo26m*.yaml
-benchmarks/tracking_full_report.yaml
-benchmarks/semantic_pipelines.yaml
-benchmarks/semantic_ablation.yaml
-benchmarks/final_report.yaml
-```
+`configs/semantics/dynamic_track.yaml` contains the bounded Qwen execution profile: one track per
+batch, at most two model images, 8-bit weights, and a 192-token structured answer. Task-specific
+labels and instructions are copied into each atomic queue event.
 
-These files point to immutable source artifacts and expected sequence/frame/track counts. The
-final report fails instead of silently accepting missing or incompatible inputs.
+## Benchmarks
 
-## Dynamic Semantic Config
+`configs/benchmarks/task_research_report.yaml` identifies canonical input artifacts and output
+locations. `task_runtime_suite.json` defines the repeated foreground matrix. Tracker and detector
+contracts under the same directory retain fixed splits, image size, thresholds, and provenance.
 
-`semantics/dynamic_track.yaml` uses an open output schema. LocateAnything first verifies a
-track-local region; two temporal views are then packed into one evidence panel. Qwen receives
-one global keyframe, at most three track panels per batch, and structured MOT metadata before
-emitting labels with evidence and confidence. Scene discovery remains a separate call because
-domain vocabulary and per-track fine labels need different image and token budgets.
+## Optional And Historical Configs
 
-## Historical Configs
-
-Configs for YOLOv8, fixed football A/B/C, tracker grids, and their smoke tests are archived under
-`legacy/football/` for result reproduction. New multi-domain work should start with
-`adaptive_tracking.yaml` and a benchmark config under `benchmarks/`.
+YOLOE requires `requirements/open_vocab.txt`. LocateAnything and old A/B/C experiments are
+legacy ablations and are not part of the production TaskConfig runtime.

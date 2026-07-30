@@ -1,0 +1,65 @@
+schema_version: "1.0"
+
+task:
+  id: wildlife_zebra_benchmark
+  name: AnimalTrack zebra open-vocabulary benchmark
+  description: >-
+    Detect zebras with an open-vocabulary detector and evaluate TrackTrack
+    identity continuity against the official AnimalTrack Zebra annotations.
+
+detector:
+  name: yoloe26s_zebra
+  backend: ultralytics_yoloe
+  checkpoint: yoloe-26s-seg.pt
+  text_classes: [zebra]
+  class_ids: null
+  tracker_class_ids: null
+  preserve_source_classes: true
+  target_class_id: 0
+  target_class_name: zebra
+  imgsz: 640
+  conf: 0.10
+  iou: 0.60
+  max_det: 300
+  half: false
+  preprocessing:
+    mode: none
+    clahe_clip_limit: 2.0
+    clahe_grid_size: 8
+    low_light_threshold: 65
+
+tracker:
+  name: tracktrack
+  config: configs/trackers/tracktrack_open_realtime.yaml
+  stabilize_classes: true
+  class_history_frames: 30
+  class_switch_margin: 0.25
+
+semantic:
+  enabled: true
+  provider: qwen
+  model_id: Qwen/Qwen3-VL-4B-Instruct
+  quantization: 8bit
+  label_mode: closed
+  allowed_labels: [zebra, unknown]
+  attributes: [age_group, visible_markings, activity]
+  instruction: >-
+    Confirm zebra only when stripe evidence is visible in repeated views. Return
+    unknown for severe occlusion or insufficient evidence.
+  unknown_threshold: 0.85
+  event_interval_frames: 36
+  events_per_frame: 2
+  max_pending_events: 256
+  max_evidence_images: 2
+  evidence_layout: panel
+  evidence_panel_width: 512
+  evidence_panel_height: 384
+  minimum_crop_quality: 0.20
+  replacement_quality_margin: 0.06
+
+render:
+  show_confidence: true
+  show_trajectory: true
+  trajectory_length: 20
+  line_thickness: 2
+  font_scale: 0.55

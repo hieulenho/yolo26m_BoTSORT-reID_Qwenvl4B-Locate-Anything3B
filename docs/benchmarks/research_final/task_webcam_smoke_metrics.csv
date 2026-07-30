@@ -1,0 +1,4 @@
+profile,repeat_count,processing_fps_mean,processing_fps_std,source_progress_fps_mean,source_progress_fps_std,p95_latency_ms_mean,p95_latency_ms_std,drop_rate_mean,drop_rate_std,startup_seconds_mean,startup_seconds_std,shutdown_seconds_mean,shutdown_seconds_std,peak_ram_gb_mean,peak_ram_gb_std,peak_vram_gb_mean,peak_vram_gb_std
+bounded_tracking_only,1,18.264591762023603,0.0,1.003322917880505,0.0,85.05899999727262,0.0,0.0,0.0,8.17614400000457,0.0,0.9708725000018603,0.0,1.6462,0.0,0.0733,0.0
+bounded_semantic_queue,1,15.750125229220595,0.0,0.9998693364085315,0.0,93.21659999841359,0.0,0.0,0.0,7.7947604000000865,0.0,0.9649777000013273,0.0,1.6468,0.0,0.0733,0.0
+no_drop_semantic_queue,1,23.20494224432461,0.0,0.9604263653802497,0.0,48.284000004059635,0.0,0.0,0.0,7.6176189000034356,0.0,0.004865100003371481,0.0,1.6432,0.0,0.0733,0.0

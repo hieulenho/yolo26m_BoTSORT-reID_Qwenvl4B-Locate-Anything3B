@@ -7,7 +7,7 @@ import queue
 import statistics
 import threading
 import time
-from collections import deque
+from collections import defaultdict, deque
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -21,8 +21,11 @@ from football_tracking.adaptive_tracking.semantic_queue import (
 from football_tracking.adaptive_tracking.shot_sampling import OnlineShotChangeDetector
 from football_tracking.detection.detector import resolve_device
 from football_tracking.detection.detector_factory import create_detector
+from football_tracking.detection.preprocessing import FramePreprocessor
 from football_tracking.detection.serialization import runtime_versions
+from football_tracking.task_pipeline.config import load_task_pipeline_config
 from football_tracking.tracking.checkpoint_resolver import resolve_detector_checkpoint
+from football_tracking.tracking.class_stabilizer import TrackClassStabilizer
 from football_tracking.tracking.mot_writer import format_mot_row
 from football_tracking.tracking.pipeline import (
     all_detections_from_prediction,
@@ -54,10 +57,12 @@ def run_realtime_tracking(
     max_frames: int | None = None,
     semantic_queue_dir: str | Path | None = None,
     semantic_cache_path: str | Path | None = None,
+    task_config_path: str | Path | None = None,
     semantic_event_interval_frames: int = 90,
     semantic_cache_reload_frames: int = 15,
     semantic_events_per_frame: int = 2,
     semantic_max_pending_events: int = 256,
+    semantic_minimum_track_age_frames: int | None = None,
     asynchronous_video_write: bool = True,
     video_write_queue_size: int = 128,
     reset_on_scene_cut: bool = True,
@@ -86,6 +91,41 @@ def run_realtime_tracking(
     _reset_peak_cuda_memory()
     config = load_tracking_config(config_path)
     config = _with_resolved_device(config)
+    task_config = (
+        load_task_pipeline_config(task_config_path)
+        if task_config_path is not None
+        else None
+    )
+    if task_config is not None and not task_config.semantic.enabled:
+        semantic_queue_dir = None
+        semantic_cache_path = None
+    if semantic_minimum_track_age_frames is None:
+        semantic_minimum_track_age_frames = (
+            task_config.semantic.minimum_track_age_frames
+            if task_config is not None
+            else 1
+        )
+    if semantic_minimum_track_age_frames < 1:
+        raise RealtimeTrackingError(
+            "semantic_minimum_track_age_frames must be positive."
+        )
+    semantic_task = (
+        task_config.semantic_event_payload() if task_config is not None else None
+    )
+    preprocessor = FramePreprocessor(
+        mode=config.preprocessing_mode,
+        clahe_clip_limit=config.clahe_clip_limit,
+        clahe_grid_size=config.clahe_grid_size,
+        low_light_threshold=config.low_light_threshold,
+    )
+    class_stabilizer = (
+        TrackClassStabilizer(
+            history_frames=config.class_history_frames,
+            switch_margin=config.class_switch_margin,
+        )
+        if config.stabilize_classes
+        else None
+    )
     checkpoint = resolve_detector_checkpoint(config.model, config.project_root)
     detector_load_started = time.perf_counter()
     detector = create_detector(
@@ -136,7 +176,12 @@ def run_realtime_tracking(
             _release_capture(capture, latest_reader)
             raise RealtimeTrackingError("Could not read a frame for detector warm-up.")
         warmup_started = time.perf_counter()
-        predict_tracking_frame(detector, prefetched_frame, config)
+        predict_tracking_frame(
+            detector,
+            prefetched_frame,
+            config,
+            preprocessor=preprocessor,
+        )
         detector_warmup_seconds = time.perf_counter() - warmup_started
         if latest_reader is not None:
             prefetched_live_sequence, prefetched_frame = latest_reader.latest()
@@ -160,18 +205,34 @@ def run_realtime_tracking(
     render_times: list[float] = []
     rolling_times: deque[float] = deque(maxlen=30)
     unique_tracks: set[int] = set()
+    track_class_scores: dict[int, dict[tuple[int, str], float]] = defaultdict(
+        lambda: defaultdict(float)
+    )
+    track_class_counts: dict[int, dict[tuple[int, str], int]] = defaultdict(
+        lambda: defaultdict(int)
+    )
+    track_first_seen: dict[int, int] = {}
+    track_last_seen: dict[int, int] = {}
+    detection_confidences: list[float] = []
+    tracker_detection_confidences: list[float] = []
+    frames_with_detections = 0
+    frames_with_tracks = 0
     detection_count = 0
     tracker_detection_count = 0
     detection_only_count = 0
     track_box_count = 0
     semantic_events_enqueued = 0
     semantic_cache_refreshes = 0
+    preprocessing_applied_frames = 0
+    luminance_means: list[float] = []
+    luminance_stds: list[float] = []
     semantic_cache = SemanticCacheView(semantic_cache_path)
     semantic_queue = (
         SemanticEventQueue(
             semantic_queue_dir,
             context_id=f"{Path(config_path).resolve()}::{stream_source}",
             max_pending_events=semantic_max_pending_events,
+            semantic_task=semantic_task,
         )
         if semantic_queue_dir is not None
         else None
@@ -193,6 +254,7 @@ def run_realtime_tracking(
         else None
     )
     tracker_diagnostics: dict[str, Any] | None = None
+    tracker_runtime_config: dict[str, Any] | None = None
     stream_finished = started
     shutdown_seconds = 0.0
     try:
@@ -211,19 +273,6 @@ def run_realtime_tracking(
                     break
             else:
                 live_sequence = None
-                if drop_late_frames and source_fps > 0:
-                    expected_index = int(
-                        (time.perf_counter() - started) * source_fps
-                    ) + 1
-                    catchup = min(
-                        max(expected_index - (frame_index + 1), 0),
-                        max_catchup_frames,
-                    )
-                    for _ in range(catchup):
-                        if not capture.grab():
-                            break
-                        frame_index += 1
-                        dropped_late_frames += 1
                 ok, frame = capture.read()
                 if not ok:
                     break
@@ -242,6 +291,8 @@ def run_realtime_tracking(
                         tracker.reset_scene()
                     else:
                         tracker.reset()
+                    if class_stabilizer is not None:
+                        class_stabilizer.reset()
                     trajectory = TrajectoryStore(
                         config.trajectory_length,
                         enabled=config.show_trajectory,
@@ -254,7 +305,16 @@ def run_realtime_tracking(
                         }
                     )
             detector_started = time.perf_counter()
-            raw = predict_tracking_frame(detector, frame, config)
+            preprocessing_result = preprocessor.process(frame)
+            preprocessing_applied_frames += int(preprocessing_result.applied)
+            luminance_means.append(preprocessing_result.luminance_mean)
+            luminance_stds.append(preprocessing_result.luminance_std)
+            raw = predict_tracking_frame(
+                detector,
+                preprocessing_result.frame,
+                config,
+                preprocessed=True,
+            )
             all_detections = all_detections_from_prediction(
                 raw,
                 frame_index,
@@ -285,15 +345,40 @@ def run_realtime_tracking(
                 )
                 for track in tracks
             ]
+            if class_stabilizer is not None:
+                tracks = class_stabilizer.update(tracks, frame_index)
+            for track in tracks:
+                class_key = (int(track.class_id), str(track.class_name))
+                confidence = float(
+                    track.confidence if track.confidence is not None else 0.5
+                )
+                track_class_scores[int(track.track_id)][class_key] += max(
+                    confidence,
+                    0.05,
+                )
+                track_class_counts[int(track.track_id)][class_key] += 1
+                track_first_seen.setdefault(int(track.track_id), frame_index)
+                track_last_seen[int(track.track_id)] = frame_index
             tracker_times.append(time.perf_counter() - tracker_started)
             semantic_started = time.perf_counter()
             if frame_index == 1 or frame_index % semantic_cache_reload_frames == 0:
                 semantic_cache_refreshes += int(semantic_cache.refresh())
             if semantic_queue is not None and semantic_events_per_frame:
                 ranked_tracks = sorted(
-                    tracks,
+                    (
+                        track
+                        for track in tracks
+                        if frame_index
+                        - track_first_seen.get(int(track.track_id), frame_index)
+                        + 1
+                        >= semantic_minimum_track_age_frames
+                    ),
                     key=lambda track: (
                         semantic_cache.accepted(track.track_id) is not None,
+                        -(
+                            frame_index
+                            - track_first_seen.get(int(track.track_id), frame_index)
+                        ),
                         -(track.confidence or 0.0),
                         track.track_id,
                     ),
@@ -302,16 +387,19 @@ def run_realtime_tracking(
                 for track in ranked_tracks:
                     if emitted_this_frame >= semantic_events_per_frame:
                         break
+                    accepted = semantic_cache.accepted(track.track_id) is not None
                     event = semantic_queue.enqueue(
                         frame=frame,
                         frame_index=frame_index,
                         track=track,
                         reason=(
-                            "periodic_refresh"
-                            if semantic_cache.accepted(track.track_id)
-                            else "unknown_track"
+                            "periodic_refresh" if accepted else "unknown_track"
                         ),
-                        minimum_frame_gap=semantic_event_interval_frames,
+                        minimum_frame_gap=(
+                            semantic_event_interval_frames * 4
+                            if accepted
+                            else semantic_event_interval_frames
+                        ),
                     )
                     if event is not None:
                         semantic_events_enqueued += 1
@@ -326,7 +414,15 @@ def run_realtime_tracking(
             render_started = time.perf_counter()
             rendered = draw_tracks(
                 frame,
-                semantic_cache.decorate(tracks),
+                semantic_cache.decorate(
+                    tracks,
+                    pending_track_ids=(
+                        semantic_queue.pending_track_ids
+                        if semantic_queue is not None
+                        else set()
+                    ),
+                    semantic_enabled=semantic_queue is not None,
+                ),
                 trajectory_store=trajectory,
                 show_confidence=config.show_confidence,
                 show_class=config.show_class,
@@ -361,6 +457,14 @@ def run_realtime_tracking(
             tracker_detection_count += len(detections)
             detection_only_count += len(detection_only)
             track_box_count += len(tracks)
+            frames_with_detections += int(bool(all_detections))
+            frames_with_tracks += int(bool(tracks))
+            detection_confidences.extend(
+                float(detection.confidence) for detection in all_detections
+            )
+            tracker_detection_confidences.extend(
+                float(detection.confidence) for detection in detections
+            )
             unique_tracks.update(track.track_id for track in tracks)
             process_monitor.sample()
             if show_window:
@@ -376,6 +480,11 @@ def run_realtime_tracking(
             mot_handle.close()
         tracker_diagnostics = (
             tracker.get_diagnostics() if hasattr(tracker, "get_diagnostics") else None
+        )
+        tracker_runtime_config = (
+            tracker.get_runtime_config()
+            if hasattr(tracker, "get_runtime_config")
+            else None
         )
         tracker.close()
         if show_window:
@@ -395,7 +504,13 @@ def run_realtime_tracking(
         },
         "detector": detector.metadata() if hasattr(detector, "metadata") else None,
         "tracker": config.tracker_name,
+        "tracker_runtime_config": tracker_runtime_config,
         "tracker_diagnostics": tracker_diagnostics,
+        "class_stabilization": (
+            class_stabilizer.diagnostics()
+            if class_stabilizer is not None
+            else {"enabled": False}
+        ),
         "device": config.device,
         "hardware": runtime_versions(),
         "resources": process_monitor.summary(total_seconds),
@@ -407,11 +522,35 @@ def run_realtime_tracking(
             dropped_late_frames / max(processed_frame_count + dropped_late_frames, 1)
         ),
         "detections": detection_count,
+        "detection_confidence": _distribution_summary(detection_confidences),
+        "frames_with_detections": frames_with_detections,
+        "detection_frame_coverage": frames_with_detections
+        / max(processed_frame_count, 1),
         "tracker_detections": tracker_detection_count,
+        "tracker_detection_confidence": _distribution_summary(
+            tracker_detection_confidences
+        ),
         "detection_only_boxes": detection_only_count,
         "track_boxes": track_box_count,
+        "frames_with_tracks": frames_with_tracks,
+        "track_frame_coverage": frames_with_tracks / max(processed_frame_count, 1),
         "unique_tracks": len(unique_tracks),
+        "track_classes": _track_class_summary(
+            track_class_scores,
+            track_class_counts,
+            track_first_seen,
+            track_last_seen,
+        ),
+        "track_lifecycle": _track_lifecycle_summary(
+            track_class_counts,
+            track_first_seen,
+            track_last_seen,
+        ),
         "semantic": {
+            "task_config": (
+                str(task_config.config_path) if task_config is not None else None
+            ),
+            "task_id": task_config.task_id if task_config is not None else None,
             "queue_dir": (
                 str(Path(semantic_queue_dir).resolve())
                 if semantic_queue_dir is not None
@@ -430,12 +569,28 @@ def run_realtime_tracking(
                 semantic_queue.pending_count if semantic_queue is not None else 0
             ),
             "max_pending_events": semantic_max_pending_events,
+            "minimum_track_age_frames": semantic_minimum_track_age_frames,
             "cache_refreshes": semantic_cache_refreshes,
             "accepted_cached_tracks": sum(
                 semantic_cache.accepted(track_id) is not None
                 for track_id in unique_tracks
             ),
             "non_blocking": True,
+            "queue_diagnostics": (
+                semantic_queue.diagnostics() if semantic_queue is not None else None
+            ),
+        },
+        "preprocessing": {
+            "mode": config.preprocessing_mode,
+            "applied_frames": preprocessing_applied_frames,
+            "applied_rate": preprocessing_applied_frames
+            / max(processed_frame_count, 1),
+            "luminance_mean": (
+                statistics.fmean(luminance_means) if luminance_means else None
+            ),
+            "luminance_std_mean": (
+                statistics.fmean(luminance_stds) if luminance_stds else None
+            ),
         },
         "scene_cuts": {
             "enabled": reset_on_scene_cut,
@@ -468,7 +623,8 @@ def run_realtime_tracking(
             ),
             "shutdown_seconds": shutdown_seconds,
             "prewarm_detector": prewarm_detector,
-            "drop_late_frames": drop_late_frames,
+            "drop_late_frames": latest_reader is not None,
+            "frame_drop_scope": "live_source_only",
             "max_catchup_frames": max_catchup_frames,
         },
         "outputs": {
@@ -486,6 +642,128 @@ def run_realtime_tracking(
         metadata.write_text(json.dumps(result, indent=2, default=str), encoding="utf-8")
         result["outputs"]["metadata"] = str(metadata.resolve())
     return result
+
+
+def _track_class_summary(
+    scores: dict[int, dict[tuple[int, str], float]],
+    counts: dict[int, dict[tuple[int, str], int]],
+    first_seen: dict[int, int],
+    last_seen: dict[int, int],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for track_id in sorted(scores):
+        label_scores = scores[track_id]
+        if not label_scores:
+            continue
+        best = max(
+            label_scores,
+            key=lambda label: (label_scores[label], label[0], label[1]),
+        )
+        total_score = sum(label_scores.values())
+        total_observations = sum(counts[track_id].values())
+        rows.append(
+            {
+                "track_id": track_id,
+                "class_id": best[0],
+                "class_name": best[1],
+                "class_consensus": (
+                    label_scores[best] / total_score if total_score > 0 else 0.0
+                ),
+                "observation_count": total_observations,
+                "first_seen_frame": first_seen.get(track_id),
+                "last_seen_frame": last_seen.get(track_id),
+                "lifespan_frames": (
+                    int(last_seen[track_id]) - int(first_seen[track_id]) + 1
+                    if track_id in first_seen and track_id in last_seen
+                    else total_observations
+                ),
+                "gap_frame_count": (
+                    max(
+                        int(last_seen[track_id])
+                        - int(first_seen[track_id])
+                        + 1
+                        - total_observations,
+                        0,
+                    )
+                    if track_id in first_seen and track_id in last_seen
+                    else 0
+                ),
+                "class_votes": [
+                    {
+                        "class_id": class_id,
+                        "class_name": class_name,
+                        "weighted_score": label_scores[(class_id, class_name)],
+                        "observation_count": counts[track_id][
+                            (class_id, class_name)
+                        ],
+                    }
+                    for class_id, class_name in sorted(
+                        label_scores,
+                        key=lambda label: (-label_scores[label], label[0], label[1]),
+                    )
+                ],
+            }
+        )
+    return rows
+
+
+def _track_lifecycle_summary(
+    counts: dict[int, dict[tuple[int, str], int]],
+    first_seen: dict[int, int],
+    last_seen: dict[int, int],
+) -> dict[str, Any]:
+    lengths = [sum(label_counts.values()) for label_counts in counts.values()]
+    if not lengths:
+        return {
+            "track_count": 0,
+            "observation_count_mean": 0.0,
+            "observation_count_median": 0.0,
+            "tracks_shorter_than_3": 0,
+            "tracks_shorter_than_10": 0,
+            "tracks_shorter_than_30": 0,
+            "tracks_with_gaps": 0,
+            "gap_frame_count": 0,
+        }
+    gap_counts = []
+    for track_id, label_counts in counts.items():
+        observations = sum(label_counts.values())
+        lifespan = (
+            int(last_seen[track_id]) - int(first_seen[track_id]) + 1
+            if track_id in first_seen and track_id in last_seen
+            else observations
+        )
+        gap_counts.append(max(lifespan - observations, 0))
+    return {
+        "track_count": len(lengths),
+        "observation_count_mean": statistics.fmean(lengths),
+        "observation_count_median": statistics.median(lengths),
+        "tracks_shorter_than_3": sum(length < 3 for length in lengths),
+        "tracks_shorter_than_10": sum(length < 10 for length in lengths),
+        "tracks_shorter_than_30": sum(length < 30 for length in lengths),
+        "tracks_with_gaps": sum(gap > 0 for gap in gap_counts),
+        "gap_frame_count": sum(gap_counts),
+    }
+
+
+def _distribution_summary(values: list[float]) -> dict[str, float | int | None]:
+    if not values:
+        return {
+            "count": 0,
+            "minimum": None,
+            "mean": None,
+            "median": None,
+            "p90": None,
+            "maximum": None,
+        }
+    ordered = sorted(values)
+    return {
+        "count": len(values),
+        "minimum": ordered[0],
+        "mean": statistics.fmean(ordered),
+        "median": statistics.median(ordered),
+        "p90": _percentile(ordered, 0.90),
+        "maximum": ordered[-1],
+    }
 
 
 def _metadata_output_path(

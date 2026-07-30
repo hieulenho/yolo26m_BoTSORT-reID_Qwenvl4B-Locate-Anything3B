@@ -1,0 +1,6 @@
+# Single semantic model used by the production TaskConfig pipeline.
+transformers==4.57.1
+accelerate
+bitsandbytes
+qwen-vl-utils
+pillow

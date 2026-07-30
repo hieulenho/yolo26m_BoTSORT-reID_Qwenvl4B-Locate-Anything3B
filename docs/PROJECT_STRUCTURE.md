@@ -1,88 +1,59 @@
 # Project Structure
 
-The repository separates reusable source code, human-edited experiment definitions, local
-model/data assets, and generated evidence.
+The repository separates deployment contracts, reusable package code, reproducible evaluation,
+and generated artifacts.
 
-## Package Boundaries
-
-```text
-src/football_tracking/
-  adaptive_tracking/    discovery, ontology, routing, realtime loop, fusion, render
-  benchmarking/         detector/tracker/semantic consolidation and final report
-  data/                 SportsMOT preparation, conversion, validation, audit
-  detection/            Ultralytics YOLO/YOLOE adapters and composite detector routing
-  evaluation/           TrackEval integration and IDSW diagnostic taxonomy
-  experiments/          reproducible shared-cache tracker experiments
-  locate_tracking/      LocateAnything grounding, association, memory, and verification
-  reporting/            run-level provenance and report helpers
-  tracking/             tracker registry, adapters, MOT pipeline, timing
-  visualization/        frame overlays and plots
-  vlm/                  Qwen loading, quantization, scene discovery, prompt/context building
-```
-
-Dependency direction is intentionally one way: CLI/scripts call package services; package
-modules do not import scripts or generated outputs.
-
-## Human-Edited Files
+## Supported Runtime
 
 ```text
-configs/adaptive_tracking.yaml       primary adaptive defaults
-configs/ontology/                    canonical vocabulary registry
-configs/trackers/                    immutable tracker presets
-configs/benchmarks/                  benchmark contracts and source manifests
-requirements/                        dependency groups
-scripts/                             small set of supported PowerShell entry points
-scripts/runtime/                     realtime and scene-discovery workers
-scripts/benchmarks/                  metric, audit, and report builders
-scripts/data/                        sample acquisition and input diagnostics
-scripts/legacy/                      compatibility-only workflows
-tests/                               regression and artifact-contract tests
-README.md                            public project entry point
-commands.txt                         complete terminal runbook
+configs/tasks/                         task intent, detector, taxonomy, policy
+configs/trackers/                      immutable tracker presets
+configs/semantics/dynamic_track.yaml   one-Qwen 8-bit execution profile
+scripts/run_task_realtime.ps1          video, camera, or RTSP entrypoint
+scripts/run_task_webcam.ps1            local-camera probe and entrypoint
+src/football_tracking/task_pipeline/   TaskConfig validation and runtime builder
+src/football_tracking/tracking/        detector-to-track pipeline and adapters
+src/football_tracking/adaptive_tracking/ queue, evidence, fusion, cache, realtime loop
+src/football_tracking/vlm/             Qwen loader and bounded inference session
+requirements/runtime.txt               lightweight detector/tracker runtime
+requirements/webcam.txt                runtime plus Qwen semantic worker
 ```
 
-## Generated Artifacts
+Scripts call package services. Package modules do not import scripts or generated output.
+
+## Evaluation
 
 ```text
-outputs/adaptive_runs/               per-video discovery, plan, semantics, report
-outputs/benchmarks/detection/        canonical detector comparison
-outputs/benchmarks/tracking/         canonical tracking and IDSW comparison
-outputs/benchmarks/semantic/         reviewed semantic A/B/C ablation
-outputs/benchmarks/runtime/          route-level realtime measurements
-outputs/benchmarks/realtime/         long-stream latency/drop/resource comparisons
-outputs/benchmarks/final/            consolidated local report
-outputs/cache/semantic_discovery/    reusable discovery cache keyed by source/config
-outputs/detections/cache/            shared detections for fair tracker comparison
-data/semantic_benchmark/review/      human-review CSV, provenance, and contact sheets
-data/semantic_gt/                    current draft GT manifests and human-review tables
+configs/benchmarks/                     fixed measurement contracts
+scripts/benchmarks/                     run and consolidate experiments
+src/football_tracking/benchmarking/     report builders and schema validation
+src/football_tracking/evaluation/       TrackEval and IDSW diagnostics
+outputs/benchmarks/research_final/      local canonical report artifacts
+docs/benchmarks/research_final/         lightweight publishable report, CSVs, figures
+requirements/base.txt                   runtime plus TrackEval/report dependencies
+tests/                                  unit, integration, and contract tests
 ```
 
-Publishable lightweight results live under `docs/benchmarks/` and
-`docs/assets/benchmarks/`, so README links continue to work on GitHub even though `outputs/`
-is ignored. Generated contact sheets under `data/semantic_gt/` stay local; their review
-CSV/YAML/JSON manifests can be versioned after provenance checks.
-
-## Local Assets
-
-`data/`, `models/`, root checkpoint files, videos, and model text encoders are local assets.
-They are intentionally ignored when large or licensed separately. Do not commit:
+## Data And Models
 
 ```text
-*.pt, *.pth, *.safetensors, mobileclip*.ts, videos, datasets, outputs, runs
+data/       local datasets, normalized GT, review manifests
+models/     promoted local checkpoints
+outputs/    generated runs, caches, videos, metrics, reports
 ```
 
-## Legacy Compatibility
+Large videos, datasets, model weights, caches, and ordinary run outputs are ignored by Git.
+Reviewed manifests and lightweight canonical research artifacts may be versioned.
 
-The older football-only A/B/C scripts, configs, and documents remain under `scripts/legacy/`,
-`configs/legacy/football/`, and `docs/legacy/` for reproducing historical artifacts. New work
-should enter through `scripts/run_adaptive_tracking.ps1` or
-`scripts/run_realtime_adaptive.ps1`.
-Do not mix old result folders with `outputs/benchmarks/final/`.
+## Legacy Boundary
 
-## Cleanup Rules
+`scripts/legacy/`, `configs/legacy/`, `docs/legacy/`, and `src/football_tracking/locate_tracking/`
+exist for historical LocateAnything/Qwen A/B/C reproduction. They are not loaded by the current
+TaskConfig runtime. Removing them entirely would break reproducibility of older saved reports, so
+they remain isolated rather than mixed with primary entrypoints.
 
-- Safe to remove: Python caches, root archive backups, `runs/`, and disposable smoke outputs.
-- Preserve: `data/`, promoted checkpoints under `models/`, reviewed GT manifests, and canonical
-  benchmark sources referenced by `configs/benchmarks/final_report.yaml`.
-- Never delete a benchmark source before rebuilding the final report and checking
-  `artifact_audit.json`.
+## Cleanup Policy
+
+Safe disposable artifacts include Python caches, Ruff/Pytest caches, temporary slide-generation
+folders, and noncanonical smoke outputs. Preserve reviewed GT, promoted checkpoints, benchmark
+inputs referenced by `configs/benchmarks/task_research_report.yaml`, and the published report.

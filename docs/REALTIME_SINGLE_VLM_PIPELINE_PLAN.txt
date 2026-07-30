@@ -1,0 +1,295 @@
+REALTIME SINGLE-VLM TRACKING PIPELINE
+=====================================
+
+Version: 3.0
+Workspace: F:\Tracking
+Production VLM: Qwen/Qwen3-VL-4B-Instruct, 8-bit
+Default tracker: TrackTrack
+
+
+1. OBJECTIVE
+============
+
+Convert a camera stream or recorded video into:
+
+- bounding boxes;
+- persistent track IDs;
+- immediate detector classes;
+- delayed, evidence-backed semantic labels;
+- explicit waiting, pending, accepted, or unknown semantic states;
+- MP4, MOT TXT, JSON metrics, and reproducibility artifacts.
+
+"Every box has a label" means complete output-schema coverage. It does not mean
+that every fine-grained label is known or correct. Unknown is required whenever
+the evidence is weak, ambiguous, too short, or occluded.
+
+
+2. FINAL ARCHITECTURE
+=====================
+
+TaskConfig + camera/video
+        |
+        v
+Capture, timestamps, and optional late-frame dropping
+        |
+        v
+Task-specific preprocessing
+        |
+        v
+Selected detector checkpoint
+        |
+        v
+TrackTrack + class stabilization
+        |
+        +----> immediate bbox + base class + track_id ----> render
+        |
+        `----> track evidence manager
+                    |
+                    v
+             bounded priority queue
+                    |
+                    v
+          Qwen3-VL-4B 8-bit worker
+                    |
+                    v
+       taxonomy enforcement + temporal fusion
+                    |
+                    v
+              unknown rejection
+                    |
+                    v
+               semantic cache
+                    |
+                    `----> update later rendered frames
+
+The production path uses one VLM. LocateAnything remains only for historical
+A/B/C ablations and is not loaded by the TaskConfig runtime.
+
+
+3. WHY TASKCONFIG REPLACES AN AUTOMATIC DETECTOR ROUTER
+=======================================================
+
+A visible domain does not define the user's objective. The same classroom can
+be used for role classification, attendance, phone-use detection, hand-raising,
+or another event task. A VLM can recognize a classroom but cannot infer which
+of those tasks the user intended.
+
+TaskConfig therefore defines before capture:
+
+- detector checkpoint and backend;
+- detector classes and classes allowed into tracking;
+- tracker profile;
+- preprocessing policy;
+- open or closed semantic taxonomy;
+- requested attributes;
+- task instruction;
+- unknown threshold;
+- semantic evidence and queue limits;
+- render policy.
+
+For a private dataset, fine-tune a detector, set its checkpoint in TaskConfig,
+and keep the remaining runtime unchanged.
+
+
+4. FRAME-BY-FRAME FOREGROUND PATH
+=================================
+
+4.1 Capture
+
+Each frame receives a monotonic frame index and a capture timestamp. Webcam
+mode may keep only the newest frame when processing falls behind. This bounds
+live latency. Offline evaluation never drops frames because GT is indexed by
+frame number.
+
+4.2 Preprocessing
+
+Available modes are none, auto_low_light, and CLAHE. They preserve image
+geometry, so boxes and GT coordinates remain valid. Preprocessing is selected
+per task; it is not universally beneficial.
+
+4.3 Detection
+
+The chosen detector returns bbox, class ID, class name, and confidence. Typical
+choices are:
+
+- a fine-tuned YOLO checkpoint for a private dataset;
+- YOLO26n/s for known COCO classes;
+- YOLOE-26s with an explicit text vocabulary for open classes.
+
+The detector class is an immediate base label, not a deep semantic claim.
+
+4.4 Tracking
+
+TrackTrack associates detections over time and assigns track_id. Production
+multiclass association is class-agnostic so a one-frame detector class error
+does not split an identity. A temporal class stabilizer then suppresses short
+class flips without changing the track ID. A hard class gate remains available
+only as an ablation. Scene-cut reset prevents identities from leaking across
+hard cuts while preserving a globally unique visible ID namespace.
+
+4.5 Immediate render
+
+The foreground loop renders without waiting for Qwen. A new object first appears
+as, for example:
+
+    ID 7 | person | waiting
+
+After evidence is queued:
+
+    ID 7 | person | pending
+
+
+5. SEMANTIC EVIDENCE PATH
+=========================
+
+5.1 Candidate ordering
+
+Tracks without accepted semantics are considered first. Higher-confidence
+tracks are considered before lower-confidence tracks. The queue retains at most
+one pending event per track.
+
+5.2 Crop quality
+
+Crop quality combines sharpness, brightness, target size, detector confidence,
+and visible fraction. A later crop replaces a pending crop only when it is
+better by the configured margin.
+
+5.3 Temporal evidence
+
+For each track, the evidence manager keeps up to the configured number of images.
+Selection balances image quality and temporal distance. The default is two
+moments, not a fixed maximum number of track IDs.
+
+5.4 Evidence panel
+
+One bounded 512x384 panel contains:
+
+- a full-frame context image with the target ID highlighted;
+- one or two crops from the same track at different frames;
+- the allowed evidence frame indices.
+
+This keeps Qwen input bounded on an 8 GB GPU while retaining both context and
+target detail.
+
+5.5 Qwen execution
+
+The worker loads Qwen once, processes one bounded job batch at a time, and uses
+inference mode. TaskConfig and worker configuration are both locked to
+Qwen/Qwen3-VL-4B-Instruct 8-bit. Model output must contain the expected track ID
+and the requested JSON schema.
+
+5.6 Taxonomy enforcement
+
+Closed tasks accept only configured labels. Out-of-taxonomy labels become
+unknown. Unrequested attributes are removed. Open tasks permit hierarchical
+labels but still require visual support.
+
+5.7 Temporal fusion and rejection
+
+Repeated evidence is fused by source weight, confidence, recency, consensus,
+margin, and temporal stability. A label is accepted only when all configured
+conditions pass. Otherwise the semantic state is unknown and the base detector
+class remains available.
+
+
+6. LIVE AND DEFERRED MODES
+==========================
+
+live:
+
+- detector/tracker and Qwen run in separate processes;
+- labels update while the camera continues;
+- lowest semantic delay, highest concurrent VRAM demand;
+- foreground tracking never waits for Qwen.
+
+deferred:
+
+- tracking first records all evidence;
+- one Qwen session drains the queue after capture;
+- final semantic labels are rendered onto recorded files;
+- preferred for offline files and one 8 GB GPU.
+
+disabled:
+
+- detector/tracker only;
+- used for foreground FPS, latency, HOTA, MOTA, IDF1, and IDSW evaluation.
+
+
+7. MEASUREMENT CONTRACT
+=======================
+
+Detector:
+
+- precision, recall, mAP50, mAP50-95;
+- detector FPS and end-to-end detector FPS;
+- fixed split, image size, confidence, IoU, and hardware.
+
+Tracking with GT:
+
+- HOTA, DetA, AssA, LocA;
+- MOTA, IDF1, ID precision, ID recall;
+- official IDSW and fragmentation;
+- processing FPS.
+
+Realtime foreground:
+
+- processing FPS and source-progress FPS;
+- p50/p95/p99 frame latency;
+- startup and shutdown time;
+- dropped-frame count and rate;
+- peak RAM and PyTorch CUDA memory;
+- at least three repeated runs per profile.
+
+Semantic with reviewed GT:
+
+- overall accuracy and known-class Macro-F1;
+- coverage and selective accuracy;
+- unknown-rejection precision, recall, and F1;
+- hallucination rate;
+- model load time, generation time, and peak VRAM.
+
+IDSW taxonomy:
+
+- TrackEval total IDSW is official;
+- fragmentation, identity swap, ReID failure, association error, and appearance
+  confusion are diagnostic categories until independently reviewed.
+
+
+8. CURRENT EVIDENCE AND LIMITS
+==============================
+
+- SportsMOT detector and tracker results use official GT.
+- Traffic, wildlife, and microscopy task checks use normalized GT and TrackEval.
+- The runtime matrix has three repeats per profile on the RTX 4060 Laptop GPU.
+- The Qwen traffic check has 20 GT-matched tracks and is not enough for a broad
+  multidomain accuracy claim.
+- The 338-track multidomain semantic package remains draft until human review.
+- A physical TaskConfig smoke completed, but its camera source delivered about
+  one frame per second; this validates integration rather than camera capacity.
+
+No report may describe draft semantic labels as ground truth or heuristic IDSW
+subtypes as official errors.
+
+
+9. PRIMARY ENTRYPOINTS
+======================
+
+Webcam:
+
+    .\scripts\run_task_webcam.ps1
+
+Video or stream:
+
+    .\scripts\run_task_realtime.ps1
+
+Research report:
+
+    .\scripts\benchmarks\build_task_research_report.py
+
+Complete tested commands:
+
+    commands.txt
+
+Canonical report:
+
+    docs\benchmarks\research_final\research_report.md

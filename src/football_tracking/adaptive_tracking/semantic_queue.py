@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from collections.abc import Callable
 from dataclasses import replace
@@ -51,6 +52,7 @@ class SemanticEventQueue:
         *,
         context_id: str,
         max_pending_events: int = 256,
+        semantic_task: dict[str, Any] | None = None,
     ) -> None:
         if max_pending_events < 1:
             raise SemanticQueueError("max_pending_events must be positive.")
@@ -61,23 +63,81 @@ class SemanticEventQueue:
         self.processed_dir = self.root / "processed"
         self.failed_dir = self.root / "failed"
         self.crops_dir = self.root / "crops"
+        self.panels_dir = self.root / "panels"
         self._last_frame_by_track: dict[int, int] = {}
+        self._pending_path_by_track: dict[int, Path] = {}
+        self._processing_track_ids: set[int] = set()
+        self._processing_refresh_seconds = 0.0
+        self._evidence_by_track: dict[int, list[dict[str, Any]]] = {}
+        self.semantic_task = dict(semantic_task or {})
+        self.max_evidence_images = int(self.semantic_task.get("max_evidence_images", 2))
+        self.evidence_layout = str(
+            self.semantic_task.get("evidence_layout", "panel")
+        ).strip().lower()
+        self.evidence_panel_width = int(
+            self.semantic_task.get("evidence_panel_width", 512)
+        )
+        self.evidence_panel_height = int(
+            self.semantic_task.get("evidence_panel_height", 384)
+        )
+        self.minimum_crop_quality = float(
+            self.semantic_task.get("minimum_crop_quality", 0.0)
+        )
+        self.replacement_quality_margin = float(
+            self.semantic_task.get("replacement_quality_margin", 0.08)
+        )
         self.max_pending_events = int(max_pending_events)
         self.dropped_full = 0
+        self.replaced_pending = 0
+        self.rejected_low_quality = 0
         for directory in (
             self.pending_dir,
             self.processing_dir,
             self.processed_dir,
             self.failed_dir,
             self.crops_dir,
+            self.panels_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
         self._pending_estimate = len(list(self.pending_dir.glob("*.json")))
+        self._restore_pending_index()
 
     @property
     def pending_count(self) -> int:
         self._pending_estimate = len(list(self.pending_dir.glob("*.json")))
         return self._pending_estimate
+
+    @property
+    def pending_track_ids(self) -> set[int]:
+        stale = [
+            track_id
+            for track_id, path in self._pending_path_by_track.items()
+            if not path.is_file()
+        ]
+        for track_id in stale:
+            self._pending_path_by_track.pop(track_id, None)
+        self._pending_estimate = len(self._pending_path_by_track)
+        self._refresh_processing_track_ids()
+        return set(self._pending_path_by_track) | self._processing_track_ids
+
+    def diagnostics(self) -> dict[str, Any]:
+        self._refresh_processing_track_ids(force=True)
+        return {
+            "pending_events": self.pending_count,
+            "pending_tracks": len(self.pending_track_ids),
+            "processing_tracks": len(self._processing_track_ids),
+            "inflight_tracks": len(self.pending_track_ids),
+            "dropped_full": self.dropped_full,
+            "replaced_pending": self.replaced_pending,
+            "rejected_low_quality": self.rejected_low_quality,
+            "minimum_crop_quality": self.minimum_crop_quality,
+            "max_evidence_images": self.max_evidence_images,
+            "evidence_layout": self.evidence_layout,
+            "evidence_panel_size": [
+                self.evidence_panel_width,
+                self.evidence_panel_height,
+            ],
+        }
 
     def enqueue(
         self,
@@ -96,15 +156,35 @@ class SemanticEventQueue:
             raise SemanticQueueError("crop_padding must be in [0, 1].")
         if crop_size < 64:
             raise SemanticQueueError("crop_size must be at least 64.")
-        last_frame = self._last_frame_by_track.get(track.track_id)
-        if last_frame is not None and frame_index - last_frame < minimum_frame_gap:
+        track_id = int(track.track_id)
+        existing_path = self._pending_path_by_track.get(track_id)
+        if existing_path is not None and not existing_path.is_file():
+            self._pending_path_by_track.pop(track_id, None)
+            self._pending_estimate = max(self._pending_estimate - 1, 0)
+            existing_path = None
+        self._refresh_processing_track_ids()
+        if track_id in self._processing_track_ids:
+            self._last_frame_by_track[track_id] = frame_index
             return None
-        if self._pending_estimate >= self.max_pending_events:
+        last_frame = self._last_frame_by_track.get(track_id)
+        within_gap = (
+            last_frame is not None
+            and frame_index - last_frame < minimum_frame_gap
+        )
+        if within_gap:
+            return None
+        inflight_estimate = self._pending_estimate + len(self._processing_track_ids)
+        if existing_path is None and inflight_estimate >= self.max_pending_events:
             self._pending_estimate = len(list(self.pending_dir.glob("*.json")))
-        if self._pending_estimate >= self.max_pending_events:
+            self._refresh_processing_track_ids(force=True)
+            inflight_estimate = self._pending_estimate + len(
+                self._processing_track_ids
+            )
+        if existing_path is None and inflight_estimate >= self.max_pending_events:
             self.dropped_full += 1
-            self._last_frame_by_track[track.track_id] = frame_index
+            self._last_frame_by_track[track_id] = frame_index
             return None
+
         crop_result = _track_crop(
             frame,
             track,
@@ -114,30 +194,265 @@ class SemanticEventQueue:
         if crop_result is None:
             return None
         crop, target_bbox = crop_result
-        event_id = f"f{frame_index:09d}_t{track.track_id:07d}"
+        quality = _crop_quality(frame, crop, track, target_bbox)
+        if quality["score"] < self.minimum_crop_quality:
+            self.rejected_low_quality += 1
+            self._last_frame_by_track[track_id] = frame_index
+            return None
+        existing_event = _read_json_if_present(existing_path)
+        existing_quality = float(
+            ((existing_event or {}).get("crop_quality") or {}).get("score", 0.0)
+        )
+        replacement = existing_path is not None
+        if replacement and (
+            quality["score"] < existing_quality + self.replacement_quality_margin
+        ):
+            self._last_frame_by_track[track_id] = frame_index
+            return None
+        superseded_path: Path | None = None
+        if replacement and existing_path is not None:
+            superseded_dir = self.root / "superseded"
+            superseded_dir.mkdir(parents=True, exist_ok=True)
+            superseded_path = superseded_dir / existing_path.name
+            try:
+                existing_path.replace(superseded_path)
+            except FileNotFoundError:
+                self._pending_path_by_track.pop(track_id, None)
+                return None
+        event_id = f"f{frame_index:09d}_t{track_id:07d}"
         crop_path = self.crops_dir / f"{event_id}.jpg"
+        panel_path = self.panels_dir / f"{event_id}.jpg"
         event_path = self.pending_dir / f"{event_id}.json"
         if not cv2.imwrite(str(crop_path), crop):
+            if superseded_path is not None and existing_path is not None:
+                superseded_path.replace(existing_path)
             raise SemanticQueueError(f"Could not write semantic crop: {crop_path}")
-        _atomic_json(
-            event_path,
+        evidence = self._updated_evidence(
+            track_id,
             {
-                "schema_version": "1.0",
-                "event_id": event_id,
-                "context_id": self.context_id,
                 "frame_index": frame_index,
-                "track_id": track.track_id,
-                "detector_class_id": track.class_id,
-                "detector_class_name": track.class_name,
-                "track_confidence": track.confidence,
-                "reason": reason,
                 "crop_path": str(crop_path.resolve()),
-                "target_bbox_in_crop_xyxy": list(target_bbox),
+                "quality": quality["score"],
             },
         )
-        self._last_frame_by_track[track.track_id] = frame_index
-        self._pending_estimate += 1
+        if self.evidence_layout == "panel":
+            panel = _build_evidence_panel(
+                frame,
+                track,
+                evidence,
+                width=self.evidence_panel_width,
+                height=self.evidence_panel_height,
+            )
+            if not cv2.imwrite(str(panel_path), panel):
+                crop_path.unlink(missing_ok=True)
+                if superseded_path is not None and existing_path is not None:
+                    superseded_path.replace(existing_path)
+                raise SemanticQueueError(
+                    f"Could not write semantic evidence panel: {panel_path}"
+                )
+            qwen_image_paths = [str(panel_path.resolve())]
+            qwen_image_labels = [
+                (
+                    f"Track {track_id} evidence panel: highlighted scene context and "
+                    f"{len(evidence)} temporally selected crop(s)."
+                )
+            ]
+        else:
+            qwen_image_paths = [row["crop_path"] for row in evidence]
+            qwen_image_labels = [
+                f"Track {track_id} crop at frame {int(row['frame_index'])}."
+                for row in evidence
+            ]
+        payload = {
+            "schema_version": "2.0",
+            "event_id": event_id,
+            "context_id": self.context_id,
+            "frame_index": frame_index,
+            "track_id": track_id,
+            "detector_class_id": track.class_id,
+            "detector_class_name": track.class_name,
+            "track_confidence": track.confidence,
+            "reason": reason,
+            "priority": _event_priority(reason, quality["score"], track.confidence),
+            "created_unix_seconds": time.time(),
+            "crop_path": str(crop_path.resolve()),
+            "crop_quality": quality,
+            "target_bbox_in_crop_xyxy": list(target_bbox),
+            "evidence": evidence,
+            "evidence_layout": self.evidence_layout,
+            "evidence_panel_path": (
+                str(panel_path.resolve()) if self.evidence_layout == "panel" else None
+            ),
+            "qwen_image_paths": qwen_image_paths,
+            "qwen_image_labels": qwen_image_labels,
+            "evidence_frame_indices": [row["frame_index"] for row in evidence],
+            "semantic_task": self.semantic_task,
+        }
+        try:
+            _atomic_json(event_path, payload)
+        except Exception:
+            crop_path.unlink(missing_ok=True)
+            panel_path.unlink(missing_ok=True)
+            if superseded_path is not None and existing_path is not None:
+                superseded_path.replace(existing_path)
+            raise
+        if superseded_path is not None:
+            superseded_path.unlink(missing_ok=True)
+            self.replaced_pending += 1
+        else:
+            self._pending_estimate += 1
+        self._pending_path_by_track[track_id] = event_path
+        self._last_frame_by_track[track_id] = frame_index
         return event_path
+
+    def _refresh_processing_track_ids(self, *, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and now - self._processing_refresh_seconds < 0.25:
+            return
+        self._processing_track_ids = {
+            track_id
+            for path in self.processing_dir.glob("*.json")
+            if (track_id := _event_track_id_from_path(path)) is not None
+        }
+        self._processing_refresh_seconds = now
+
+    def _restore_pending_index(self) -> None:
+        for path in sorted(self.pending_dir.glob("*.json")):
+            event = _read_json_if_present(path)
+            if not event:
+                continue
+            try:
+                track_id = int(event["track_id"])
+                frame_index = int(event["frame_index"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            self._pending_path_by_track[track_id] = path
+            self._last_frame_by_track[track_id] = max(
+                frame_index,
+                self._last_frame_by_track.get(track_id, frame_index),
+            )
+            evidence = event.get("evidence")
+            if isinstance(evidence, list):
+                self._evidence_by_track[track_id] = [
+                    dict(row) for row in evidence if isinstance(row, dict)
+                ]
+
+    def _updated_evidence(
+        self,
+        track_id: int,
+        new_row: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        candidates = [*self._evidence_by_track.get(track_id, []), dict(new_row)]
+        unique = {
+            (int(row["frame_index"]), str(row["crop_path"])): row
+            for row in candidates
+            if Path(str(row.get("crop_path", ""))).is_file()
+        }
+        selected = _select_temporal_evidence(
+            list(unique.values()),
+            max_images=self.max_evidence_images,
+        )
+        self._evidence_by_track[track_id] = selected
+        return selected
+
+
+def _read_json_if_present(path: Path | None) -> dict[str, Any] | None:
+    if path is None or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return dict(payload) if isinstance(payload, dict) else None
+
+
+def _event_priority(reason: str, quality: float, confidence: float | None) -> float:
+    reason_weight = {
+        "new_track": 3.0,
+        "unknown_track": 3.0,
+        "low_confidence": 2.5,
+        "periodic_refresh": 1.0,
+    }.get(str(reason), 2.0)
+    track_confidence = float(confidence if confidence is not None else 0.0)
+    return round(reason_weight + quality + 0.25 * track_confidence, 6)
+
+
+def _event_track_id_from_path(path: Path) -> int | None:
+    match = re.search(r"_t(\d+)\.json$", path.name)
+    return int(match.group(1)) if match else None
+
+
+def _crop_quality(
+    frame: Any,
+    crop: Any,
+    track: TrackOutput,
+    target_bbox: tuple[float, float, float, float],
+) -> dict[str, float]:
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    sharpness_raw = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    sharpness = min(sharpness_raw / 250.0, 1.0)
+    brightness_raw = float(gray.mean())
+    brightness = max(0.0, 1.0 - abs(brightness_raw - 127.5) / 127.5)
+    target_width = max(float(target_bbox[2] - target_bbox[0]), 1.0)
+    target_height = max(float(target_bbox[3] - target_bbox[1]), 1.0)
+    size = min(min(target_width, target_height) / 96.0, 1.0)
+    frame_height, frame_width = frame.shape[:2]
+    box = track.bbox_xyxy
+    clipped_width = max(min(box.x2, frame_width) - max(box.x1, 0.0), 0.0)
+    clipped_height = max(min(box.y2, frame_height) - max(box.y1, 0.0), 0.0)
+    original_area = max((box.x2 - box.x1) * (box.y2 - box.y1), 1.0)
+    visible_fraction = min(max(clipped_width * clipped_height / original_area, 0.0), 1.0)
+    confidence = min(max(float(track.confidence or 0.0), 0.0), 1.0)
+    score = (
+        0.30 * sharpness
+        + 0.20 * brightness
+        + 0.20 * size
+        + 0.20 * confidence
+        + 0.10 * visible_fraction
+    )
+    return {
+        "score": round(score, 6),
+        "sharpness": round(sharpness, 6),
+        "sharpness_raw": round(sharpness_raw, 3),
+        "brightness": round(brightness, 6),
+        "brightness_raw": round(brightness_raw, 3),
+        "size": round(size, 6),
+        "visible_fraction": round(visible_fraction, 6),
+        "detector_confidence": round(confidence, 6),
+    }
+
+
+def _select_temporal_evidence(
+    rows: list[dict[str, Any]],
+    *,
+    max_images: int,
+) -> list[dict[str, Any]]:
+    if max_images < 1:
+        raise SemanticQueueError("max_images must be positive.")
+    if len(rows) <= max_images:
+        return sorted(rows, key=lambda row: int(row["frame_index"]))
+    ordered = sorted(
+        rows,
+        key=lambda row: (-float(row.get("quality", 0.0)), int(row["frame_index"])),
+    )
+    selected = [ordered.pop(0)]
+    frame_span = max(int(row["frame_index"]) for row in rows) - min(
+        int(row["frame_index"]) for row in rows
+    )
+    while ordered and len(selected) < max_images:
+        def selection_score(row: dict[str, Any]) -> tuple[float, float, int]:
+            frame = int(row["frame_index"])
+            temporal_distance = min(
+                abs(frame - int(chosen["frame_index"])) for chosen in selected
+            )
+            diversity = temporal_distance / max(frame_span, 1)
+            quality = float(row.get("quality", 0.0))
+            return quality + 0.25 * diversity, quality, -frame
+
+        choice = max(ordered, key=selection_score)
+        selected.append(choice)
+        ordered.remove(choice)
+    return sorted(selected, key=lambda row: int(row["frame_index"]))
 
 
 def _track_crop(
@@ -177,6 +492,95 @@ def _track_crop(
     return crop, target_bbox
 
 
+def _build_evidence_panel(
+    frame: Any,
+    track: TrackOutput,
+    evidence: list[dict[str, Any]],
+    *,
+    width: int,
+    height: int,
+) -> Any:
+    """Compose scene context and temporal crops into one bounded Qwen image."""
+    import numpy as np
+
+    panel = np.full((height, width, 3), 24, dtype=np.uint8)
+    context_width = max(int(round(width * 0.64)), 1)
+    context = frame.copy()
+    box = track.bbox_xyxy
+    cv2.rectangle(
+        context,
+        (max(0, int(round(box.x1))), max(0, int(round(box.y1)))),
+        (
+            min(context.shape[1] - 1, int(round(box.x2))),
+            min(context.shape[0] - 1, int(round(box.y2))),
+        ),
+        (0, 255, 255),
+        4,
+    )
+    cv2.putText(
+        context,
+        f"TARGET ID {int(track.track_id)}",
+        (max(4, int(round(box.x1))), max(22, int(round(box.y1)) - 8)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        (0, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    panel[:, :context_width] = _letterbox_image(
+        context,
+        context_width,
+        height,
+        background=24,
+    )
+
+    crop_width = width - context_width
+    slot_count = max(len(evidence), 1)
+    slot_height = max(height // slot_count, 1)
+    for index, row in enumerate(evidence):
+        crop = cv2.imread(str(row.get("crop_path", "")))
+        if crop is None or crop.size == 0:
+            continue
+        y1 = index * slot_height
+        y2 = height if index == slot_count - 1 else min((index + 1) * slot_height, height)
+        slot = _letterbox_image(crop, crop_width, y2 - y1, background=36)
+        panel[y1:y2, context_width:] = slot
+        cv2.putText(
+            panel,
+            f"crop f{int(row.get('frame_index', 0))}",
+            (context_width + 5, min(y1 + 18, y2 - 3)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.42,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+    return panel
+
+
+def _letterbox_image(
+    image: Any,
+    width: int,
+    height: int,
+    *,
+    background: int,
+) -> Any:
+    import numpy as np
+
+    canvas = np.full((height, width, 3), background, dtype=np.uint8)
+    if image is None or image.size == 0 or width < 1 or height < 1:
+        return canvas
+    scale = min(width / image.shape[1], height / image.shape[0])
+    resized_width = max(1, min(width, int(round(image.shape[1] * scale))))
+    resized_height = max(1, min(height, int(round(image.shape[0] * scale))))
+    interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+    resized = cv2.resize(image, (resized_width, resized_height), interpolation=interpolation)
+    x1 = (width - resized_width) // 2
+    y1 = (height - resized_height) // 2
+    canvas[y1 : y1 + resized_height, x1 : x1 + resized_width] = resized
+    return canvas
+
+
 class SemanticCacheView:
     """Reload accepted semantic labels only when an atomic cache changes."""
 
@@ -202,14 +606,56 @@ class SemanticCacheView:
         row = self.labels.get(track_id)
         return row if row and bool(row.get("accepted")) else None
 
-    def decorate(self, tracks: list[TrackOutput]) -> list[TrackOutput]:
+    def decorate(
+        self,
+        tracks: list[TrackOutput],
+        *,
+        pending_track_ids: set[int] | None = None,
+        semantic_enabled: bool = False,
+    ) -> list[TrackOutput]:
+        pending = pending_track_ids or set()
         decorated: list[TrackOutput] = []
         for track in tracks:
             semantic = self.accepted(track.track_id)
             if semantic is None:
-                decorated.append(track)
+                row = self.labels.get(track.track_id)
+                status = (
+                    "unknown"
+                    if row is not None
+                    else "pending"
+                    if track.track_id in pending
+                    else "waiting"
+                    if semantic_enabled
+                    else "base"
+                )
+                label = (
+                    f"{track.class_name} | {status}"
+                    if semantic_enabled
+                    else track.class_name
+                )
+                decorated.append(
+                    replace(
+                        track,
+                        class_name=label,
+                        metadata={
+                            **track.metadata,
+                            "detector_class_name": track.class_name,
+                            "semantic_status": status,
+                        },
+                    )
+                )
                 continue
-            label = str(semantic.get("display_label", semantic.get("class_label", "unknown")))
+            deep_label = str(
+                semantic.get("display_label", semantic.get("class_label", "unknown"))
+            )
+            base_label = str(
+                semantic.get("detector_class_name", track.class_name)
+            )
+            label = (
+                base_label
+                if deep_label.casefold() == base_label.casefold()
+                else f"{base_label} | {deep_label}"
+            )
             decorated.append(
                 replace(
                     track,
@@ -218,6 +664,8 @@ class SemanticCacheView:
                         **track.metadata,
                         "detector_class_name": track.class_name,
                         "semantic_label": label,
+                        "semantic_deep_label": deep_label,
+                        "semantic_status": "accepted",
                         "semantic_confidence": semantic.get("confidence"),
                         "semantic_base_class": semantic.get("class_label"),
                         "semantic_fine_label": semantic.get("fine_label", "unknown"),
@@ -229,26 +677,70 @@ class SemanticCacheView:
 
 
 def _event_prompt(event: dict[str, Any]) -> str:
-    locate = event.get("locateanything") or {}
-    locate_note = (
-        "LocateAnything spatially verified the detector query in this target crop "
-        f"(association_score={float(locate.get('association_score', 0.0)):.3f}). "
-        "Treat this as geometric support, not fine-label ground truth."
-        if locate.get("accepted") is True
-        else "LocateAnything did not verify this target crop. Rely only on visible pixels."
+    task = event.get("semantic_task") or {}
+    label_mode = str(task.get("label_mode", "open")).strip().lower()
+    enable_fine_labels = bool(
+        task.get("enable_fine_labels", label_mode != "closed")
+    )
+    allowed_labels = [str(item) for item in task.get("allowed_labels", [])]
+    allowed_note = (
+        "Choose class_label only from this closed taxonomy: "
+        + json.dumps(allowed_labels, ensure_ascii=False)
+        + "."
+        if label_mode == "closed" and allowed_labels
+        else "Use an open hierarchical vocabulary, but prefer stable common names."
+    )
+    attributes = [str(item) for item in task.get("attributes", [])]
+    attribute_note = (
+        "Only return these attributes: " + json.dumps(attributes, ensure_ascii=False) + "."
+        if attributes
+        else "Return an empty attributes object unless an attribute is requested."
+    )
+    instruction = str(
+        task.get(
+            "instruction",
+            "Assign the most specific visually supported stable label.",
+        )
+    ).strip()
+    unknown_threshold = float(task.get("unknown_threshold", 0.70))
+    evidence_frames = [
+        int(value) for value in event.get("evidence_frame_indices", [])
+    ]
+    if not evidence_frames:
+        evidence_frames = [int(event["frame_index"])]
+    layout_note = (
+        "The evidence panel contains scene context with the target track highlighted, "
+        "plus temporally selected crops of that same track."
+        if event.get("evidence_layout") == "panel"
+        else "The supplied images are temporally selected crops of the same track."
+    )
+    response_schema = (
+        (
+            f'{{"track_predictions":[{{"track_id":{int(event["track_id"])},'
+            '"class_label":"...","fine_label":"...","fine_label_type":"subtype",'
+            '"attributes":{},"confidence":0.0,"fine_confidence":0.0,'
+            f'"evidence_frames":{json.dumps(evidence_frames)}}}]}}'
+        )
+        if enable_fine_labels
+        else (
+            f'{{"track_predictions":[{{"track_id":{int(event["track_id"])},'
+            '"class_label":"...","attributes":{},"confidence":0.0,'
+            f'"evidence_frames":{json.dumps(evidence_frames)}}}]}}'
+        )
     )
     return f"""
-Analyze this crop from a tracked object using an open, hierarchical vocabulary. Infer a stable
-base class and, separately, the most specific visually supported subtype/species/make/model.
-Do not guess a fine label from context. A clear base class may have fine_label "unknown".
-{locate_note}
-Return JSON only using this schema:
-{{"track_predictions":[{{"track_id":{int(event['track_id'])},
-"class_label":"...","fine_label":"...","taxonomy_path":[],
-"attributes":{{}},"confidence":0.0,"fine_confidence":0.0,
-"observations":[{{"frame_index":{int(event['frame_index'])},
-"class_label":"...","fine_label":"...","attributes":{{}},
-"confidence":0.0,"fine_confidence":0.0}}]}}]}}
+Task: {task.get('task_name', task.get('task_id', 'tracked-object semantics'))}.
+Instruction: {instruction}
+Analyze all supplied images as temporal evidence for the same track_id. Do not count them as
+different objects. {allowed_note} {attribute_note}
+Allowed evidence frame_index values: {json.dumps(evidence_frames)}. Return only visually usable
+values in evidence_frames and never invent another frame_index.
+Return class_label="unknown" when confidence is below {unknown_threshold:.2f}. Do not guess a
+fine label, identity, role, species, make, or model from scene context alone. When fine_label is
+enabled, use "unknown" unless the subtype is directly supported by the target crops.
+{layout_note}
+Keep the answer compact. Return JSON only using this schema:
+{response_schema}
 Detector hint (not ground truth): {event.get('detector_class_name', 'unknown')}.
 """.strip()
 
@@ -530,18 +1022,92 @@ def _qwen_job(event: dict[str, Any]) -> dict[str, Any]:
     raw_paths = event.get("qwen_image_paths") or [event["crop_path"]]
     image_paths = [Path(str(path)) for path in raw_paths]
     image_count = len(image_paths)
+    frame_indices = [
+        int(value) for value in event.get("evidence_frame_indices", [])
+    ]
+    if len(frame_indices) != image_count:
+        frame_indices = [int(event["frame_index"])] * image_count
+    labels = [str(value) for value in event.get("qwen_image_labels", [])]
+    if len(labels) != image_count:
+        labels = [
+            (
+                f"Track {event['track_id']} at frame {event['frame_index']} "
+                f"evidence frame {frame_indices[index]} ({index + 1}/{image_count})."
+            )
+            for index in range(image_count)
+        ]
     return {
         "batch_id": event["event_id"],
         "prompt": _event_prompt(event),
         "image_paths": image_paths,
-        "image_labels": [
-            (
-                f"Track {event['track_id']} at frame {event['frame_index']} "
-                f"({index + 1}/{image_count})."
-            )
-            for index in range(image_count)
-        ],
+        "image_labels": labels,
     }
+
+
+def _pending_claim_order(path: Path) -> tuple[float, int, str]:
+    event = _read_json_if_present(path) or {}
+    priority = float(event.get("priority", 0.0))
+    frame_index = int(event.get("frame_index", 0))
+    return -priority, frame_index, path.name
+
+
+def _validated_evidence_frames(
+    row: TrackSemanticEvidence,
+    event: dict[str, Any],
+) -> tuple[int, ...]:
+    allowed = {
+        int(value) for value in event.get("evidence_frame_indices", [])
+    }
+    allowed.add(int(event["frame_index"]))
+    validated = tuple(frame for frame in row.evidence_frames if frame in allowed)
+    return validated or (int(event["frame_index"]),)
+
+
+def _enforce_event_taxonomy(
+    rows: list[TrackSemanticEvidence],
+    event: dict[str, Any],
+) -> list[TrackSemanticEvidence]:
+    task = event.get("semantic_task") or {}
+    allowed_attributes = {
+        str(item).strip().casefold() for item in task.get("attributes", [])
+    }
+    label_mode = str(task.get("label_mode", "open")).strip().casefold()
+    allowed_labels = {
+        str(item).strip().casefold().replace("_", " "): str(item)
+        .strip()
+        .lower()
+        .replace("_", " ")
+        for item in task.get("allowed_labels", [])
+    }
+    normalized: list[TrackSemanticEvidence] = []
+    for row in rows:
+        attributes = {
+            key: value
+            for key, value in row.attributes.items()
+            if not allowed_attributes or str(key).strip().casefold() in allowed_attributes
+        }
+        class_label = row.class_label
+        confidence = row.confidence
+        if label_mode == "closed" and allowed_labels:
+            class_key = class_label.casefold().replace("_", " ")
+            fine_key = row.fine_label.casefold().replace("_", " ")
+            if class_key in allowed_labels:
+                class_label = allowed_labels[class_key]
+            elif fine_key in allowed_labels:
+                class_label = allowed_labels[fine_key]
+                confidence = max(confidence, row.fine_confidence)
+            else:
+                class_label = "unknown"
+                confidence = max(1.0 - confidence, 0.0)
+        normalized.append(
+            replace(
+                row,
+                class_label=class_label,
+                confidence=confidence,
+                attributes=attributes,
+            )
+        )
+    return normalized
 
 
 def process_semantic_queue(
@@ -562,7 +1128,11 @@ def process_semantic_queue(
     processing_dir = root / "processing"
     processing_dir.mkdir(parents=True, exist_ok=True)
     claimed: list[Path] = []
-    for pending_path in sorted(pending_dir.glob("*.json")):
+    pending_paths = sorted(
+        pending_dir.glob("*.json"),
+        key=_pending_claim_order,
+    )
+    for pending_path in pending_paths:
         claimed_path = processing_dir / pending_path.name
         try:
             pending_path.replace(claimed_path)
@@ -624,9 +1194,10 @@ def process_semantic_queue(
                 )
             )
             continue
+        parsed = _enforce_event_taxonomy(parsed, event)
         event_frame = int(event["frame_index"])
         parsed = [
-            replace(row, evidence_frames=(event_frame,))
+            replace(row, evidence_frames=_validated_evidence_frames(row, event))
             for row in parsed
         ]
         evidence.extend(parsed)
@@ -695,7 +1266,20 @@ def process_semantic_queue(
             max_observations_per_track=max_memory_observations_per_track,
         )
         memory.save(memory_path)
-        fused = fuse_track_semantics(list(memory.observations))
+        task = events[0].get("semantic_task") or {}
+        fused = fuse_track_semantics(
+            list(memory.observations),
+            unknown_threshold=float(task.get("unknown_threshold", 0.70)),
+        )
+        detector_labels = {
+            int(event["track_id"]): str(event.get("detector_class_name", "object"))
+            for event in events
+        }
+        for row in fused.get("tracks", []):
+            track_id = int(row["track_id"])
+            if track_id in detector_labels:
+                row["detector_class_name"] = detector_labels[track_id]
+            row["task_id"] = task.get("task_id")
         fused["runtime"] = {
             "mode": "realtime_semantic_worker",
             "context_id": context_id,

@@ -156,3 +156,34 @@ def test_class_aware_tracking_keeps_class_names_and_global_ids_distinct() -> Non
     assert [track.class_name for track in tracks] == ["car", "bus"]
     assert all(track.metadata["raw_track_id"] == 7 for track in tracks)
     assert adapter.initialization_count == 2
+
+
+class _ClassItem:
+    def __init__(self, class_id: int) -> None:
+        self.cls = class_id
+
+
+class FakeCostTracker:
+    def __init__(self, _args) -> None:
+        self.frame_id = 0
+        self.tracked_stracks = []
+
+    @staticmethod
+    def _cost_matrix(tracks, detections):
+        return np.zeros((len(tracks), len(detections)), dtype=np.float32)
+
+
+def test_class_gate_blocks_cross_class_matches_in_one_tracker() -> None:
+    config = UltralyticsTrackerRuntimeConfig(
+        **{**_config().to_dict(), "class_gate": True, "class_aware": False}
+    )
+    adapter = UltralyticsTrackerAdapter(config, tracker_factory=FakeCostTracker)
+    tracker = adapter.initialize()
+
+    cost = tracker._cost_matrix(
+        [_ClassItem(2), _ClassItem(5)],
+        [_ClassItem(2), _ClassItem(5)],
+    )
+
+    assert adapter.initialization_count == 1
+    assert cost.tolist() == [[0.0, 1.0], [1.0, 0.0]]

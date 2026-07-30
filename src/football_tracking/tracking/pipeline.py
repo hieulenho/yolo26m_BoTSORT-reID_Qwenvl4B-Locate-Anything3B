@@ -16,6 +16,7 @@ from football_tracking.data.schemas import BoundingBoxXYXY
 from football_tracking.detection.detector import resolve_device
 from football_tracking.detection.detector_factory import create_detector
 from football_tracking.detection.postprocessing import postprocess_detections
+from football_tracking.detection.preprocessing import FramePreprocessor
 from football_tracking.detection.serialization import runtime_versions
 from football_tracking.paths import get_project_root, resolve_project_path
 from football_tracking.reporting.tracking_run_report import write_tracking_run_report
@@ -87,6 +88,13 @@ class TrackingConfig:
     target_class_name: str
     preserve_source_classes: bool
     source_class_names: dict[int, str]
+    preprocessing_mode: str
+    clahe_clip_limit: float
+    clahe_grid_size: int
+    low_light_threshold: float
+    stabilize_classes: bool
+    class_history_frames: int
+    class_switch_margin: float
     show_confidence: bool
     show_class: bool
     show_track_id: bool
@@ -156,7 +164,12 @@ def load_tracking_config(
     elif source is not None:
         source_map = _mapping(source, "source")
         source_type = str(source_map.get("type", "video"))
-        source_path = _resolve_path(source_map.get("path"), project_root, "source.path")
+        source_path = _resolve_path(
+            source_map.get("path"),
+            project_root,
+            "source.path",
+            required=source_type == "video",
+        )
         shot_starts = tuple(sorted({int(value) for value in source_map.get("shot_starts", [])}))
         reset_tracker_on_shot_change = bool(
             source_map.get("reset_tracker_on_shot_change", False)
@@ -180,6 +193,7 @@ def load_tracking_config(
         if tracker_class_values is None
         else tuple(int(value) for value in tracker_class_values)
     )
+    preprocessing = _mapping(detector.get("preprocessing", {}), "detector.preprocessing")
     config = TrackingConfig(
         project_root=project_root,
         config_path=resolved_config,
@@ -235,6 +249,13 @@ def load_tracking_config(
         target_class_name=str(detector.get("target_class_name", "player")),
         preserve_source_classes=bool(detector.get("preserve_source_classes", False)),
         source_class_names=_source_class_names(model, detector),
+        preprocessing_mode=str(preprocessing.get("mode", "none")).strip().lower(),
+        clahe_clip_limit=float(preprocessing.get("clahe_clip_limit", 2.0)),
+        clahe_grid_size=int(preprocessing.get("clahe_grid_size", 8)),
+        low_light_threshold=float(preprocessing.get("low_light_threshold", 70.0)),
+        stabilize_classes=bool(tracker.get("stabilize_classes", False)),
+        class_history_frames=int(tracker.get("class_history_frames", 30)),
+        class_switch_margin=float(tracker.get("class_switch_margin", 0.20)),
         show_confidence=bool(render.get("show_confidence", True)),
         show_class=bool(render.get("show_class", True)),
         show_track_id=bool(render.get("show_track_id", True)),
@@ -335,7 +356,7 @@ def _video_sidecar_output_paths(output_video: Path) -> tuple[Path, Path, Path]:
 
 
 def _validate_tracking_config(config: TrackingConfig) -> None:
-    if config.source_type not in {"sportsmot", "video"}:
+    if config.source_type not in {"sportsmot", "video", "stream"}:
         raise TrackingPipelineError(f"Unsupported source type: {config.source_type}")
     if config.source_type == "video" and config.source_path is None:
         raise TrackingPipelineError("source.path is required for video tracking.")
@@ -347,6 +368,20 @@ def _validate_tracking_config(config: TrackingConfig) -> None:
         raise TrackingPipelineError("detector.iou must be in [0, 1].")
     if config.imgsz <= 0 or config.max_det <= 0:
         raise TrackingPipelineError("detector.imgsz and detector.max_det must be positive.")
+    if config.preprocessing_mode not in {"none", "auto_low_light", "clahe"}:
+        raise TrackingPipelineError(
+            "detector.preprocessing.mode must be none, auto_low_light, or clahe."
+        )
+    if config.clahe_clip_limit <= 0 or config.clahe_grid_size < 2:
+        raise TrackingPipelineError("Invalid detector CLAHE preprocessing parameters.")
+    if not 0.0 <= config.low_light_threshold <= 255.0:
+        raise TrackingPipelineError(
+            "detector.preprocessing.low_light_threshold must be in [0, 255]."
+        )
+    if config.class_history_frames < 2:
+        raise TrackingPipelineError("tracker.class_history_frames must be >= 2.")
+    if not 0.0 <= config.class_switch_margin <= 1.0:
+        raise TrackingPipelineError("tracker.class_switch_margin must be in [0, 1].")
     if config.max_sequences is not None and config.max_sequences <= 0:
         raise TrackingPipelineError("runtime.max_sequences must be positive when set.")
     if config.max_frames_per_sequence is not None and config.max_frames_per_sequence <= 0:
@@ -358,6 +393,10 @@ def _validate_tracking_config(config: TrackingConfig) -> None:
 def _discover_sources(config: TrackingConfig) -> list[SequenceSource]:
     if config.source_type == "video":
         return [video_source(config.source_path)]
+    if config.source_type == "stream":
+        raise TrackingPipelineError(
+            "source.type=stream is only supported by the realtime runner."
+        )
     return discover_mot_sequences(
         config.mot_root,
         config.split,
@@ -461,10 +500,31 @@ def _tracker_detections_from_raw(
     ]
 
 
-def _predict_frame(detector: Any, frame: Any, config: TrackingConfig) -> Any:
+def _frame_preprocessor(config: TrackingConfig) -> FramePreprocessor:
+    return FramePreprocessor(
+        mode=config.preprocessing_mode,
+        clahe_clip_limit=config.clahe_clip_limit,
+        clahe_grid_size=config.clahe_grid_size,
+        low_light_threshold=config.low_light_threshold,
+    )
+
+
+def _predict_frame(
+    detector: Any,
+    frame: Any,
+    config: TrackingConfig,
+    preprocessor: FramePreprocessor | None = None,
+    *,
+    preprocessed: bool = False,
+) -> Any:
+    detector_frame = (
+        frame
+        if preprocessed
+        else (preprocessor or _frame_preprocessor(config)).process(frame).frame
+    )
     if hasattr(detector, "predict_frame"):
         return detector.predict_frame(
-            frame,
+            detector_frame,
             imgsz=config.imgsz,
             conf=config.conf,
             iou=config.iou,
@@ -482,15 +542,28 @@ def _predict_frame(detector: Any, frame: Any, config: TrackingConfig) -> Any:
     }
     if getattr(detector, "half", config.half):
         predict_kwargs["half"] = True
-    raw = model(frame, **predict_kwargs)
+    raw = model(detector_frame, **predict_kwargs)
     if isinstance(raw, list | tuple):
         return raw[0] if raw else None
     return raw
 
 
-def predict_tracking_frame(detector: Any, frame: Any, config: TrackingConfig) -> Any:
+def predict_tracking_frame(
+    detector: Any,
+    frame: Any,
+    config: TrackingConfig,
+    preprocessor: FramePreprocessor | None = None,
+    *,
+    preprocessed: bool = False,
+) -> Any:
     """Public frame-inference wrapper shared by offline and realtime runners."""
-    return _predict_frame(detector, frame, config)
+    return _predict_frame(
+        detector,
+        frame,
+        config,
+        preprocessor=preprocessor,
+        preprocessed=preprocessed,
+    )
 
 
 def tracker_detections_from_prediction(

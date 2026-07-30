@@ -20,6 +20,7 @@ tracker:
   with_reid: false
   model: auto
   class_aware: false
+  class_gate: false
 
 output:
   confirmed_only: true

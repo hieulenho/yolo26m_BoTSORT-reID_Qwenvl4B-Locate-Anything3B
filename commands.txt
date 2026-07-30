@@ -1,5 +1,113 @@
-# Run from F:\Tracking in PowerShell.
-#
-# Full final render for every protected source video. The pipeline uses
-# LocateAnything 3B first, then Qwen3-VL-4B, both quantized to 8-bit.
-.\scripts\run_all_final_videos.ps1 -Resume -Overwrite
+# Run every command from F:\Tracking in Windows PowerShell.
+
+# 1. One-time setup after git clone.
+.\scripts\setup_webcam.ps1
+
+# 2. Verify an existing environment.
+.\scripts\setup_webcam.ps1 -VerifyOnly
+nvidia-smi
+
+# 3. Realtime webcam: immediate detector IDs plus asynchronous Qwen labels.
+.\scripts\run_task_webcam.ps1 `
+  -TaskConfig configs\tasks\generic_coco_realtime.yaml `
+  -CameraIndex 0 `
+  -RunName webcam_generic `
+  -SemanticWorkerMode live `
+  -LiveSemanticMaxPendingEvents 4 `
+  -Overwrite
+
+# 4. Recorded classroom video: track first, run one Qwen session, render final labels.
+.\scripts\run_task_realtime.ps1 `
+  -TaskConfig configs\tasks\classroom_roles.yaml `
+  -Source F:\videos\multidomain_education_classroom_60s.mp4 `
+  -RunName classroom_01 `
+  -OutputRoot F:\videos\final `
+  -SemanticWorkerMode deferred `
+  -Device cuda `
+  -NoWindow `
+  -Overwrite
+
+# 5. Recorded generic COCO video. Change only Source and RunName for another file.
+.\scripts\run_task_realtime.ps1 `
+  -TaskConfig configs\tasks\generic_coco_realtime.yaml `
+  -Source F:\videos\1.mp4 `
+  -RunName video_1 `
+  -OutputRoot F:\videos\final `
+  -SemanticWorkerMode deferred `
+  -Device cuda `
+  -NoWindow `
+  -Overwrite
+
+# 6. Optional open-vocabulary support and example run.
+.\.venv\Scripts\python.exe -m pip install -r requirements\open_vocab.txt
+.\scripts\run_task_realtime.ps1 `
+  -TaskConfig configs\tasks\open_vocabulary_example.yaml `
+  -Source F:\videos\multidomain_wildlife_black_noddies_38s.mp4 `
+  -RunName wildlife_open `
+  -OutputRoot F:\videos\final `
+  -SemanticWorkerMode deferred `
+  -Device cuda `
+  -NoWindow `
+  -Overwrite
+
+# 7. Repeated foreground runtime matrix: 9 profiles x 3 repeats.
+.\scripts\benchmarks\run_task_runtime_suite.ps1 `
+  -Repeats 3 `
+  -Overwrite
+
+# 8. GT-backed UA-DETRAC traffic benchmark and class-gate ablation.
+.\scripts\benchmarks\run_task_gt_benchmark.ps1 `
+  -TaskConfig configs\tasks\traffic_vehicles_benchmark.yaml `
+  -GtManifest data\benchmarks\normalized\ua_detrac_mvi_40774\normalized_gt_manifest.json `
+  -SourceVideo data\benchmarks\videos\ua_detrac\MVI_40774_750.mp4 `
+  -RunName task_tracktrack_vehicles_no_gate `
+  -PreprocessingMode none `
+  -Overwrite
+.\scripts\benchmarks\run_task_gt_benchmark.ps1 `
+  -TaskConfig configs\tasks\traffic_vehicles_benchmark.yaml `
+  -GtManifest data\benchmarks\normalized\ua_detrac_mvi_40774\normalized_gt_manifest.json `
+  -SourceVideo data\benchmarks\videos\ua_detrac\MVI_40774_750.mp4 `
+  -RunName task_tracktrack_vehicles `
+  -TrackerConfig configs\benchmarks\tracker_profiles\tracktrack_multiclass_class_gate.yaml `
+  -PreprocessingMode none `
+  -Overwrite
+
+# 9. GT-backed AnimalTrack zero-shot benchmark.
+.\scripts\benchmarks\run_task_gt_benchmark.ps1 `
+  -TaskConfig configs\tasks\wildlife_zebra_benchmark.yaml `
+  -GtManifest data\benchmarks\normalized\animaltrack_zebra\normalized_gt_manifest.json `
+  -RunName task_yoloe_tracktrack_zebra `
+  -PreprocessingMode none `
+  -Overwrite
+
+# 10. GT-backed microscopy preprocessing ablation.
+.\scripts\benchmarks\run_task_gt_benchmark.ps1 `
+  -TaskConfig configs\tasks\microscopy_cells.yaml `
+  -GtManifest data\benchmarks\normalized\ctc_fluo_n2dh_gowt1\normalized_gt_manifest.json `
+  -SourceVideo F:\videos\multidomain_medical_cells_31s.mp4 `
+  -RunName task_ctc_tracktrack_none `
+  -SequenceIds 02 `
+  -PreprocessingMode none `
+  -Overwrite
+.\scripts\benchmarks\run_task_gt_benchmark.ps1 `
+  -TaskConfig configs\tasks\microscopy_cells.yaml `
+  -GtManifest data\benchmarks\normalized\ctc_fluo_n2dh_gowt1\normalized_gt_manifest.json `
+  -SourceVideo F:\videos\multidomain_medical_cells_31s.mp4 `
+  -RunName task_ctc_tracktrack_clahe `
+  -SequenceIds 02 `
+  -PreprocessingMode clahe `
+  -Overwrite
+
+# 11. Full shared-detection SportsMOT tracker comparison.
+.\scripts\run_tracking_benchmark.ps1 `
+  -Config configs\benchmarks\tracking_sportsmot_yolo26m_modern.yaml `
+  -Overwrite
+
+# 12. Rebuild the canonical report, CSV tables, and figures from saved artifacts.
+.\.venv\Scripts\python.exe scripts\benchmarks\build_task_research_report.py `
+  --config configs\benchmarks\task_research_report.yaml `
+  --overwrite
+
+# 13. Code-quality gate.
+.\.venv\Scripts\python.exe -m ruff check src scripts tests
+.\.venv\Scripts\python.exe -m pytest -q

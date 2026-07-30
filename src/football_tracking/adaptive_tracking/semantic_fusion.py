@@ -112,14 +112,12 @@ def parse_qwen_answer(data: dict[str, Any] | str) -> list[TrackSemanticEvidence]
     if isinstance(raw, dict):
         parsed = raw
     else:
-        match = re.search(r"\{.*\}", str(raw), re.DOTALL)
-        if not match:
-            raise SemanticFusionError("No JSON object found in Qwen semantic answer.")
-        try:
-            parsed = json.loads(match.group())
-        except json.JSONDecodeError as exc:
-            raise SemanticFusionError(f"Invalid Qwen semantic JSON: {exc}") from exc
-    rows = parsed.get("track_predictions", [])
+        parsed = _decode_qwen_json(str(raw))
+    if "track_predictions" not in parsed:
+        raise SemanticFusionError(
+            "Qwen semantic JSON is missing track_predictions."
+        )
+    rows = parsed["track_predictions"]
     if not isinstance(rows, list):
         raise SemanticFusionError("track_predictions must be a list.")
     evidence: list[TrackSemanticEvidence] = []
@@ -154,6 +152,24 @@ def parse_qwen_answer(data: dict[str, Any] | str) -> list[TrackSemanticEvidence]
             )
         )
     return evidence
+
+
+def _decode_qwen_json(raw: str) -> dict[str, Any]:
+    """Decode a complete semantic object while ignoring fences or trailing prose."""
+    decoder = json.JSONDecoder()
+    decode_errors: list[str] = []
+    for match in re.finditer(r"\{", raw):
+        try:
+            value, _end = decoder.raw_decode(raw[match.start() :])
+        except json.JSONDecodeError as exc:
+            decode_errors.append(str(exc))
+            continue
+        if isinstance(value, dict) and "track_predictions" in value:
+            return value
+    if "{" not in raw:
+        raise SemanticFusionError("No JSON object found in Qwen semantic answer.")
+    detail = decode_errors[0] if decode_errors else "no complete JSON object"
+    raise SemanticFusionError(f"Invalid Qwen semantic JSON: {detail}")
 
 
 def _qwen_evidence_from_row(

@@ -1,0 +1,2 @@
+model,quantization,gt_tracks,accuracy,macro_f1,coverage,selective_accuracy,unknown_rejection_f1,hallucination_rate,official_qwen_load_seconds,official_qwen_inference_seconds,official_peak_vram_gb,panel_smoke_status,panel_model_load_seconds,panel_inference_seconds,panel_peak_vram_gb,panel_processed_events
+Qwen/Qwen3-VL-4B-Instruct,8bit,20,0.75,0.916667,0.75,0.733333,0.615385,0.266667,46.649698799999896,428.7938420000137,4.891660690307617,ok,28.590119299995422,69.68876369999634,4.7167510986328125,1

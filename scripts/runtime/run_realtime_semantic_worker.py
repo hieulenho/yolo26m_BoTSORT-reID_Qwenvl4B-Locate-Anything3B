@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -29,21 +30,98 @@ def _pending_count(queue_dir: Path) -> int:
     return len(list((queue_dir / "pending").glob("*.json")))
 
 
+def _process_is_alive(process_id: int) -> bool:
+    if process_id <= 0:
+        return True
+    if os.name == "nt":
+        import ctypes
+
+        process_query_limited_information = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(  # type: ignore[attr-defined]
+            process_query_limited_information,
+            False,
+            process_id,
+        )
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
+        return True
+    try:
+        os.kill(process_id, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _shutdown_reason(args: argparse.Namespace) -> str | None:
+    if args.stop_file is not None and args.stop_file.exists():
+        return "stop_requested"
+    if args.parent_pid > 0 and not _process_is_alive(args.parent_pid):
+        return "parent_process_exited"
+    return None
+
+
+def _write_worker_status(
+    args: argparse.Namespace,
+    state: str,
+    *,
+    detail: str | None = None,
+) -> None:
+    if args.status_file is None:
+        return
+    _write_json(
+        args.status_file,
+        {
+            "status": state,
+            "detail": detail,
+            "pid": os.getpid(),
+            "parent_pid": args.parent_pid or None,
+            "pending_event_count": _pending_count(args.queue_dir),
+            "updated_unix_seconds": time.time(),
+        },
+    )
+
+
+def _recover_processing_events(queue_dir: Path) -> int:
+    pending_dir = queue_dir / "pending"
+    processing_dir = queue_dir / "processing"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    recovered = 0
+    for path in sorted(processing_dir.glob("*.json")):
+        target = pending_dir / path.name
+        if target.exists():
+            path.unlink()
+        else:
+            path.replace(target)
+        recovered += 1
+    return recovered
+
+
 def run_worker(args: argparse.Namespace) -> dict[str, Any]:
     started = time.perf_counter()
     totals = {"processed": 0, "failed": 0, "batches": 0}
     results: list[dict[str, Any]] = []
+    recovered = _recover_processing_events(args.queue_dir)
+    exit_reason = "completed"
 
     if args.watch:
+        _write_worker_status(args, "waiting_for_events")
         while _pending_count(args.queue_dir) == 0:
-            if args.stop_file is not None and args.stop_file.exists():
-                return _worker_summary(args, totals, results, started)
+            shutdown_reason = _shutdown_reason(args)
+            if shutdown_reason is not None:
+                summary = _worker_summary(args, totals, results, started)
+                summary["exit_reason"] = shutdown_reason
+                summary["recovered_processing_events"] = recovered
+                return summary
             time.sleep(args.poll_interval)
 
     if _pending_count(args.queue_dir) == 0:
         result = {"status": "idle", "processed_event_count": 0}
         results.append(result)
-        return _worker_summary(args, totals, results, started)
+        summary = _worker_summary(args, totals, results, started)
+        summary["exit_reason"] = "queue_empty"
+        summary["recovered_processing_events"] = recovered
+        return summary
 
     locate_result: dict[str, Any] | None = None
     if args.locate_first:
@@ -64,9 +142,23 @@ def run_worker(args: argparse.Namespace) -> dict[str, Any]:
         )
         results.append({"locateanything": locate_result})
 
+    shutdown_reason = _shutdown_reason(args)
+    if shutdown_reason is not None:
+        summary = _worker_summary(args, totals, results, started)
+        summary["exit_reason"] = shutdown_reason
+        summary["recovered_processing_events"] = recovered
+        return summary
+
+    _write_worker_status(args, "loading_qwen")
     config = load_vlm_tracking_config(args.vlm_config, overrides={"run_model": True})
     with QwenVlmBatchSession(config) as session:
+        _write_worker_status(args, "ready")
         while True:
+            shutdown_reason = _shutdown_reason(args)
+            if shutdown_reason is not None:
+                exit_reason = shutdown_reason
+                break
+            _write_worker_status(args, "processing")
             result = process_semantic_queue(
                 queue_dir=args.queue_dir,
                 vlm_config_path=args.vlm_config,
@@ -83,22 +175,31 @@ def run_worker(args: argparse.Namespace) -> dict[str, Any]:
                 totals["batches"] += 1
 
             pending = _pending_count(args.queue_dir)
-            stop_requested = args.stop_file is not None and args.stop_file.exists()
+            shutdown_reason = _shutdown_reason(args)
             reached_limit = (
                 args.max_total_events > 0
                 and totals["processed"] + totals["failed"] >= args.max_total_events
             )
-            if reached_limit or (stop_requested and pending == 0):
+            if reached_limit:
+                exit_reason = "event_limit_reached"
+                break
+            if shutdown_reason is not None:
+                exit_reason = shutdown_reason
                 break
             if not args.watch and not args.drain:
+                exit_reason = "single_batch_complete"
                 break
             if not args.watch and pending == 0:
+                exit_reason = "queue_drained"
                 break
             if pending == 0:
+                _write_worker_status(args, "waiting_for_events")
                 time.sleep(args.poll_interval)
 
     summary = _worker_summary(args, totals, results, started)
     summary["locateanything"] = locate_result
+    summary["exit_reason"] = exit_reason
+    summary["recovered_processing_events"] = recovered
     return summary
 
 
@@ -151,6 +252,9 @@ def main() -> int:
     mode.add_argument("--watch", action="store_true")
     parser.add_argument("--poll-interval", type=float, default=1.0)
     parser.add_argument("--stop-file", type=Path, default=None)
+    parser.add_argument("--pid-file", type=Path, default=None)
+    parser.add_argument("--status-file", type=Path, default=None)
+    parser.add_argument("--parent-pid", type=int, default=0)
     parser.add_argument("--report", type=Path, default=None)
     parser.add_argument(
         "--registry",
@@ -164,6 +268,8 @@ def main() -> int:
         parser.error("--max-total-events must be non-negative.")
     if args.poll_interval <= 0:
         parser.error("--poll-interval must be positive.")
+    if args.parent_pid < 0:
+        parser.error("--parent-pid must be non-negative.")
     if args.locate_first and args.watch:
         parser.error(
             "--locate-first is a two-phase deferred mode and cannot be combined "
@@ -175,6 +281,10 @@ def main() -> int:
         parser.error("--locate-image-max-pixels must be at least 4096.")
     if not 0.0 <= args.locate_minimum_association_score <= 1.0:
         parser.error("--locate-minimum-association-score must be in [0, 1].")
+    if args.pid_file is not None:
+        args.pid_file.parent.mkdir(parents=True, exist_ok=True)
+        args.pid_file.write_text(str(os.getpid()), encoding="utf-8")
+    _write_worker_status(args, "starting")
     try:
         result = run_worker(args)
     except (SemanticQueueError, RuntimeError, ValueError, OSError) as exc:
@@ -185,10 +295,20 @@ def main() -> int:
         }
         if args.report is not None:
             _write_json(args.report, result)
+        _write_worker_status(args, "failed", detail=str(exc))
         sys.stderr.write(f"Error: {exc}\n")
         return 2
+    finally:
+        if args.pid_file is not None and args.pid_file.is_file():
+            try:
+                owner = int(args.pid_file.read_text(encoding="utf-8").strip())
+            except (OSError, ValueError):
+                owner = 0
+            if owner == os.getpid():
+                args.pid_file.unlink(missing_ok=True)
     if args.report is not None:
         _write_json(args.report, result)
+    _write_worker_status(args, "stopped", detail=str(result.get("exit_reason", "")))
     print(json.dumps(result, indent=2, default=str))
     return 0
 

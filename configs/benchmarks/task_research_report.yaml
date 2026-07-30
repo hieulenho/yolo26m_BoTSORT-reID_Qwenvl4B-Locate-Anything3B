@@ -1,0 +1,63 @@
+inputs:
+  core_snapshot: docs/benchmarks/final_experiment_summary.json
+  detector_summary: outputs/benchmarks/detection/sportsmot_yolo26/final/detector_benchmark_summary.json
+  tracker_summary: outputs/benchmarks/tracking/sportsmot_yolo26m/final/tracker_benchmark_summary.json
+  idsw_summary: outputs/benchmarks/tracking/sportsmot_yolo26m/final/idsw_taxonomy/idsw_taxonomy_summary.json
+  task_runtime: outputs/benchmarks/task_runtime/comparison/realtime_benchmark.json
+  physical_webcam: outputs/benchmarks/realtime/physical/webcam_900_frames/comparison/realtime_benchmark.json
+  task_physical_webcam_smoke: outputs/benchmarks/realtime/task_physical/task_webcam_smoke/comparison/realtime_benchmark.json
+  open_threshold: outputs/benchmarks/tracking/open_threshold_ablation/comparison/realtime_benchmark.json
+  semantic_qwen: outputs/benchmarks/semantic/ua_detrac_mvi_40774/pipeline_a_qwen/evaluation/semantic_benchmark_summary.json
+  semantic_panel_cache: outputs/benchmarks/semantic/qwen_panel_smoke/semantic_cache.json
+  semantic_panel_worker: outputs/benchmarks/semantic/qwen_panel_smoke/semantic_worker_report.json
+  semantic_review_status: data/semantic_gt/multidomain_suite_8bit/review_status.json
+  legacy_semantic_ablation: outputs/benchmarks/semantic/ua_detrac_mvi_40774/comparison/semantic_pipeline_comparison.json
+
+task_gt:
+  - id: ua_detrac_tracktrack
+    domain: traffic
+    dataset: UA-DETRAC MVI_40774, 750 frames
+    detector: YOLO26n COCO vehicle classes
+    tracker: TrackTrack
+    profile: class-agnostic association, no preprocessing
+    evaluation: outputs/benchmarks/task_gt/task_tracktrack_vehicles_no_gate/evaluation/trackeval_summary.json
+    runtime_root: outputs/benchmarks/task_gt/task_tracktrack_vehicles_no_gate/runs
+  - id: ua_detrac_class_gate
+    domain: traffic
+    dataset: UA-DETRAC MVI_40774, 750 frames
+    detector: YOLO26n COCO vehicle classes
+    tracker: TrackTrack
+    profile: hard detector-class gate, no preprocessing
+    evaluation: outputs/benchmarks/task_gt/task_tracktrack_vehicles/evaluation/trackeval_summary.json
+    runtime_root: outputs/benchmarks/task_gt/task_tracktrack_vehicles/runs
+  - id: animaltrack_yoloe
+    domain: wildlife
+    dataset: AnimalTrack Zebra, 5 sequences
+    detector: YOLOE-26s open vocabulary
+    tracker: TrackTrack
+    profile: zebra text prompt
+    evaluation: outputs/benchmarks/task_gt/task_yoloe_tracktrack_zebra/evaluation/trackeval_summary.json
+    runtime_root: outputs/benchmarks/task_gt/task_yoloe_tracktrack_zebra/runs
+  - id: ctc_none
+    domain: medical_microscopy
+    dataset: CTC Fluo-N2DH-GOWT1 sequence 02
+    detector: YOLO26s sequence-01 adapter
+    tracker: TrackTrack
+    profile: no preprocessing
+    evaluation: outputs/benchmarks/task_gt/task_ctc_tracktrack_none/evaluation/trackeval_summary.json
+    runtime_root: outputs/benchmarks/task_gt/task_ctc_tracktrack_none/runs
+  - id: ctc_clahe
+    domain: medical_microscopy
+    dataset: CTC Fluo-N2DH-GOWT1 sequence 02
+    detector: YOLO26s sequence-01 adapter
+    tracker: TrackTrack
+    profile: CLAHE preprocessing
+    evaluation: outputs/benchmarks/task_gt/task_ctc_tracktrack_clahe/evaluation/trackeval_summary.json
+    runtime_root: outputs/benchmarks/task_gt/task_ctc_tracktrack_clahe/runs
+
+output:
+  root: outputs/benchmarks/research_final
+  publish_root: docs/benchmarks/research_final
+
+validation:
+  minimum_runtime_repeats: 3

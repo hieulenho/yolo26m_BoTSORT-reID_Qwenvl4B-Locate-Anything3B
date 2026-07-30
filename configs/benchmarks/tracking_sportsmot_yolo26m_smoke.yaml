@@ -29,6 +29,8 @@ trackers:
     config: configs/trackers/fasttrack_realtime.yaml
   - name: tracktrack
     config: configs/trackers/tracktrack_realtime.yaml
+  - name: tracktrack_reid
+    config: configs/trackers/tracktrack_reid_realtime.yaml
 
 evaluation:
   trackeval_config: configs/legacy/football/trackeval.yaml

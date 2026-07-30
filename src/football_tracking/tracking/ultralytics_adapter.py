@@ -44,6 +44,7 @@ class UltralyticsTrackerRuntimeConfig:
     use_byte: bool = False
     alpha_fixed_emb: float = 0.95
     class_aware: bool = False
+    class_gate: bool = False
     reset_velocity_offset_occ: int = 5
     reset_pos_offset_occ: int = 3
     enlarge_bbox_occ: float = 1.1
@@ -84,6 +85,7 @@ class UltralyticsTrackerRuntimeConfig:
             inertia=self.inertia,
             use_byte=self.use_byte,
             alpha_fixed_emb=self.alpha_fixed_emb,
+            class_gate=self.class_gate,
             reset_velocity_offset_occ=self.reset_velocity_offset_occ,
             reset_pos_offset_occ=self.reset_pos_offset_occ,
             enlarge_bbox_occ=self.enlarge_bbox_occ,
@@ -158,6 +160,7 @@ def load_ultralytics_tracker_config(
         use_byte=bool(tracker.get("use_byte", False)),
         alpha_fixed_emb=float(tracker.get("alpha_fixed_emb", 0.95)),
         class_aware=bool(tracker.get("class_aware", False)),
+        class_gate=bool(tracker.get("class_gate", False)),
         reset_velocity_offset_occ=int(tracker.get("reset_velocity_offset_occ", 5)),
         reset_pos_offset_occ=int(tracker.get("reset_pos_offset_occ", 3)),
         enlarge_bbox_occ=float(tracker.get("enlarge_bbox_occ", 1.1)),
@@ -370,7 +373,36 @@ class UltralyticsTrackerAdapter:
     def _new_tracker(self) -> Any:
         factory = self._resolve_tracker_factory()
         self.initialization_count += 1
-        return factory(self.config.to_namespace())
+        tracker = factory(self.config.to_namespace())
+        if self.config.class_gate:
+            self._install_class_gate(tracker)
+        return tracker
+
+    @staticmethod
+    def _install_class_gate(tracker: Any) -> None:
+        """Prevent association across detector classes without duplicating trackers."""
+        original = getattr(tracker, "_cost_matrix", None)
+        if original is None or getattr(tracker, "_football_tracking_class_gate", False):
+            return
+
+        def gated_cost(tracks: list[Any], detections: list[Any]) -> np.ndarray:
+            cost = np.asarray(original(tracks, detections), dtype=np.float32)
+            if cost.size == 0:
+                return cost
+            track_classes = np.asarray(
+                [int(getattr(track, "cls", -1)) for track in tracks],
+                dtype=np.int64,
+            )
+            detection_classes = np.asarray(
+                [int(getattr(detection, "cls", -1)) for detection in detections],
+                dtype=np.int64,
+            )
+            mismatch = track_classes[:, None] != detection_classes[None, :]
+            cost[mismatch] = 1.0
+            return cost
+
+        tracker._cost_matrix = gated_cost
+        tracker._football_tracking_class_gate = True
 
     def initialize(self) -> Any:
         if self.tracker is not None:
@@ -595,5 +627,6 @@ class UltralyticsTrackerAdapter:
                 "with_reid": self.config.with_reid,
                 "raw_track_id": raw_track_id,
                 "class_aware": self.config.class_aware,
+                "class_gate": self.config.class_gate,
             },
         )

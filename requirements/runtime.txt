@@ -1,0 +1,8 @@
+# Lightweight production runtime: detection, tracking, configuration, and I/O.
+ultralytics
+opencv-python
+numpy
+scipy
+PyYAML
+tqdm
+deep-sort-realtime

@@ -48,6 +48,8 @@ def create_tracker(name: str, config: str | Path, device: str = "auto") -> Any:
         "fast-tracker",
         "tracktrack",
         "track-track",
+        "tracktrack_reid",
+        "tracktrack-reid",
     }:
         return UltralyticsTrackerAdapter(runtime_config)
     if normalized in {"bytetrack", "byte-track"}:
@@ -82,7 +84,12 @@ def load_tracker_config_object(
         return load_ultralytics_tracker_config(config, default_tracker_type="bytetrack")
     if normalized in {"fasttrack", "fast-tracker"}:
         return load_ultralytics_tracker_config(config, default_tracker_type="fasttrack")
-    if normalized in {"tracktrack", "track-track"}:
+    if normalized in {
+        "tracktrack",
+        "track-track",
+        "tracktrack_reid",
+        "tracktrack-reid",
+    }:
         return load_ultralytics_tracker_config(config, default_tracker_type="tracktrack")
     raise TrackerFactoryError(f"Unsupported tracker: {name}")
 

@@ -1,7 +1,2 @@
-transformers==4.57.1
-accelerate
-bitsandbytes
-qwen-vl-utils
-pillow
-decord==0.6.0
-lmdb==1.7.5
+# Backward-compatible alias for the production Qwen image-semantic runtime.
+-r qwen.txt

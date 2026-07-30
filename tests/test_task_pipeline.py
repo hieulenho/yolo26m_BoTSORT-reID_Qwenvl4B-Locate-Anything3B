@@ -1,0 +1,445 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
+import yaml
+
+from football_tracking.adaptive_tracking import semantic_queue as semantic_queue_module
+from football_tracking.adaptive_tracking.semantic_queue import (
+    SemanticCacheView,
+    SemanticEventQueue,
+    _event_prompt,
+)
+from football_tracking.data.schemas import BoundingBoxXYXY
+from football_tracking.detection.preprocessing import FramePreprocessor
+from football_tracking.task_pipeline.builder import write_task_runtime
+from football_tracking.task_pipeline.config import (
+    TaskPipelineConfigError,
+    load_task_pipeline_config,
+)
+from football_tracking.tracking.class_stabilizer import TrackClassStabilizer
+from football_tracking.tracking.pipeline import load_tracking_config
+from football_tracking.tracking.schemas import TrackOutput
+from football_tracking.tracking.tracker_factory import load_tracker_runtime_config
+
+
+def _track(
+    *,
+    frame_index: int = 1,
+    track_id: int = 1,
+    class_id: int = 0,
+    class_name: str = "person",
+    confidence: float = 0.9,
+) -> TrackOutput:
+    return TrackOutput.from_xyxy(
+        frame_index=frame_index,
+        sequence_name="test",
+        track_id=track_id,
+        bbox_xyxy=BoundingBoxXYXY(16, 16, 112, 112),
+        confidence=confidence,
+        class_id=class_id,
+        class_name=class_name,
+    )
+
+
+def test_generic_task_builds_a_stream_tracking_config(tmp_path: Path) -> None:
+    task = load_task_pipeline_config("configs/tasks/generic_coco_realtime.yaml")
+    paths = write_task_runtime(
+        config=task,
+        output_dir=tmp_path / "runtime",
+        output_video=tmp_path / "tracked.mp4",
+        device="cuda",
+        overwrite=False,
+    )
+    tracking = load_tracking_config(paths["tracking_config"])
+
+    assert task.semantic.provider == "qwen"
+    assert task.semantic.quantization == "8bit"
+    assert tracking.source_type == "stream"
+    assert tracking.tracker_name == "tracktrack"
+    assert tracking.preprocessing_mode == "auto_low_light"
+    assert tracking.class_ids is None
+    tracker = load_tracker_runtime_config(task.tracker.name, task.tracker.config_path)
+    # Production association remains class-agnostic; temporal class stabilization
+    # handles detector label flicker after the identity has been preserved.
+    assert tracker["class_gate"] is False
+    assert tracker["class_aware"] is False
+
+
+def test_dense_traffic_task_uses_bounded_live_semantics() -> None:
+    task = load_task_pipeline_config("configs/tasks/traffic_objects.yaml")
+
+    assert task.semantic.label_mode == "closed"
+    assert task.semantic.enable_fine_labels is True
+    assert set(task.semantic.allowed_labels) >= {"car", "truck", "unknown"}
+    assert task.semantic.events_per_frame == 1
+    assert task.semantic.max_pending_events == 12
+    assert task.semantic.minimum_track_age_frames == 15
+    assert task.semantic.evidence_panel_width == 448
+    assert task.semantic.evidence_panel_height == 336
+
+
+def test_runtime_preprocessing_override_is_recorded(tmp_path: Path) -> None:
+    task = load_task_pipeline_config("configs/tasks/generic_coco_realtime.yaml")
+    paths = write_task_runtime(
+        config=task,
+        output_dir=tmp_path / "runtime",
+        output_video=tmp_path / "tracked.mp4",
+        device="cuda",
+        overwrite=False,
+        preprocessing_mode="none",
+    )
+
+    tracking = load_tracking_config(paths["tracking_config"])
+    resolved = json.loads(paths["resolved_task"].read_text(encoding="utf-8"))
+    assert tracking.preprocessing_mode == "none"
+    assert resolved["detector"]["preprocessing"]["mode"] == "none"
+
+
+def test_task_config_rejects_a_model_id_that_worker_would_not_run(
+    tmp_path: Path,
+) -> None:
+    source = Path("configs/tasks/generic_coco_realtime.yaml")
+    payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+    payload["semantic"]["model_id"] = "Qwen/another-model"
+    config_path = tmp_path / "wrong_model.yaml"
+    config_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    with pytest.raises(TaskPipelineConfigError, match="semantic model is fixed"):
+        load_task_pipeline_config(config_path)
+
+
+def test_runtime_tracker_override_is_recorded(tmp_path: Path) -> None:
+    task = load_task_pipeline_config("configs/tasks/wildlife_birds.yaml")
+    override = Path(
+        "configs/benchmarks/tracker_profiles/tracktrack_open_t015.yaml"
+    )
+    paths = write_task_runtime(
+        config=task,
+        output_dir=tmp_path / "runtime",
+        output_video=tmp_path / "tracked.mp4",
+        device="cpu",
+        overwrite=False,
+        tracker_config_path=override,
+    )
+
+    resolved = json.loads(paths["resolved_task"].read_text(encoding="utf-8"))
+    assert Path(resolved["tracker"]["config"]).resolve() == override.resolve()
+
+
+@pytest.mark.parametrize(
+    "config_path,task_id",
+    [
+        ("configs/tasks/traffic_objects.yaml", "traffic_objects"),
+        ("configs/tasks/classroom_roles.yaml", "classroom_roles"),
+        ("configs/tasks/football_roles.yaml", "football_roles"),
+        ("configs/tasks/wildlife_birds.yaml", "wildlife_birds"),
+        ("configs/tasks/microscopy_cells.yaml", "microscopy_cells"),
+        ("configs/tasks/open_vocabulary_example.yaml", "open_vocabulary_example"),
+    ],
+)
+def test_supported_task_configs_are_valid(config_path: str, task_id: str) -> None:
+    task = load_task_pipeline_config(config_path)
+
+    assert task.task_id == task_id
+    assert task.semantic.provider == "qwen"
+    assert task.semantic.quantization == "8bit"
+
+
+def test_task_rejects_a_second_or_non_8bit_semantic_model(tmp_path: Path) -> None:
+    payload = yaml.safe_load(
+        Path("configs/tasks/generic_coco_realtime.yaml").read_text(encoding="utf-8")
+    )
+    payload["semantic"]["quantization"] = "4bit"
+    path = tmp_path / "invalid.yaml"
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(TaskPipelineConfigError, match="8bit"):
+        load_task_pipeline_config(path)
+
+
+def test_auto_low_light_preprocessing_is_geometry_preserving() -> None:
+    processor = FramePreprocessor(mode="auto_low_light", low_light_threshold=70)
+    dark = np.full((80, 120, 3), 20, dtype=np.uint8)
+    bright = np.full((80, 120, 3), 180, dtype=np.uint8)
+
+    dark_result = processor.process(dark)
+    bright_result = processor.process(bright)
+
+    assert dark_result.applied is True
+    assert bright_result.applied is False
+    assert dark_result.frame.shape == dark.shape
+    assert bright_result.frame is bright
+
+
+def test_track_class_stabilizer_suppresses_one_frame_label_flip() -> None:
+    stabilizer = TrackClassStabilizer(history_frames=10, switch_margin=0.20)
+    first = stabilizer.update([_track(class_id=2, class_name="car")], 1)[0]
+    second = stabilizer.update(
+        [_track(frame_index=2, class_id=7, class_name="truck")],
+        2,
+    )[0]
+    third = stabilizer.update(
+        [_track(frame_index=3, class_id=2, class_name="car")],
+        3,
+    )[0]
+
+    assert first.class_name == "car"
+    assert second.class_name == "car"
+    assert third.class_name == "car"
+    assert stabilizer.diagnostics()["suppressed_switches"] >= 1
+
+
+def test_semantic_queue_replaces_a_pending_crop_with_better_temporal_evidence(
+    tmp_path: Path,
+) -> None:
+    queue = SemanticEventQueue(
+        tmp_path / "queue",
+        context_id="task-test",
+        semantic_task={
+            "task_id": "test",
+            "label_mode": "closed",
+            "allowed_labels": ["student", "teacher", "unknown"],
+            "max_evidence_images": 3,
+            "minimum_crop_quality": 0.0,
+            "replacement_quality_margin": 0.01,
+        },
+    )
+    flat = np.full((128, 128, 3), 80, dtype=np.uint8)
+    detailed = flat.copy()
+    cv2.line(detailed, (0, 0), (127, 127), (255, 255, 255), 4)
+    cv2.line(detailed, (127, 0), (0, 127), (0, 0, 0), 4)
+
+    first = queue.enqueue(
+        frame=flat,
+        frame_index=1,
+        track=_track(frame_index=1),
+        reason="unknown_track",
+        minimum_frame_gap=1,
+    )
+    second = queue.enqueue(
+        frame=detailed,
+        frame_index=2,
+        track=_track(frame_index=2),
+        reason="unknown_track",
+        minimum_frame_gap=1,
+    )
+    event = json.loads(second.read_text(encoding="utf-8"))
+
+    assert first is not None
+    assert second is not None
+    assert queue.pending_count == 1
+    assert queue.replaced_pending == 1
+    assert event["schema_version"] == "2.0"
+    assert event["semantic_task"]["task_id"] == "test"
+    assert event["evidence_frame_indices"] == [1, 2]
+    assert event["evidence_layout"] == "panel"
+    assert len(event["qwen_image_paths"]) == 1
+    panel_path = Path(event["qwen_image_paths"][0])
+    panel = cv2.imread(str(panel_path))
+    assert panel_path.is_file()
+    assert panel is not None
+    assert panel.shape[:2] == (384, 512)
+
+
+def test_semantic_queue_applies_backpressure_before_creating_crops(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = SemanticEventQueue(
+        tmp_path / "queue",
+        context_id="traffic",
+        max_pending_events=1,
+    )
+    frame = np.full((128, 128, 3), 100, dtype=np.uint8)
+    assert queue.enqueue(
+        frame=frame,
+        frame_index=1,
+        track=_track(track_id=1),
+        reason="unknown_track",
+        minimum_frame_gap=30,
+    )
+
+    def fail_if_crop_runs(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("crop generation must not run while the queue is full")
+
+    monkeypatch.setattr(semantic_queue_module, "_track_crop", fail_if_crop_runs)
+    assert (
+        queue.enqueue(
+            frame=frame,
+            frame_index=2,
+            track=_track(frame_index=2, track_id=2),
+            reason="unknown_track",
+            minimum_frame_gap=30,
+        )
+        is None
+    )
+    assert queue.dropped_full == 1
+
+
+def test_semantic_queue_keeps_processing_tracks_in_pending_display_state(
+    tmp_path: Path,
+) -> None:
+    queue = SemanticEventQueue(tmp_path / "queue", context_id="traffic")
+    processing = queue.processing_dir / "f000000010_t0000007.json"
+    processing.write_text("{}", encoding="utf-8")
+
+    assert queue.pending_track_ids == {7}
+
+
+def test_semantic_queue_does_not_duplicate_a_track_while_it_is_processing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = SemanticEventQueue(tmp_path / "queue", context_id="traffic")
+    frame = np.full((128, 128, 3), 100, dtype=np.uint8)
+    processing = queue.processing_dir / "f000000010_t0000007.json"
+    processing.write_text("{}", encoding="utf-8")
+
+    def fail_if_crop_runs(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("a processing track must not create duplicate evidence")
+
+    monkeypatch.setattr(semantic_queue_module, "_track_crop", fail_if_crop_runs)
+    assert (
+        queue.enqueue(
+            frame=frame,
+            frame_index=100,
+            track=_track(frame_index=100, track_id=7),
+            reason="unknown_track",
+            minimum_frame_gap=30,
+        )
+        is None
+    )
+    assert not list(queue.pending_dir.glob("*.json"))
+
+
+def test_semantic_queue_capacity_includes_processing_tracks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = SemanticEventQueue(
+        tmp_path / "queue",
+        context_id="traffic",
+        max_pending_events=1,
+    )
+    frame = np.full((128, 128, 3), 100, dtype=np.uint8)
+    processing = queue.processing_dir / "f000000010_t0000007.json"
+    processing.write_text("{}", encoding="utf-8")
+
+    def fail_if_crop_runs(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("processing work must count toward queue capacity")
+
+    monkeypatch.setattr(semantic_queue_module, "_track_crop", fail_if_crop_runs)
+    assert (
+        queue.enqueue(
+            frame=frame,
+            frame_index=100,
+            track=_track(frame_index=100, track_id=8),
+            reason="unknown_track",
+            minimum_frame_gap=30,
+        )
+        is None
+    )
+    assert queue.dropped_full == 1
+
+
+def test_closed_semantic_prompt_uses_a_compact_response_schema() -> None:
+    prompt = _event_prompt(
+        {
+            "track_id": 7,
+            "frame_index": 20,
+            "detector_class_name": "car",
+            "evidence_frame_indices": [10, 20],
+            "semantic_task": {
+                "task_id": "traffic",
+                "task_name": "Traffic",
+                "label_mode": "closed",
+                "allowed_labels": ["car", "truck", "unknown"],
+                "attributes": ["color"],
+                "unknown_threshold": 0.75,
+            },
+        }
+    )
+
+    assert '"class_label":"..."' in prompt
+    assert '"evidence_frames":[10, 20]' in prompt
+    assert "observations" not in prompt
+    assert '"fine_label":' not in prompt
+
+
+def test_closed_semantic_prompt_can_request_an_open_fine_subtype() -> None:
+    prompt = _event_prompt(
+        {
+            "track_id": 7,
+            "frame_index": 20,
+            "detector_class_name": "car",
+            "evidence_frame_indices": [10, 20],
+            "semantic_task": {
+                "task_id": "traffic",
+                "task_name": "Traffic",
+                "label_mode": "closed",
+                "enable_fine_labels": True,
+                "allowed_labels": ["car", "truck", "unknown"],
+                "attributes": ["color"],
+                "unknown_threshold": 0.75,
+            },
+        }
+    )
+
+    assert '"fine_label":"..."' in prompt
+    assert '"fine_label_type":"subtype"' in prompt
+    assert "taxonomy_path" not in prompt
+
+
+def test_semantic_cache_exposes_waiting_pending_unknown_and_accepted_states(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "semantic.json"
+    path.write_text(
+        json.dumps(
+            {
+                "tracks": [
+                    {"track_id": 2, "accepted": False, "class_label": "unknown"},
+                    {
+                        "track_id": 3,
+                        "accepted": True,
+                        "class_label": "teacher",
+                        "display_label": "teacher",
+                        "confidence": 0.9,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache = SemanticCacheView(path)
+    assert cache.refresh()
+    tracks = [_track(track_id=value) for value in (1, 2, 3, 4)]
+    decorated = cache.decorate(
+        tracks,
+        pending_track_ids={1},
+        semantic_enabled=True,
+    )
+
+    assert decorated[0].class_name == "person | pending"
+    assert decorated[1].class_name == "person | unknown"
+    assert decorated[2].class_name == "person | teacher"
+    assert decorated[3].class_name == "person | waiting"
+
+
+def test_webcam_requirements_exclude_research_only_dependencies() -> None:
+    webcam = Path("requirements/webcam.txt").read_text(encoding="utf-8").lower()
+    runtime = Path("requirements/runtime.txt").read_text(encoding="utf-8").lower()
+    base = Path("requirements/base.txt").read_text(encoding="utf-8").lower()
+
+    assert "-r runtime.txt" in webcam
+    assert "-r qwen.txt" in webcam
+    assert "trackeval" not in webcam + runtime
+    assert "pandas" not in webcam + runtime
+    assert "matplotlib" not in webcam + runtime
+    assert "-r runtime.txt" in base
+    assert "trackeval" in base

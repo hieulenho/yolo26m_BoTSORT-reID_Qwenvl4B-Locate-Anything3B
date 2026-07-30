@@ -1797,6 +1797,20 @@ def test_parse_qwen_dynamic_answer() -> None:
     assert rows[0].attributes["color"] == "white"
 
 
+def test_parse_qwen_answer_ignores_markdown_and_trailing_braces() -> None:
+    rows = parse_qwen_answer(
+        """Result:
+```json
+{"track_predictions":[{"track_id":7,"class_label":"car","confidence":0.9}]}
+```
+Comment with {unstructured braces}."""
+    )
+
+    assert len(rows) == 1
+    assert rows[0].track_id == 7
+    assert rows[0].class_label == "car"
+
+
 def test_parse_locate_ignores_wrong_expected_track() -> None:
     rows = parse_locate_evidence(
         {
@@ -2176,6 +2190,7 @@ def test_realtime_semantic_queue_worker_updates_memory_and_cache(
     queue, vlm_config = _semantic_worker_fixture(tmp_path)
 
     def fake_runner(_config, jobs):
+        assert "Allowed evidence frame_index values: [10]" in jobs[0]["prompt"]
         return {
             "model_id": "fixture",
             "quantization": "8bit",

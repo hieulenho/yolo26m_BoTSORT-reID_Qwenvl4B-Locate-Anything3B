@@ -70,6 +70,9 @@ def _load_run(name: str, path: Path) -> dict[str, Any]:
     resources = value.get("resources", {})
     cuda = value.get("cuda_memory", {})
     hardware = value.get("hardware", {})
+    semantic = value.get("semantic", {})
+    preprocessing = value.get("preprocessing", {})
+    stabilization = value.get("class_stabilization", {})
     stream_source = str(value.get("stream_source", "")).strip()
     profile, repeat = _run_identity(str(name))
     return {
@@ -79,8 +82,40 @@ def _load_run(name: str, path: Path) -> dict[str, Any]:
         "path": str(path),
         "stream_source": stream_source,
         "source_kind": _source_kind(stream_source),
+        "task_id": semantic.get("task_id"),
+        "tracker": value.get("tracker"),
+        "preprocessing_mode": preprocessing.get("mode", "none"),
+        "preprocessing_applied_rate": preprocessing.get("applied_rate", 0.0),
+        "class_switches_suppressed": stabilization.get("suppressed_switches", 0),
+        "class_switches_accepted": stabilization.get("accepted_switches", 0),
+        "semantic_events_enqueued": semantic.get("events_enqueued", 0),
+        "semantic_events_dropped": semantic.get("events_dropped_queue_full", 0),
+        "semantic_tracks_accepted_during_capture": semantic.get(
+            "accepted_cached_tracks",
+            0,
+        ),
         "frames_processed": int(value.get("frames", 0)),
         "source_frames_consumed": int(value.get("source_frames_consumed", value.get("frames", 0))),
+        "detection_count": int(value.get("detections", 0)),
+        "detection_frame_coverage": float(
+            value.get("detection_frame_coverage", 0.0)
+        ),
+        "detector_confidence_mean": _float_or_none(
+            (value.get("detection_confidence") or {}).get("mean")
+        ),
+        "track_box_count": int(value.get("track_boxes", 0)),
+        "track_frame_coverage": float(value.get("track_frame_coverage", 0.0)),
+        "unique_track_count": int(value.get("unique_tracks", 0)),
+        "median_track_observations": float(
+            (value.get("track_lifecycle") or {}).get(
+                "observation_count_median",
+                0.0,
+            )
+        ),
+        "tracks_shorter_than_3": int(
+            (value.get("track_lifecycle") or {}).get("tracks_shorter_than_3", 0)
+        ),
+        "reported_track_class_count": len(value.get("track_classes", [])),
         "dropped_late_frames": int(value.get("dropped_late_frames", 0)),
         "drop_rate": float(value.get("late_frame_drop_rate", 0.0)),
         "processing_fps": timing.get("processing_fps"),
@@ -157,6 +192,10 @@ def _gb(value: Any) -> float | None:
     return round(float(value) / (1024**3), 4) if value is not None else None
 
 
+def _float_or_none(value: Any) -> float | None:
+    return None if value is None else float(value)
+
+
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     fields = [key for key in rows[0] if key not in {"path", "hardware"}]
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -175,21 +214,51 @@ def _markdown(payload: dict[str, Any]) -> str:
         f"{hardware.get('logical_cpu_count')} logical CPU threads.",
         "",
         (
-            "| Run | Process FPS | Source progress FPS | p95 | Drop | Startup | "
-            "Shutdown | RAM | VRAM |"
+            "| Run | Task | Tracker | Preprocess | Process FPS | Source progress FPS | "
+            "p95 | Drop | RAM | VRAM |"
         ),
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "|---|---|---|---|---:|---:|---:|---:|---:|---:|",
     ]
     for row in payload["runs"]:
         lines.append(
-            f"| {row['name']} | {float(row['processing_fps'] or 0):.2f} | "
+            f"| {row['name']} | {row.get('task_id') or '-'} | "
+            f"{row.get('tracker') or '-'} | {row.get('preprocessing_mode') or 'none'} | "
+            f"{float(row['processing_fps'] or 0):.2f} | "
             f"{float(row['source_progress_fps'] or 0):.2f} | "
             f"{float(row['p95_latency_ms'] or 0):.1f} ms | "
             f"{100 * float(row['drop_rate'] or 0):.1f}% | "
-            f"{float(row['startup_seconds'] or 0):.1f}s | "
-            f"{float(row['shutdown_seconds'] or 0):.1f}s | "
             f"{float(row['peak_ram_gb'] or 0):.2f} GB | "
             f"{float(row['peak_vram_gb'] or 0):.2f} GB |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Detection and track coverage diagnostics",
+            "",
+            (
+                "These are no-GT diagnostics. They expose threshold failures but do not "
+                "replace HOTA, IDF1, precision, or recall on annotated datasets."
+            ),
+            "",
+            (
+                "| Run | Detections | Mean conf | Detection frames | Track frames | "
+                "Unique IDs | Median track | <3 frames |"
+            ),
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in payload["runs"]:
+        mean_confidence = row.get("detector_confidence_mean")
+        confidence_text = (
+            f"{float(mean_confidence):.3f}" if mean_confidence is not None else "-"
+        )
+        lines.append(
+            f"| {row['name']} | {row['detection_count']} | {confidence_text} | "
+            f"{100 * float(row['detection_frame_coverage']):.1f}% | "
+            f"{100 * float(row['track_frame_coverage']):.1f}% | "
+            f"{row['unique_track_count']} | "
+            f"{float(row['median_track_observations']):.1f} | "
+            f"{row['tracks_shorter_than_3']} |"
         )
     lines.extend(
         [
@@ -217,6 +286,8 @@ def _markdown(payload: dict[str, Any]) -> str:
             "![FPS](figures/realtime_fps.png)",
             "",
             "![Latency](figures/realtime_latency_drop.png)",
+            "",
+            "![Coverage](figures/detection_tracking_coverage.png)",
             "",
         ]
     )
@@ -286,7 +357,31 @@ def _figures(rows: list[dict[str, Any]], output_dir: Path) -> list[Path]:
     latency_path = output_dir / "realtime_latency_drop.png"
     figure.savefig(latency_path, dpi=180)
     plt.close(figure)
-    return [fps_path, latency_path]
+
+    figure, coverage_axis = plt.subplots(figsize=(10, 4.8))
+    coverage_axis.bar(
+        [index - 0.2 for index in x],
+        [100.0 * float(row.get("detection_frame_coverage", 0.0)) for row in rows],
+        0.4,
+        label="Frames with detections",
+    )
+    coverage_axis.bar(
+        [index + 0.2 for index in x],
+        [100.0 * float(row.get("track_frame_coverage", 0.0)) for row in rows],
+        0.4,
+        label="Frames with confirmed tracks",
+    )
+    coverage_axis.set_xticks(x, labels, rotation=25, ha="right")
+    coverage_axis.set_ylim(0, 105)
+    coverage_axis.set_ylabel("Frame coverage (%)")
+    coverage_axis.set_title("Detection-to-track coverage diagnostic")
+    coverage_axis.grid(axis="y", alpha=0.25)
+    coverage_axis.legend()
+    figure.tight_layout()
+    coverage_path = output_dir / "detection_tracking_coverage.png"
+    figure.savefig(coverage_path, dpi=180)
+    plt.close(figure)
+    return [fps_path, latency_path, coverage_path]
 
 
 __all__ = ["RealtimeReportError", "build_realtime_report"]

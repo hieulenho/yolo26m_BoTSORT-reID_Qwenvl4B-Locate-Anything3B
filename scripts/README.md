@@ -1,254 +1,54 @@
 # Script Guide
 
-Supported entry points are grouped by purpose. Run them from `F:\Tracking` in PowerShell.
+Run supported commands from the repository root in PowerShell.
 
-`run_multidomain_video_suite.ps1` runs the normalized 30-60 second suite sequentially, keeps
-Qwen and LocateAnything in separate 8-bit processes, writes MP4 products beside the source
-videos, and builds the aggregate trial report.
+## Primary Entry Points
 
-## Adaptive Video Pipeline
-
-```powershell
-.\scripts\run_adaptive_tracking.ps1 `
-  -SourceVideo F:\videos\1.mp4 `
-  -OutputVideo F:\videos\1_adaptive_tracking.mp4 `
-  -SemanticOutputVideo F:\videos\1_adaptive_semantic.mp4 `
-  -Profile realtime `
-  -QwenQuantization 8bit `
-  -Device cuda `
-  -Overwrite
-```
-
-This is the primary offline entry point. It performs scene discovery, class normalization,
-detector routing, tracking, all-track LocateAnything spatial verification, batched Qwen track
-semantics, fusion, unknown rejection, rendering, and run-report consolidation.
-
-Useful controls:
-
-| Parameter | Meaning |
+| Script | Purpose |
 |---|---|
-| `-Profile realtime` | class-routed OC-SORT; special motion config for small fast objects |
-| `-Profile realtime_stable` | YOLO26n/640 plus TrackTrack; fewer fragmented IDs at lower FPS |
-| `-Profile balanced` | class-routed TrackTrack; OC-SORT for small fast objects |
-| `-Profile accuracy` | class-routed identity-stable BoT-SORT ReID |
-| `-MaxFrames 120` | bounded smoke run |
-| `-SemanticMaxTracks 0` | analyze all tracks; use a positive value only for a bounded smoke run |
-| `-SemanticMaxTracksPerBatch 1` | process one identity at a time on an 8 GB GPU |
-| `-SemanticMaxImages 2` | send one target-local frame and one multi-time crop panel |
-| `-SemanticMaxNewTokens 192` | keep structured output bounded and reduce latency |
-| `-LocateCropPadding 0.35` | retain local context without pulling many neighboring tracks into the crop |
-| `-RunTrackSemantics $false` | skip downstream Qwen track labeling |
-| `-RunLocateVerification $false` | skip LocateAnything verification |
-| `-RefreshSemanticCache` | rerun discovery for the same source |
+| `setup_webcam.ps1` | create/verify the Python 3.12 detector, tracker, and Qwen runtime |
+| `run_task_webcam.ps1` | probe a local camera and run one TaskConfig |
+| `run_task_realtime.ps1` | run one TaskConfig on a camera, stream, or video |
+| `run_tests.ps1` | execute the repository test gate |
 
-With `-SemanticMaxTracks 0`, the script enforces all-ID coverage before rendering. A positive
-limit is intended only for smoke tests and will leave the remaining IDs as detector fallback
-in that deliberately partial output.
-
-## Realtime Stream
-
-For a fresh clone, the shortest supported path is:
+Example:
 
 ```powershell
-.\scripts\setup_webcam.ps1
-.\scripts\run_webcam.ps1 -Overwrite
-```
-
-The wrapper probes local camera indices and then delegates to `run_realtime_adaptive.ps1`.
-Pass `-CameraIndex 1` for a known USB camera or `-DetectionOnly` for detector and tracker only.
-The wrapper enables a COCO safety net by default: classes absent from the short calibration
-clip remain detectable later in the stream. Trackable people, vehicles, animals, and sports
-balls receive IDs; other COCO classes remain visible as detection-only observations. Pass
-`-DisableCocoSafetyNet` only when the stream has a fixed, closed vocabulary.
-
-```powershell
-.\scripts\run_realtime_adaptive.ps1 `
-  -Source 0 `
-  -RunName webcam_01 `
-  -CalibrationSeconds 8 `
-  -DiscoveryKeyframes 2 `
-  -QwenQuantization 8bit `
-  -SemanticWorkerMode deferred `
-  -Device cuda `
+.\scripts\run_task_webcam.ps1 `
+  -TaskConfig configs\tasks\generic_coco_realtime.yaml `
+  -CameraIndex 0 `
+  -SemanticWorkerMode live `
   -Overwrite
 ```
 
-The script captures a short calibration clip, discovers the vocabulary once, builds a realtime
-plan, and starts the camera/RTSP/file stream. Track crops are written to a non-blocking semantic
-queue. `deferred` drains the queue automatically after capture; `live` starts a persistent Qwen
-worker that loads the model once and updates the semantic cache while tracking continues.
-Use `-NoWindow` for headless measurement.
+Semantic modes:
 
-`-ReuseGeneratedConfig` also reuses its old class filter. After changing the safety-net policy,
-omit that parameter and use `-Overwrite` (or a new run name) once so the plan is rebuilt.
+- `live`: foreground tracking and a persistent asynchronous Qwen worker;
+- `deferred`: queue evidence during tracking and run Qwen after capture;
+- `disabled`: detector/tracker only, used for objective foreground benchmarks.
 
-On one 8 GB GPU, deferred mode is a two-phase semantic job: event-triggered LocateAnything
-8-bit processes the queued target crops, releases VRAM, then Qwen 8-bit labels those verified
-regions. Live mode remains Qwen-only unless LocateAnything is hosted on a separate GPU/service.
+`setup_webcam.ps1` installs the lightweight `requirements/runtime.txt` and Qwen dependencies.
+The broader `requirements/base.txt` is reserved for benchmark and report generation.
 
-`-DiscoveryKeyframes 2` is the 8 GB GPU default. Increase it only for videos with several
-visually different shots. `-DiscoveryMaxNewTokens 768` protects complete structured JSON; the
-semantic cache makes this cold cost one-time for a matching source and configuration.
+## Runtime Helpers
 
-On an 8 GB GPU, keep the default `-SemanticWorkerMode deferred`. To retry or drain a saved queue
-manually:
+`scripts/runtime/` contains Python processes called by the PowerShell entrypoints. They are
+implementation details, but remain directly testable.
 
-```powershell
-.\.venv\Scripts\python.exe scripts\runtime\run_realtime_semantic_worker.py `
-  --queue-dir outputs\adaptive_realtime\webcam_01\semantic_queue `
-  --vlm-config configs\semantics\dynamic_track.yaml `
-  --semantic-output outputs\adaptive_realtime\webcam_01\semantic_cache.json `
-  --memory outputs\adaptive_realtime\webcam_01\semantic_memory.json `
-  --max-events 8 `
-  --locate-first `
-  --drain
-```
+## Benchmarks
 
-The worker atomically claims each event. A model/runtime exception returns the event to
-`pending/`; an invalid answer is moved to `failed/` with its failure reason instead of being
-retried forever. In `--watch` mode one persistent Qwen session serves multiple batches, avoiding
-repeated model loading. Run only one worker per queue.
-
-## Benchmarking
-
-Fast tracker plumbing check:
+`scripts/benchmarks/` contains GT conversion, detector/tracker evaluation, repeated runtime
+measurement, semantic evaluation, IDSW diagnostics, and report generation. The current report
+entrypoint is:
 
 ```powershell
-.\scripts\run_tracking_benchmark.ps1 -Smoke -SmokeFrames 300 -Overwrite
-```
-
-Consolidate existing full benchmark sources:
-
-```powershell
-.\scripts\benchmarks\build_tracking_benchmark_report.ps1 -Overwrite
-.\.venv\Scripts\python.exe scripts\benchmarks\consolidate_detector_benchmark.py `
-  --config configs\benchmarks\detector_sportsmot.yaml `
-  --overwrite
-.\.venv\Scripts\python.exe scripts\benchmarks\build_final_benchmark_report.py `
-  --config configs\benchmarks\final_report.yaml `
+.\.venv\Scripts\python.exe scripts\benchmarks\build_task_research_report.py `
+  --config configs\benchmarks\task_research_report.yaml `
   --overwrite
 ```
 
-The final command validates source hashes, counts, ranges, hardware compatibility, semantic GT
-scope, and writes report-ready figures.
+## Legacy
 
-Licensed public multi-domain trial:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\data\download_multidomain_samples.py
-.\.venv\Scripts\python.exe scripts\benchmarks\build_multidomain_trial_report.py `
-  --manifest data\samples\multidomain\samples_manifest.json `
-  --run-root outputs\adaptive_runs\multidomain_long `
-  --output-dir outputs\adaptive_runs\multidomain_long\summary `
-  --overwrite
-```
-
-The canonical wildlife, traffic, and classroom clips are 37.9, 35.0, and 84.3 seconds. Run
-`run_adaptive_tracking.ps1` on each clip before building the report. Video-level domain/class
-discovery is kept separate from per-track semantic accuracy, which needs human annotation.
-
-Prepare the human-review package, then finalize and merge the reviewed manifests:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py status `
-  --package-dir data\semantic_benchmark\review\wildlife_black_noddies `
-  --package-dir data\semantic_benchmark\review\traffic_street `
-  --package-dir data\semantic_benchmark\review\education_classroom_long `
-  --output outputs\reports\semantic_gt_status.json
-
-.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py finalize `
-  --package-dir data\semantic_benchmark\review\traffic_street
-
-.\.venv\Scripts\python.exe scripts\benchmarks\prepare_semantic_gt.py merge `
-  --manifest data\semantic_benchmark\review\wildlife_black_noddies\manifest.reviewed.yaml `
-  --manifest data\semantic_benchmark\review\traffic_street\manifest.reviewed.yaml `
-  --manifest data\semantic_benchmark\review\education_classroom_long\manifest.reviewed.yaml `
-  --output-manifest data\semantic_benchmark\multidomain.reviewed.yaml `
-  --overwrite
-```
-
-`finalize` intentionally fails until every track row and the video-level review block have been
-marked as reviewed by a named annotator.
-
-After generating `idsw_taxonomy_events.csv`, create a human-review sheet with:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\benchmarks\review_idsw_taxonomy.py prepare `
-  --events outputs\reports\idsw_taxonomy\idsw_taxonomy_events.csv `
-  --output data\idsw_review\idsw_event_review.csv
-```
-
-The reviewed type, reviewer, and status are required before the diagnostic percentages can be
-presented as human-validated failure causes.
-
-Build the measured long-stream realtime comparison:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\benchmarks\build_realtime_benchmark.py `
-  --run baseline_fp32=outputs\adaptive_realtime\traffic_long\realtime_metrics.json `
-  --run optimized_no_drop=outputs\adaptive_realtime\traffic_final\realtime_metrics.json `
-  --run bounded_live=outputs\adaptive_realtime\traffic_bounded\realtime_metrics.json `
-  --output-dir outputs\benchmarks\realtime\traffic_35s `
-  --overwrite
-```
-
-Run the three-profile physical webcam/RTSP protocol:
-
-```powershell
-.\scripts\benchmarks\run_physical_realtime_protocol.ps1 `
-  -Source "0" `
-  -ProtocolName webcam_900_frames `
-  -MaxFrames 900 `
-  -Repeats 3 `
-  -Overwrite
-```
-
-Audit official multi-domain GT sources and normalize downloaded annotations:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\benchmarks\audit_multidomain_sources.py `
-  --output outputs\benchmarks\multidomain\dataset_readiness.json
-
-.\.venv\Scripts\python.exe scripts\benchmarks\convert_multidomain_gt.py `
-  --format bdd100k_scalabel `
-  --annotations data\external\bdd100k\labels\box_track_20 `
-  --output-dir data\normalized\bdd100k `
-  --overwrite
-```
-
-See `docs/benchmarks/multidomain_completion_protocol.md` for TAO, AnimalTrack, CTC,
-unknown-rejection, hallucination and two-reviewer IDSW commands.
-
-## Validation
-
-```powershell
-.\.venv\Scripts\python.exe -m football_tracking.cli doctor
-.\.venv\Scripts\python.exe -m ruff check src scripts tests
-.\.venv\Scripts\python.exe -m pytest -q
-```
-
-## Compatibility Scripts
-
-Earlier football-only experiments are archived under `scripts/legacy/` and are not primary entry
-points:
-
-- `scripts/legacy/run_raw_video_semantic_experiments.ps1`
-- `scripts/legacy/run_vlm_guided_pipeline.ps1`
-- `scripts/legacy/run_team_position_benchmark.ps1`
-- `scripts/legacy/render_team_position_video.py`
-
-Use them only when reproducing an older report whose manifest explicitly references those paths.
-
-## Directory Map
-
-```text
-scripts/
-  run_adaptive_tracking.ps1       primary offline pipeline
-  run_realtime_adaptive.ps1       primary live/file stream pipeline
-  run_tracking_benchmark.ps1      canonical tracker benchmark
-  setup_env.ps1, run_tests.ps1    environment and validation
-  runtime/                         Python workers used by supported entry points
-  benchmarks/                      report, audit, and metric builders
-  data/                            sample download and input diagnostics
-  legacy/                          compatibility-only football workflows
-```
+`scripts/legacy/` and the older adaptive wrappers are retained only to reproduce historical
+LocateAnything/Qwen A/B/C artifacts. New deployments must use `run_task_realtime.ps1` or
+`run_task_webcam.ps1`. See the root `commands.txt` for tested command lines.

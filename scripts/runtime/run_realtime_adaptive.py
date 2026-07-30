@@ -23,10 +23,12 @@ def main() -> int:
     parser.add_argument("--max-frames", type=int, default=None)
     parser.add_argument("--semantic-queue-dir", type=Path, default=None)
     parser.add_argument("--semantic-cache", type=Path, default=None)
+    parser.add_argument("--task-config", type=Path, default=None)
     parser.add_argument("--semantic-event-interval-frames", type=int, default=90)
     parser.add_argument("--semantic-cache-reload-frames", type=int, default=15)
     parser.add_argument("--semantic-events-per-frame", type=int, default=2)
     parser.add_argument("--semantic-max-pending-events", type=int, default=256)
+    parser.add_argument("--semantic-minimum-track-age-frames", type=int, default=None)
     parser.add_argument("--disable-scene-cut-reset", action="store_true")
     parser.add_argument("--scene-cut-threshold", type=float, default=0.65)
     parser.add_argument("--scene-cut-min-gap-frames", type=int, default=15)
@@ -38,6 +40,7 @@ def main() -> int:
     parser.add_argument("--video-write-queue-size", type=int, default=128)
     parser.add_argument("--no-window", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
     try:
         result = run_realtime_tracking(
@@ -50,10 +53,12 @@ def main() -> int:
             max_frames=args.max_frames,
             semantic_queue_dir=args.semantic_queue_dir,
             semantic_cache_path=args.semantic_cache,
+            task_config_path=args.task_config,
             semantic_event_interval_frames=args.semantic_event_interval_frames,
             semantic_cache_reload_frames=args.semantic_cache_reload_frames,
             semantic_events_per_frame=args.semantic_events_per_frame,
             semantic_max_pending_events=args.semantic_max_pending_events,
+            semantic_minimum_track_age_frames=args.semantic_minimum_track_age_frames,
             reset_on_scene_cut=not args.disable_scene_cut_reset,
             scene_cut_threshold=args.scene_cut_threshold,
             scene_cut_min_gap_frames=args.scene_cut_min_gap_frames,
@@ -68,7 +73,8 @@ def main() -> int:
     except (RealtimeTrackingError, RuntimeError, ValueError, OSError) as exc:
         sys.stderr.write(f"Error: {exc}\n")
         return 2
-    print(json.dumps(result, indent=2, default=str))
+    if not args.quiet:
+        print(json.dumps(result, indent=2, default=str))
     return 0
 
 

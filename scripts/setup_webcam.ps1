@@ -22,9 +22,6 @@ $Venv = Join-Path $ProjectRoot ".venv"
 $Python = Join-Path $Venv "Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $Python)) {
     if ($VerifyOnly) { throw "Missing virtual environment: $Python" }
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        throw "Git is required because runtime dependencies are installed from Git repositories."
-    }
 
     $BootstrapPython = $null
     $UsePyLauncher = $false
@@ -56,9 +53,6 @@ $HasNvidia = $null -ne (Get-Command nvidia-smi -ErrorAction SilentlyContinue)
 if ($TorchBackend -eq "auto") { $TorchBackend = if ($HasNvidia) { "cuda" } else { "cpu" } }
 
 if (-not $VerifyOnly) {
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        throw "Git is required because runtime dependencies are installed from Git repositories."
-    }
     Write-Host "[setup] Updating packaging tools"
     Invoke-Checked $Python @("-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel") "pip upgrade failed."
 
@@ -74,7 +68,7 @@ if (-not $VerifyOnly) {
         }
     }
 
-    Write-Host "[setup] Installing detector, tracker, Qwen, LocateAnything, and YOLOE dependencies"
+    Write-Host "[setup] Installing detector, tracker, and Qwen dependencies"
     Invoke-Checked $Python @("-m", "pip", "install", "-r", "requirements\webcam.txt") "Runtime dependency installation failed."
     Invoke-Checked $Python @("-m", "pip", "install", "--editable", ".") "Editable project installation failed."
 }
@@ -100,4 +94,4 @@ Invoke-Checked $Python @("-m", "football_tracking.cli", "doctor") "Environment d
 
 Write-Host ""
 Write-Host "Setup complete. Connect a webcam, close other camera applications, then run:"
-Write-Host ".\scripts\run_webcam.ps1"
+Write-Host ".\scripts\run_task_webcam.ps1 -TaskConfig configs\tasks\generic_coco_realtime.yaml -Overwrite"

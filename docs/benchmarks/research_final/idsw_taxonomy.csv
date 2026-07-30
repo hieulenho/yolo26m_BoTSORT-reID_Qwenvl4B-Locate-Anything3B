@@ -1,0 +1,9 @@
+sequence,total_id_switches_recomputed,fragmentation_count,fragmentation_percent,identity_swap_count,identity_swap_percent,re_identification_failure_count,re_identification_failure_percent,association_error_count,association_error_percent,appearance_confusion_count,appearance_confusion_percent,tracker,prediction_dir,sequence_count,missing_sequence_count,iou_threshold,reid_gap,swap_window,crowd_scale,official_idsw
+__overall__,9312,2551,27.395,990,10.631,545,5.853,1819,19.534,3407,36.587,sort,outputs\benchmarks\tracking\sportsmot_yolo26m\tracks\sort\all,30,0,0.5,10,5,1.5,7734
+__overall__,6097,742,12.17,954,15.647,475,7.791,1380,22.634,2546,41.758,deepsort,outputs\benchmarks\tracking\sportsmot_yolo26m\tracks\deepsort\all,30,0,0.5,10,5,1.5,3724
+__overall__,1971,636,32.268,497,25.216,570,28.919,89,4.515,179,9.082,bytetrack,outputs\benchmarks\tracking\sportsmot_yolo26m\tracks\bytetrack\all,30,0,0.5,10,5,1.5,1828
+__overall__,1070,186,17.383,363,33.925,486,45.421,13,1.215,22,2.056,botsort_reid,outputs\benchmarks\tracking\sportsmot_yolo26m\tracks\botsort_reid\all,30,0,0.5,10,5,1.5,895
+__overall__,2690,818,30.409,678,25.204,456,16.952,258,9.591,480,17.844,ocsort,outputs\benchmarks\tracking\sportsmot_yolo26m\tracks\ocsort\all,30,0,0.5,10,5,1.5,2186
+__overall__,2571,504,19.603,1360,52.898,250,9.724,123,4.784,334,12.991,deepocsort_reid,outputs\benchmarks\tracking\sportsmot_yolo26m\tracks\deepocsort_reid\all,30,0,0.5,10,5,1.5,2016
+__overall__,2413,731,30.294,760,31.496,565,23.415,109,4.517,248,10.278,fasttrack,outputs\benchmarks\tracking\sportsmot_yolo26m\modern\tracks\fasttrack\all,30,0,0.5,10,5,1.5,2220
+__overall__,1302,252,19.355,380,29.186,493,37.865,72,5.53,105,8.065,tracktrack,outputs\benchmarks\tracking\sportsmot_yolo26m\modern\tracks\tracktrack\all,30,0,0.5,10,5,1.5,1042
