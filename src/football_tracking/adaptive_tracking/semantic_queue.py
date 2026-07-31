@@ -40,7 +40,27 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
         json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    temporary.replace(path)
+    _replace_file_with_retry(temporary, path)
+
+
+def _replace_file_with_retry(
+    source: Path,
+    target: Path,
+    *,
+    attempts: int = 8,
+    initial_delay_seconds: float = 0.005,
+) -> Path:
+    """Handle brief Windows sharing violations between queue readers and writers."""
+    if attempts < 1:
+        raise SemanticQueueError("File replace attempts must be positive.")
+    for attempt in range(attempts):
+        try:
+            return source.replace(target)
+        except PermissionError:
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(initial_delay_seconds * (attempt + 1))
+    raise AssertionError("unreachable")
 
 
 class SemanticEventQueue:
@@ -71,6 +91,18 @@ class SemanticEventQueue:
         self._evidence_by_track: dict[int, list[dict[str, Any]]] = {}
         self.semantic_task = dict(semantic_task or {})
         self.max_evidence_images = int(self.semantic_task.get("max_evidence_images", 2))
+        self.evidence_interval_frames = int(
+            self.semantic_task.get("evidence_interval_frames", 0)
+        )
+        self.evidence_collection_delay_seconds = float(
+            self.semantic_task.get("evidence_collection_delay_seconds", 0.0)
+        )
+        if self.evidence_interval_frames < 0:
+            raise SemanticQueueError("evidence_interval_frames cannot be negative.")
+        if not 0.0 <= self.evidence_collection_delay_seconds <= 5.0:
+            raise SemanticQueueError(
+                "evidence_collection_delay_seconds must be in [0, 5]."
+            )
         self.evidence_layout = str(
             self.semantic_task.get("evidence_layout", "panel")
         ).strip().lower()
@@ -132,6 +164,10 @@ class SemanticEventQueue:
             "rejected_low_quality": self.rejected_low_quality,
             "minimum_crop_quality": self.minimum_crop_quality,
             "max_evidence_images": self.max_evidence_images,
+            "evidence_interval_frames": self.evidence_interval_frames,
+            "evidence_collection_delay_seconds": (
+                self.evidence_collection_delay_seconds
+            ),
             "evidence_layout": self.evidence_layout,
             "evidence_panel_size": [
                 self.evidence_panel_width,
@@ -167,9 +203,20 @@ class SemanticEventQueue:
             self._last_frame_by_track[track_id] = frame_index
             return None
         last_frame = self._last_frame_by_track.get(track_id)
+        evidence_count = len(self._evidence_by_track.get(track_id, []))
+        effective_frame_gap = minimum_frame_gap
+        if (
+            existing_path is not None
+            and evidence_count < self.max_evidence_images
+            and self.evidence_interval_frames > 0
+        ):
+            effective_frame_gap = min(
+                minimum_frame_gap,
+                self.evidence_interval_frames,
+            )
         within_gap = (
             last_frame is not None
-            and frame_index - last_frame < minimum_frame_gap
+            and frame_index - last_frame < effective_frame_gap
         )
         if within_gap:
             return None
@@ -204,8 +251,18 @@ class SemanticEventQueue:
             ((existing_event or {}).get("crop_quality") or {}).get("score", 0.0)
         )
         replacement = existing_path is not None
+        existing_frames = {
+            int(value)
+            for value in (existing_event or {}).get("evidence_frame_indices", [])
+        }
+        needs_temporal_evidence = (
+            replacement
+            and frame_index not in existing_frames
+            and len(existing_frames) < self.max_evidence_images
+        )
         if replacement and (
-            quality["score"] < existing_quality + self.replacement_quality_margin
+            not needs_temporal_evidence
+            and quality["score"] < existing_quality + self.replacement_quality_margin
         ):
             self._last_frame_by_track[track_id] = frame_index
             return None
@@ -215,7 +272,7 @@ class SemanticEventQueue:
             superseded_dir.mkdir(parents=True, exist_ok=True)
             superseded_path = superseded_dir / existing_path.name
             try:
-                existing_path.replace(superseded_path)
+                _replace_file_with_retry(existing_path, superseded_path)
             except FileNotFoundError:
                 self._pending_path_by_track.pop(track_id, None)
                 return None
@@ -225,7 +282,7 @@ class SemanticEventQueue:
         event_path = self.pending_dir / f"{event_id}.json"
         if not cv2.imwrite(str(crop_path), crop):
             if superseded_path is not None and existing_path is not None:
-                superseded_path.replace(existing_path)
+                _replace_file_with_retry(superseded_path, existing_path)
             raise SemanticQueueError(f"Could not write semantic crop: {crop_path}")
         evidence = self._updated_evidence(
             track_id,
@@ -246,7 +303,7 @@ class SemanticEventQueue:
             if not cv2.imwrite(str(panel_path), panel):
                 crop_path.unlink(missing_ok=True)
                 if superseded_path is not None and existing_path is not None:
-                    superseded_path.replace(existing_path)
+                    _replace_file_with_retry(superseded_path, existing_path)
                 raise SemanticQueueError(
                     f"Could not write semantic evidence panel: {panel_path}"
                 )
@@ -263,6 +320,17 @@ class SemanticEventQueue:
                 f"Track {track_id} crop at frame {int(row['frame_index'])}."
                 for row in evidence
             ]
+        now = time.time()
+        ready_after = float(
+            (existing_event or {}).get(
+                "ready_after_unix_seconds",
+                now + self.evidence_collection_delay_seconds,
+            )
+        )
+        detector_class_name = str(
+            track.metadata.get("base_detector_class_name", track.class_name)
+        )
+        fast_semantic_label = track.metadata.get("fast_semantic_label")
         payload = {
             "schema_version": "2.0",
             "event_id": event_id,
@@ -270,11 +338,28 @@ class SemanticEventQueue:
             "frame_index": frame_index,
             "track_id": track_id,
             "detector_class_id": track.class_id,
-            "detector_class_name": track.class_name,
+            "detector_class_name": detector_class_name,
+            "fast_semantic_proposal": (
+                {
+                    "class_label": str(fast_semantic_label),
+                    "confidence": float(
+                        track.metadata.get("fast_semantic_confidence", 0.0)
+                    ),
+                    "source": str(
+                        track.metadata.get(
+                            "fast_semantic_source",
+                            "supplemental_detector",
+                        )
+                    ),
+                }
+                if fast_semantic_label is not None
+                else None
+            ),
             "track_confidence": track.confidence,
             "reason": reason,
             "priority": _event_priority(reason, quality["score"], track.confidence),
-            "created_unix_seconds": time.time(),
+            "created_unix_seconds": now,
+            "ready_after_unix_seconds": ready_after,
             "crop_path": str(crop_path.resolve()),
             "crop_quality": quality,
             "target_bbox_in_crop_xyxy": list(target_bbox),
@@ -294,7 +379,7 @@ class SemanticEventQueue:
             crop_path.unlink(missing_ok=True)
             panel_path.unlink(missing_ok=True)
             if superseded_path is not None and existing_path is not None:
-                superseded_path.replace(existing_path)
+                _replace_file_with_retry(superseded_path, existing_path)
             raise
         if superseded_path is not None:
             superseded_path.unlink(missing_ok=True)
@@ -629,8 +714,8 @@ class SemanticCacheView:
                     else "base"
                 )
                 label = (
-                    f"{track.class_name} | {status}"
-                    if semantic_enabled
+                    f"{track.class_name} | unknown"
+                    if semantic_enabled and status == "unknown"
                     else track.class_name
                 )
                 decorated.append(
@@ -714,6 +799,14 @@ def _event_prompt(event: dict[str, Any]) -> str:
         if event.get("evidence_layout") == "panel"
         else "The supplied images are temporally selected crops of the same track."
     )
+    fast_proposal = event.get("fast_semantic_proposal")
+    proposal_note = (
+        "A sparse open-vocabulary detector proposed "
+        + json.dumps(fast_proposal, ensure_ascii=False, separators=(",", ":"))
+        + "; verify it from the images instead of copying it blindly."
+        if isinstance(fast_proposal, dict)
+        else "No fast semantic proposal is available."
+    )
     response_schema = (
         (
             f'{{"track_predictions":[{{"track_id":{int(event["track_id"])},'
@@ -739,6 +832,7 @@ Return class_label="unknown" when confidence is below {unknown_threshold:.2f}. D
 fine label, identity, role, species, make, or model from scene context alone. When fine_label is
 enabled, use "unknown" unless the subtype is directly supported by the target crops.
 {layout_note}
+{proposal_note}
 Keep the answer compact. Return JSON only using this schema:
 {response_schema}
 Detector hint (not ground truth): {event.get('detector_class_name', 'unknown')}.
@@ -1044,6 +1138,101 @@ def _qwen_job(event: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _qwen_group_job(events: list[dict[str, Any]]) -> dict[str, Any]:
+    if len(events) < 2:
+        raise SemanticQueueError("A grouped Qwen job requires at least two events.")
+    image_paths: list[Path] = []
+    image_labels: list[str] = []
+    for event in events:
+        event_job = _qwen_job(event)
+        image_paths.extend(event_job["image_paths"])
+        image_labels.extend(
+            f"Expected track_id {int(event['track_id'])}. {label}"
+            for label in event_job["image_labels"]
+        )
+    event_ids = "_".join(str(int(event["track_id"])) for event in events)
+    return {
+        "batch_id": f"group_tracks_{event_ids}",
+        "prompt": _group_event_prompt(events),
+        "image_paths": image_paths,
+        "image_labels": image_labels,
+    }
+
+
+def _group_event_prompt(events: list[dict[str, Any]]) -> str:
+    task = events[0].get("semantic_task") or {}
+    if any((event.get("semantic_task") or {}) != task for event in events[1:]):
+        raise SemanticQueueError("Grouped events must use the same semantic task.")
+    label_mode = str(task.get("label_mode", "open")).strip().lower()
+    enable_fine_labels = bool(
+        task.get("enable_fine_labels", label_mode != "closed")
+    )
+    allowed_labels = [str(item) for item in task.get("allowed_labels", [])]
+    allowed_note = (
+        "Choose class_label only from this closed taxonomy: "
+        + json.dumps(allowed_labels, ensure_ascii=False)
+        + "."
+        if label_mode == "closed" and allowed_labels
+        else "Use an open hierarchical vocabulary, but prefer stable common names."
+    )
+    expected: list[dict[str, Any]] = []
+    schema_rows: list[dict[str, Any]] = []
+    for event in events:
+        evidence_frames = [
+            int(value) for value in event.get("evidence_frame_indices", [])
+        ] or [int(event["frame_index"])]
+        expected.append(
+            {
+                "track_id": int(event["track_id"]),
+                "detector_hint": str(
+                    event.get("detector_class_name", "unknown")
+                ),
+                "fast_semantic_hint": event.get("fast_semantic_proposal"),
+                "allowed_evidence_frames": evidence_frames,
+            }
+        )
+        row: dict[str, Any] = {
+            "id": int(event["track_id"]),
+            "label": "...",
+        }
+        if enable_fine_labels:
+            row.update(
+                {
+                    "fine": "...",
+                }
+            )
+        row.update(
+            {
+                "conf": 0.0,
+            }
+        )
+        if enable_fine_labels:
+            row["fine_conf"] = 0.0
+        row["frames"] = evidence_frames
+        schema_rows.append(row)
+    instruction = str(
+        task.get(
+            "instruction",
+            "Assign the most specific visually supported stable label.",
+        )
+    ).strip()
+    unknown_threshold = float(task.get("unknown_threshold", 0.70))
+    return f"""
+Task: {task.get('task_name', task.get('task_id', 'tracked-object semantics'))}.
+Instruction: {instruction}
+Each supplied image label identifies exactly one target track. Analyze each target separately,
+do not transfer appearance or labels between track IDs, and return exactly one prediction for
+every expected track below.
+Expected tracks: {json.dumps(expected, ensure_ascii=False, separators=(',', ':'))}
+{allowed_note}
+Use only the allowed evidence frames listed for that track. Return class_label="unknown" below
+confidence {unknown_threshold:.2f}. Fine labels must be directly visible in the target crops;
+otherwise return fine_label="unknown". Do not return descriptions, attributes, or extra keys.
+Keep the answer compact and return JSON only:
+{json.dumps({"p": schema_rows}, ensure_ascii=False, separators=(',', ':'))}
+""".strip()
+
+
 def _pending_claim_order(path: Path) -> tuple[float, int, str]:
     event = _read_json_if_present(path) or {}
     priority = float(event.get("priority", 0.0))
@@ -1118,11 +1307,15 @@ def process_semantic_queue(
     memory_path: str | Path,
     registry_path: str | Path = "configs/ontology/vocabulary_registry.yaml",
     max_events: int = 8,
+    group_events: bool = False,
+    max_group_images: int = 2,
     max_memory_observations_per_track: int = 32,
     runner: Callable[[Any, list[dict[str, Any]]], dict[str, Any]] = run_qwen_vlm_batches,
 ) -> dict[str, Any]:
     if max_events < 1:
         raise SemanticQueueError("max_events must be positive.")
+    if max_group_images < 1:
+        raise SemanticQueueError("max_group_images must be positive.")
     root = Path(queue_dir)
     pending_dir = root / "pending"
     processing_dir = root / "processing"
@@ -1132,17 +1325,40 @@ def process_semantic_queue(
         pending_dir.glob("*.json"),
         key=_pending_claim_order,
     )
+    now = time.time()
+    deferred_until: list[float] = []
     for pending_path in pending_paths:
+        pending_event = _read_json_if_present(pending_path)
+        ready_after = float(
+            (pending_event or {}).get("ready_after_unix_seconds", 0.0)
+        )
+        if ready_after > now:
+            deferred_until.append(ready_after)
+            continue
         claimed_path = processing_dir / pending_path.name
         try:
-            pending_path.replace(claimed_path)
+            _replace_file_with_retry(pending_path, claimed_path)
         except FileNotFoundError:
             continue
         claimed.append(claimed_path)
         if len(claimed) >= max_events:
             break
     if not claimed:
-        return {"status": "idle", "processed_event_count": 0}
+        remaining = len(list(pending_dir.glob("*.json")))
+        return {
+            "status": (
+                "waiting_for_evidence"
+                if remaining and deferred_until
+                else "idle"
+            ),
+            "processed_event_count": 0,
+            "remaining_event_count": remaining,
+            "next_ready_seconds": (
+                max(min(deferred_until) - time.time(), 0.0)
+                if deferred_until
+                else 0.0
+            ),
+        }
     try:
         events = [json.loads(path.read_text(encoding="utf-8")) for path in claimed]
         context_ids = {str(event.get("context_id", "")) for event in events}
@@ -1162,19 +1378,34 @@ def process_semantic_queue(
             vlm_config_path,
             overrides={"run_model": True},
         )
-        jobs = [_qwen_job(event) for event in events]
+        total_image_count = sum(
+            len(event.get("qwen_image_paths") or [event["crop_path"]])
+            for event in events
+        )
+        grouped = (
+            group_events
+            and len(events) > 1
+            and total_image_count <= max_group_images
+        )
+        jobs = (
+            [_qwen_group_job(events)]
+            if grouped
+            else [_qwen_job(event) for event in events]
+        )
         inference = runner(config, jobs)
     except Exception:
         _requeue_claims(claimed, pending_dir)
         raise
     batches = inference.get("batches", [])
-    if len(batches) != len(events):
+    expected_batch_count = 1 if grouped else len(events)
+    if len(batches) != expected_batch_count:
         _requeue_claims(claimed, pending_dir)
         raise SemanticQueueError("Qwen worker returned an unexpected batch count.")
+    event_batches = [batches[0]] * len(events) if grouped else batches
     evidence = []
     processed: list[tuple[Path, dict[str, Any], dict[str, Any]]] = []
     failed: list[tuple[Path, dict[str, Any], dict[str, Any], str]] = []
-    for path, event, batch in zip(claimed, events, batches, strict=True):
+    for path, event, batch in zip(claimed, events, event_batches, strict=True):
         try:
             parsed = [
                 row
@@ -1284,6 +1515,8 @@ def process_semantic_queue(
             "mode": "realtime_semantic_worker",
             "context_id": context_id,
             "processed_event_count": len(processed),
+            "qwen_call_count": len(batches),
+            "grouped_events": grouped,
             "model": inference.get("model_id"),
             "quantization": inference.get("quantization"),
             "timing": inference.get("timing"),
@@ -1308,6 +1541,8 @@ def process_semantic_queue(
         "processed_event_count": len(processed),
         "failed_event_count": len(failed),
         "remaining_event_count": len(list(pending_dir.glob("*.json"))),
+        "qwen_call_count": len(batches),
+        "grouped_events": grouped,
         "semantic_output": str(Path(semantic_output).resolve()),
         "memory_path": str(Path(memory_path).resolve()),
         "fusion_summary": fused["summary"],
@@ -1322,4 +1557,4 @@ def _requeue_claims(claimed: list[Path], pending_dir: Path) -> None:
         target = pending_dir / claimed_path.name
         if target.exists():
             raise SemanticQueueError(f"Could not requeue duplicate event: {target}")
-        claimed_path.replace(target)
+        _replace_file_with_retry(claimed_path, target)

@@ -11,8 +11,18 @@ detector:
   name: yolo26n_coco_person
   backend: ultralytics
   checkpoint: yolo26n.pt
-  class_ids: [0]
+  class_ids: [0, 1000, 1001, 1002, 1003]
   tracker_class_ids: [0]
+  supplemental_detectors:
+    - name: yoloe26s_classroom_role_proposals
+      backend: ultralytics_yoloe
+      checkpoint: yoloe-26s-seg.pt
+      text_classes: [student, teacher, classroom staff, visitor]
+      input_class_ids: [0, 1, 2, 3]
+      output_class_ids: [1000, 1001, 1002, 1003]
+      class_names: [student, teacher, classroom_staff, visitor]
+      every_n_frames: 6
+      half: false
   preserve_source_classes: true
   imgsz: 640
   conf: 0.18

@@ -77,12 +77,90 @@ def _unit_interval(value: Any, name: str) -> float:
     return number
 
 
+def _supplemental_detectors(value: Any) -> tuple[dict[str, Any], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list | tuple):
+        raise TaskPipelineConfigError(
+            "detector.supplemental_detectors must be a list."
+        )
+    output: list[dict[str, Any]] = []
+    used_output_ids: set[int] = set()
+    for index, raw in enumerate(value):
+        item = _mapping(raw, f"detector.supplemental_detectors[{index}]")
+        backend = str(item.get("backend", "ultralytics")).strip().lower()
+        if backend not in _DETECTOR_BACKENDS:
+            raise TaskPipelineConfigError(
+                f"Unsupported supplemental detector backend: {backend}"
+            )
+        checkpoint = _non_empty_string(
+            item.get("checkpoint"),
+            f"detector.supplemental_detectors[{index}].checkpoint",
+        )
+        input_ids = _class_ids(
+            item.get("input_class_ids"),
+            f"detector.supplemental_detectors[{index}].input_class_ids",
+        )
+        output_ids = _class_ids(
+            item.get("output_class_ids"),
+            f"detector.supplemental_detectors[{index}].output_class_ids",
+        )
+        class_names = _string_tuple(
+            item.get("class_names"),
+            f"detector.supplemental_detectors[{index}].class_names",
+        )
+        if (
+            not input_ids
+            or not output_ids
+            or len(input_ids) != len(output_ids)
+            or len(output_ids) != len(class_names)
+        ):
+            raise TaskPipelineConfigError(
+                "Supplemental input_class_ids, output_class_ids, and class_names "
+                "must be non-empty lists with equal lengths."
+            )
+        duplicates = used_output_ids.intersection(output_ids)
+        if duplicates:
+            raise TaskPipelineConfigError(
+                f"Duplicate supplemental output class IDs: {sorted(duplicates)}"
+            )
+        used_output_ids.update(output_ids)
+        text_classes = _string_tuple(
+            item.get("text_classes"),
+            f"detector.supplemental_detectors[{index}].text_classes",
+        )
+        if backend == "ultralytics_yoloe" and not text_classes:
+            raise TaskPipelineConfigError(
+                "YOLOE supplemental detectors require text_classes."
+            )
+        every_n_frames = int(item.get("every_n_frames", 1))
+        if not 1 <= every_n_frames <= 300:
+            raise TaskPipelineConfigError(
+                "Supplemental every_n_frames must be in [1, 300]."
+            )
+        output.append(
+            {
+                **item,
+                "backend": backend,
+                "checkpoint": checkpoint,
+                "input_class_ids": list(input_ids),
+                "output_class_ids": list(output_ids),
+                "class_names": list(class_names),
+                "text_classes": list(text_classes),
+                "every_n_frames": every_n_frames,
+                "half": bool(item.get("half", False)),
+            }
+        )
+    return tuple(output)
+
+
 @dataclass(frozen=True)
 class DetectorTaskConfig:
     backend: str
     checkpoint: str
     name: str
     text_classes: tuple[str, ...]
+    supplemental_detectors: tuple[dict[str, Any], ...]
     class_ids: tuple[int, ...] | None
     tracker_class_ids: tuple[int, ...] | None
     preserve_source_classes: bool
@@ -125,6 +203,8 @@ class SemanticTaskConfig:
     max_pending_events: int
     minimum_track_age_frames: int
     max_evidence_images: int
+    evidence_interval_frames: int
+    evidence_collection_delay_seconds: float
     evidence_layout: str
     evidence_panel_width: int
     evidence_panel_height: int
@@ -145,6 +225,10 @@ class SemanticTaskConfig:
             "instruction": self.instruction,
             "unknown_threshold": self.unknown_threshold,
             "max_evidence_images": self.max_evidence_images,
+            "evidence_interval_frames": self.evidence_interval_frames,
+            "evidence_collection_delay_seconds": (
+                self.evidence_collection_delay_seconds
+            ),
             "evidence_layout": self.evidence_layout,
             "evidence_panel_width": self.evidence_panel_width,
             "evidence_panel_height": self.evidence_panel_height,
@@ -226,6 +310,9 @@ def load_task_pipeline_config(path: str | Path) -> TaskPipelineConfig:
         checkpoint=_non_empty_string(detector_raw.get("checkpoint"), "detector.checkpoint"),
         name=_non_empty_string(detector_raw.get("name", "task_detector"), "detector.name"),
         text_classes=text_classes,
+        supplemental_detectors=_supplemental_detectors(
+            detector_raw.get("supplemental_detectors")
+        ),
         class_ids=class_ids,
         tracker_class_ids=tracker_class_ids,
         preserve_source_classes=bool(detector_raw.get("preserve_source_classes", True)),
@@ -344,6 +431,12 @@ def load_task_pipeline_config(path: str | Path) -> TaskPipelineConfig:
             semantic_raw.get("minimum_track_age_frames", 8)
         ),
         max_evidence_images=int(semantic_raw.get("max_evidence_images", 2)),
+        evidence_interval_frames=int(
+            semantic_raw.get("evidence_interval_frames", 12)
+        ),
+        evidence_collection_delay_seconds=float(
+            semantic_raw.get("evidence_collection_delay_seconds", 0.75)
+        ),
         evidence_layout=str(
             semantic_raw.get("evidence_layout", "panel")
         ).strip().lower(),
@@ -370,6 +463,14 @@ def load_task_pipeline_config(path: str | Path) -> TaskPipelineConfig:
         )
     if not 1 <= semantic.max_evidence_images <= 8:
         raise TaskPipelineConfigError("semantic.max_evidence_images must be in [1, 8].")
+    if semantic.evidence_interval_frames < 1:
+        raise TaskPipelineConfigError(
+            "semantic.evidence_interval_frames must be positive."
+        )
+    if not 0.0 <= semantic.evidence_collection_delay_seconds <= 5.0:
+        raise TaskPipelineConfigError(
+            "semantic.evidence_collection_delay_seconds must be in [0, 5]."
+        )
     if semantic.evidence_layout not in {"panel", "crops"}:
         raise TaskPipelineConfigError(
             "semantic.evidence_layout must be 'panel' or 'crops'."

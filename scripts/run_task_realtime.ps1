@@ -15,7 +15,9 @@ param(
     [string]$PreprocessingMode = "task_default",
     [int]$MaxFrames = 0,
     [ValidateRange(1, 8)]
-    [int]$SemanticWorkerBatchSize = 1,
+    [int]$SemanticWorkerBatchSize = 2,
+    [ValidateRange(1, 2)]
+    [int]$SemanticWorkerMaxGroupImages = 2,
     [ValidateRange(0, 1000000)]
     [int]$SemanticWorkerMaxEvents = 0,
     [ValidateRange(0, 1000000)]
@@ -178,6 +180,8 @@ $WorkerArgs = @(
     "--semantic-output", $SemanticCache,
     "--memory", $SemanticMemory,
     "--max-events", "$SemanticWorkerBatchSize",
+    "--group-events",
+    "--max-group-images", "$SemanticWorkerMaxGroupImages",
     "--report", $WorkerReport,
     "--pid-file", $WorkerPidFile,
     "--status-file", $WorkerStatus,

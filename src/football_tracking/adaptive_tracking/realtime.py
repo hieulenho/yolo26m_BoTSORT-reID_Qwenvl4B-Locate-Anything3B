@@ -14,6 +14,9 @@ from typing import Any
 
 import cv2
 
+from football_tracking.adaptive_tracking.fast_semantics import (
+    FastSemanticProposalStore,
+)
 from football_tracking.adaptive_tracking.semantic_queue import (
     SemanticCacheView,
     SemanticEventQueue,
@@ -44,6 +47,34 @@ from football_tracking.visualization.draw_tracks import (
 
 class RealtimeTrackingError(RuntimeError):
     """Raised when an adaptive stream cannot be started or processed."""
+
+
+def _semantic_refresh_multiplier(
+    track: Any,
+    semantic: dict[str, Any] | None,
+) -> int:
+    if semantic is None:
+        return 1
+    base_label = str(
+        semantic.get("detector_class_name", track.class_name)
+    ).strip().casefold()
+    deep_label = str(
+        semantic.get("display_label", semantic.get("class_label", "unknown"))
+    ).strip().casefold()
+    fine_label = str(semantic.get("fine_label", "unknown")).strip().casefold()
+    has_specific_label = deep_label not in {
+        "",
+        "unknown",
+        "object",
+        base_label,
+    }
+    has_fine_label = bool(semantic.get("fine_accepted")) and fine_label not in {
+        "",
+        "unknown",
+        "object",
+        base_label,
+    }
+    return 20 if has_specific_label or has_fine_label else 4
 
 
 def run_realtime_tracking(
@@ -126,6 +157,7 @@ def run_realtime_tracking(
         if config.stabilize_classes
         else None
     )
+    fast_semantics = FastSemanticProposalStore()
     checkpoint = resolve_detector_checkpoint(config.model, config.project_root)
     detector_load_started = time.perf_counter()
     detector = create_detector(
@@ -293,6 +325,7 @@ def run_realtime_tracking(
                         tracker.reset()
                     if class_stabilizer is not None:
                         class_stabilizer.reset()
+                    fast_semantics.reset()
                     trajectory = TrajectoryStore(
                         config.trajectory_length,
                         enabled=config.show_trajectory,
@@ -347,6 +380,11 @@ def run_realtime_tracking(
             ]
             if class_stabilizer is not None:
                 tracks = class_stabilizer.update(tracks, frame_index)
+            tracks = fast_semantics.update(
+                tracks,
+                detection_only,
+                frame_index,
+            )
             for track in tracks:
                 class_key = (int(track.class_id), str(track.class_name))
                 confidence = float(
@@ -387,7 +425,8 @@ def run_realtime_tracking(
                 for track in ranked_tracks:
                     if emitted_this_frame >= semantic_events_per_frame:
                         break
-                    accepted = semantic_cache.accepted(track.track_id) is not None
+                    semantic_row = semantic_cache.accepted(track.track_id)
+                    accepted = semantic_row is not None
                     event = semantic_queue.enqueue(
                         frame=frame,
                         frame_index=frame_index,
@@ -395,11 +434,8 @@ def run_realtime_tracking(
                         reason=(
                             "periodic_refresh" if accepted else "unknown_track"
                         ),
-                        minimum_frame_gap=(
-                            semantic_event_interval_frames * 4
-                            if accepted
-                            else semantic_event_interval_frames
-                        ),
+                        minimum_frame_gap=semantic_event_interval_frames
+                        * _semantic_refresh_multiplier(track, semantic_row),
                     )
                     if event is not None:
                         semantic_events_enqueued += 1
@@ -511,6 +547,7 @@ def run_realtime_tracking(
             if class_stabilizer is not None
             else {"enabled": False}
         ),
+        "fast_semantic_proposals": fast_semantics.diagnostics(),
         "device": config.device,
         "hardware": runtime_versions(),
         "resources": process_monitor.summary(total_seconds),

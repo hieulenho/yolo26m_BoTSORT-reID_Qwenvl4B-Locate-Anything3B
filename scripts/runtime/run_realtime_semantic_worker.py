@@ -99,7 +99,13 @@ def _recover_processing_events(queue_dir: Path) -> int:
 
 def run_worker(args: argparse.Namespace) -> dict[str, Any]:
     started = time.perf_counter()
-    totals = {"processed": 0, "failed": 0, "batches": 0}
+    totals = {
+        "processed": 0,
+        "failed": 0,
+        "batches": 0,
+        "qwen_calls": 0,
+        "grouped_events": 0,
+    }
     results: list[dict[str, Any]] = []
     recovered = _recover_processing_events(args.queue_dir)
     exit_reason = "completed"
@@ -166,12 +172,19 @@ def run_worker(args: argparse.Namespace) -> dict[str, Any]:
                 memory_path=args.memory,
                 registry_path=args.registry,
                 max_events=args.max_events,
+                group_events=args.group_events,
+                max_group_images=args.max_group_images,
                 runner=session.run,
             )
             results.append(result)
             totals["processed"] += int(result.get("processed_event_count", 0))
             totals["failed"] += int(result.get("failed_event_count", 0))
-            if result.get("status") != "idle":
+            totals["qwen_calls"] += int(result.get("qwen_call_count", 0))
+            if bool(result.get("grouped_events")):
+                totals["grouped_events"] += int(
+                    result.get("processed_event_count", 0)
+                )
+            if int(result.get("qwen_call_count", 0)) > 0:
                 totals["batches"] += 1
 
             pending = _pending_count(args.queue_dir)
@@ -195,6 +208,17 @@ def run_worker(args: argparse.Namespace) -> dict[str, Any]:
             if pending == 0:
                 _write_worker_status(args, "waiting_for_events")
                 time.sleep(args.poll_interval)
+            elif result.get("status") in {"idle", "waiting_for_evidence"}:
+                _write_worker_status(args, "collecting_evidence")
+                time.sleep(
+                    min(
+                        max(
+                            float(result.get("next_ready_seconds", args.poll_interval)),
+                            0.05,
+                        ),
+                        args.poll_interval,
+                    )
+                )
 
     summary = _worker_summary(args, totals, results, started)
     summary["locateanything"] = locate_result
@@ -215,6 +239,8 @@ def _worker_summary(
         "processed_event_count": totals["processed"],
         "failed_event_count": totals["failed"],
         "batch_count": totals["batches"],
+        "qwen_call_count": totals["qwen_calls"],
+        "grouped_event_count": totals["grouped_events"],
         "remaining_event_count": _pending_count(args.queue_dir),
         "elapsed_seconds": time.perf_counter() - started,
         "last_result": results[-1] if results else None,
@@ -228,6 +254,8 @@ def main() -> int:
     parser.add_argument("--semantic-output", type=Path, required=True)
     parser.add_argument("--memory", type=Path, required=True)
     parser.add_argument("--max-events", type=int, default=8)
+    parser.add_argument("--group-events", action="store_true")
+    parser.add_argument("--max-group-images", type=int, default=2)
     parser.add_argument("--max-total-events", type=int, default=0)
     parser.add_argument("--locate-first", action="store_true")
     parser.add_argument(
@@ -266,6 +294,8 @@ def main() -> int:
         parser.error("--max-events must be positive.")
     if args.max_total_events < 0:
         parser.error("--max-total-events must be non-negative.")
+    if args.max_group_images < 1:
+        parser.error("--max-group-images must be positive.")
     if args.poll_interval <= 0:
         parser.error("--poll-interval must be positive.")
     if args.parent_pid < 0:

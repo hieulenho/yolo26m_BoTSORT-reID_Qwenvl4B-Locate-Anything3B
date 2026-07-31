@@ -18,8 +18,10 @@ param(
     [int]$SemanticMaxPendingEvents = 256,
     [ValidateSet("deferred", "live", "disabled")]
     [string]$SemanticWorkerMode = "deferred",
-    [ValidateRange(1, 64)]
-    [int]$SemanticWorkerBatchSize = 8,
+    [ValidateRange(1, 8)]
+    [int]$SemanticWorkerBatchSize = 2,
+    [ValidateRange(1, 2)]
+    [int]$SemanticWorkerMaxGroupImages = 2,
     [ValidateRange(0, 1000000)]
     [int]$SemanticWorkerMaxEvents = 64,
     [ValidateRange(1, 3600)]
@@ -137,6 +139,8 @@ $WorkerArgs = @(
     "--semantic-output", $SemanticCache,
     "--memory", $SemanticMemory,
     "--max-events", "$SemanticWorkerBatchSize",
+    "--group-events",
+    "--max-group-images", "$SemanticWorkerMaxGroupImages",
     "--report", $SemanticWorkerReport
 )
 if ($SemanticWorkerMode -eq "live") {

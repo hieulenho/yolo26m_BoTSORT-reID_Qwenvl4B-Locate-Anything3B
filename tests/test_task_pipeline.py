@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
@@ -9,10 +10,14 @@ import pytest
 import yaml
 
 from football_tracking.adaptive_tracking import semantic_queue as semantic_queue_module
+from football_tracking.adaptive_tracking.fast_semantics import (
+    FastSemanticProposalStore,
+)
 from football_tracking.adaptive_tracking.semantic_queue import (
     SemanticCacheView,
     SemanticEventQueue,
     _event_prompt,
+    _replace_file_with_retry,
 )
 from football_tracking.data.schemas import BoundingBoxXYXY
 from football_tracking.detection.preprocessing import FramePreprocessor
@@ -23,7 +28,7 @@ from football_tracking.task_pipeline.config import (
 )
 from football_tracking.tracking.class_stabilizer import TrackClassStabilizer
 from football_tracking.tracking.pipeline import load_tracking_config
-from football_tracking.tracking.schemas import TrackOutput
+from football_tracking.tracking.schemas import TrackerDetection, TrackOutput
 from football_tracking.tracking.tracker_factory import load_tracker_runtime_config
 
 
@@ -194,6 +199,53 @@ def test_track_class_stabilizer_suppresses_one_frame_label_flip() -> None:
     assert stabilizer.diagnostics()["suppressed_switches"] >= 1
 
 
+def test_sparse_semantic_proposals_persist_on_the_matching_track() -> None:
+    store = FastSemanticProposalStore(minimum_observations=2)
+    track = _track(track_id=7)
+    proposal = TrackerDetection.from_xyxy(
+        frame_index=1,
+        sequence_name="test",
+        bbox_xyxy=track.bbox_xyxy,
+        confidence=0.40,
+        class_id=1000,
+        class_name="student",
+    )
+
+    first = store.update([track], [proposal], frame_index=1)[0]
+    second = store.update([track], [proposal], frame_index=7)[0]
+    retained = store.update([track], [], frame_index=8)[0]
+
+    assert first.class_name == "person"
+    assert second.class_name == "student"
+    assert retained.class_name == "student"
+    assert retained.metadata["base_detector_class_name"] == "person"
+    assert retained.metadata["fast_semantic_source"] == "supplemental_detector"
+    assert store.diagnostics()["stable_track_count"] == 1
+
+
+def test_classroom_task_combines_person_recall_with_sparse_role_proposals(
+    tmp_path: Path,
+) -> None:
+    task = load_task_pipeline_config("configs/tasks/classroom_roles.yaml")
+    paths = write_task_runtime(
+        config=task,
+        output_dir=tmp_path / "runtime",
+        output_video=tmp_path / "classroom.mp4",
+        device="cuda",
+        overwrite=False,
+    )
+    generated = yaml.safe_load(
+        paths["tracking_config"].read_text(encoding="utf-8")
+    )
+    supplemental = generated["model"]["supplemental_detectors"][0]
+
+    assert task.detector.class_ids == (0, 1000, 1001, 1002, 1003)
+    assert task.detector.tracker_class_ids == (0,)
+    assert supplemental["backend"] == "ultralytics_yoloe"
+    assert supplemental["every_n_frames"] == 6
+    assert supplemental["output_class_ids"] == [1000, 1001, 1002, 1003]
+
+
 def test_semantic_queue_replaces_a_pending_crop_with_better_temporal_evidence(
     tmp_path: Path,
 ) -> None:
@@ -244,6 +296,109 @@ def test_semantic_queue_replaces_a_pending_crop_with_better_temporal_evidence(
     assert panel_path.is_file()
     assert panel is not None
     assert panel.shape[:2] == (384, 512)
+
+
+def test_semantic_queue_keeps_a_second_temporal_crop_without_quality_gain(
+    tmp_path: Path,
+) -> None:
+    queue = SemanticEventQueue(
+        tmp_path / "queue",
+        context_id="task-test",
+        semantic_task={
+            "max_evidence_images": 2,
+            "minimum_crop_quality": 0.0,
+            "replacement_quality_margin": 0.50,
+        },
+    )
+    frame = np.full((128, 128, 3), 80, dtype=np.uint8)
+
+    first = queue.enqueue(
+        frame=frame,
+        frame_index=1,
+        track=_track(frame_index=1),
+        reason="unknown_track",
+        minimum_frame_gap=1,
+    )
+    second = queue.enqueue(
+        frame=frame,
+        frame_index=2,
+        track=_track(frame_index=2),
+        reason="unknown_track",
+        minimum_frame_gap=1,
+    )
+
+    assert first is not None
+    assert second is not None
+    event = json.loads(second.read_text(encoding="utf-8"))
+    assert event["evidence_frame_indices"] == [1, 2]
+    assert queue.replaced_pending == 1
+
+
+def test_semantic_event_keeps_base_detector_and_fast_proposal_separate(
+    tmp_path: Path,
+) -> None:
+    queue = SemanticEventQueue(tmp_path / "queue", context_id="classroom")
+    track = replace(
+        _track(track_id=7, class_id=1000, class_name="student"),
+        metadata={
+            "base_detector_class_id": 0,
+            "base_detector_class_name": "person",
+            "fast_semantic_label": "student",
+            "fast_semantic_confidence": 0.8,
+            "fast_semantic_source": "supplemental_detector",
+        },
+    )
+    event_path = queue.enqueue(
+        frame=np.full((128, 128, 3), 100, dtype=np.uint8),
+        frame_index=20,
+        track=track,
+        reason="unknown_track",
+    )
+
+    assert event_path is not None
+    event = json.loads(event_path.read_text(encoding="utf-8"))
+    assert event["detector_class_name"] == "person"
+    assert event["fast_semantic_proposal"]["class_label"] == "student"
+
+
+def test_queue_file_replace_retries_a_windows_sharing_violation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.json"
+    target = tmp_path / "target.json"
+    source.write_text("{}", encoding="utf-8")
+    original_replace = Path.replace
+    calls = 0
+
+    def flaky_replace(path: Path, destination: Path) -> Path:
+        nonlocal calls
+        if path == source and calls == 0:
+            calls += 1
+            raise PermissionError(32, "simulated sharing violation")
+        calls += 1
+        return original_replace(path, destination)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+    _replace_file_with_retry(
+        source,
+        target,
+        attempts=3,
+        initial_delay_seconds=0.0,
+    )
+
+    assert calls == 2
+    assert target.is_file()
+
+
+def test_task_semantics_hold_events_briefly_for_temporal_evidence() -> None:
+    task = load_task_pipeline_config("configs/tasks/traffic_objects.yaml")
+
+    assert task.semantic.evidence_interval_frames == 12
+    assert task.semantic.evidence_collection_delay_seconds == pytest.approx(0.75)
+    payload = task.semantic_event_payload()
+    assert payload["evidence_interval_frames"] == 12
+    assert payload["evidence_collection_delay_seconds"] == pytest.approx(0.75)
 
 
 def test_semantic_queue_applies_backpressure_before_creating_crops(
@@ -425,10 +580,12 @@ def test_semantic_cache_exposes_waiting_pending_unknown_and_accepted_states(
         semantic_enabled=True,
     )
 
-    assert decorated[0].class_name == "person | pending"
+    assert decorated[0].class_name == "person"
+    assert decorated[0].metadata["semantic_status"] == "pending"
     assert decorated[1].class_name == "person | unknown"
     assert decorated[2].class_name == "person | teacher"
-    assert decorated[3].class_name == "person | waiting"
+    assert decorated[3].class_name == "person"
+    assert decorated[3].metadata["semantic_status"] == "waiting"
 
 
 def test_webcam_requirements_exclude_research_only_dependencies() -> None:

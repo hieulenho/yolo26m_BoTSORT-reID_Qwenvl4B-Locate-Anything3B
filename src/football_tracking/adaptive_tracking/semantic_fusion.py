@@ -113,6 +113,7 @@ def parse_qwen_answer(data: dict[str, Any] | str) -> list[TrackSemanticEvidence]
         parsed = raw
     else:
         parsed = _decode_qwen_json(str(raw))
+    parsed = _expand_compact_qwen_payload(parsed)
     if "track_predictions" not in parsed:
         raise SemanticFusionError(
             "Qwen semantic JSON is missing track_predictions."
@@ -164,12 +165,52 @@ def _decode_qwen_json(raw: str) -> dict[str, Any]:
         except json.JSONDecodeError as exc:
             decode_errors.append(str(exc))
             continue
-        if isinstance(value, dict) and "track_predictions" in value:
+        if isinstance(value, dict) and (
+            "track_predictions" in value
+            or "p" in value
+            or "predictions" in value
+        ):
             return value
     if "{" not in raw:
         raise SemanticFusionError("No JSON object found in Qwen semantic answer.")
     detail = decode_errors[0] if decode_errors else "no complete JSON object"
     raise SemanticFusionError(f"Invalid Qwen semantic JSON: {detail}")
+
+
+def _expand_compact_qwen_payload(parsed: dict[str, Any]) -> dict[str, Any]:
+    if "track_predictions" in parsed:
+        return parsed
+    compact = parsed.get("p", parsed.get("predictions"))
+    if not isinstance(compact, list):
+        return parsed
+    expanded: list[dict[str, Any]] = []
+    for row in compact:
+        if not isinstance(row, dict):
+            continue
+        fine_label = str(row.get("fine", "unknown"))
+        expanded.append(
+            {
+                "track_id": row.get("id", row.get("track_id")),
+                "class_label": row.get("label", row.get("class_label")),
+                "fine_label": fine_label,
+                "fine_label_type": (
+                    "subtype"
+                    if fine_label.strip().casefold() not in {"", "unknown"}
+                    else "unknown"
+                ),
+                "attributes": row.get("attrs", row.get("attributes", {})),
+                "confidence": row.get("conf", row.get("confidence", 0.0)),
+                "fine_confidence": row.get(
+                    "fine_conf",
+                    row.get("fine_confidence", 0.0),
+                ),
+                "evidence_frames": row.get(
+                    "frames",
+                    row.get("evidence_frames", ()),
+                ),
+            }
+        )
+    return {"track_predictions": expanded}
 
 
 def _qwen_evidence_from_row(

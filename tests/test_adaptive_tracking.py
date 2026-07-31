@@ -2237,6 +2237,115 @@ def test_realtime_semantic_queue_worker_updates_memory_and_cache(
     assert len(list(queue.processed_dir.glob("*.json"))) == 1
 
 
+def test_realtime_semantic_worker_groups_two_tracks_into_one_qwen_call(
+    tmp_path: Path,
+) -> None:
+    queue, vlm_config = _semantic_worker_fixture(tmp_path)
+    frame = np.zeros((80, 120, 3), dtype=np.uint8)
+    second_track = TrackOutput.from_xyxy(
+        frame_index=11,
+        sequence_name="live",
+        track_id=8,
+        bbox_xyxy=BoundingBoxXYXY(50, 10, 90, 70),
+        confidence=0.88,
+        class_id=2,
+        class_name="object",
+    )
+    assert queue.enqueue(
+        frame=frame,
+        frame_index=11,
+        track=second_track,
+        reason="unknown_track",
+    )
+
+    def fake_runner(_config, jobs):
+        assert len(jobs) == 1
+        assert len(jobs[0]["image_paths"]) == 2
+        assert "Expected tracks:" in jobs[0]["prompt"]
+        assert '"track_id":7' in jobs[0]["prompt"]
+        assert '"track_id":8' in jobs[0]["prompt"]
+        return {
+            "model_id": "fixture",
+            "quantization": "8bit",
+            "timing": {"inference_seconds": 0.01},
+            "cuda_memory": {},
+            "batches": [
+                {
+                    "batch_id": jobs[0]["batch_id"],
+                    "answer": json.dumps(
+                        {
+                            "track_predictions": [
+                                {
+                                    "track_id": 7,
+                                    "class_label": "car",
+                                    "confidence": 0.90,
+                                    "evidence_frames": [10],
+                                },
+                                {
+                                    "track_id": 8,
+                                    "class_label": "truck",
+                                    "confidence": 0.91,
+                                    "evidence_frames": [11],
+                                },
+                            ]
+                        }
+                    ),
+                }
+            ],
+        }
+
+    semantic_output = tmp_path / "semantic_cache.json"
+    result = process_semantic_queue(
+        queue_dir=queue.root,
+        vlm_config_path=vlm_config,
+        semantic_output=semantic_output,
+        memory_path=tmp_path / "memory.json",
+        max_events=2,
+        group_events=True,
+        max_group_images=2,
+        runner=fake_runner,
+    )
+    cache = SemanticCacheView(semantic_output)
+
+    assert result["processed_event_count"] == 2
+    assert result["qwen_call_count"] == 1
+    assert result["grouped_events"] is True
+    assert cache.refresh() is True
+    assert cache.accepted(7)["class_label"] == "car"
+    assert cache.accepted(8)["class_label"] == "truck"
+    assert len(list(queue.processed_dir.glob("*.json"))) == 2
+
+
+def test_compact_grouped_qwen_schema_is_expanded_for_fusion() -> None:
+    evidence = parse_qwen_answer(
+        {
+            "answer": json.dumps(
+                {
+                    "p": [
+                        {
+                            "id": 7,
+                            "label": "bird",
+                            "fine": "kingfisher",
+                            "attrs": {"color": "blue"},
+                            "conf": 0.92,
+                            "fine_conf": 0.86,
+                            "frames": [10, 20],
+                        }
+                    ]
+                }
+            )
+        }
+    )
+
+    assert len(evidence) == 1
+    assert evidence[0].track_id == 7
+    assert evidence[0].class_label == "bird"
+    assert evidence[0].fine_label == "kingfisher"
+    assert evidence[0].fine_label_type == "subtype"
+    assert evidence[0].attributes == {"color": "blue"}
+    assert evidence[0].evidence_frames == (10, 20)
+
+
 def test_semantic_worker_quarantines_invalid_model_output(tmp_path: Path) -> None:
     queue, vlm_config = _semantic_worker_fixture(tmp_path)
 

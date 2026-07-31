@@ -40,6 +40,10 @@ def build_tracking_payload(
     }
     if detector.text_classes:
         model["text_classes"] = list(detector.text_classes)
+    if detector.supplemental_detectors:
+        model["supplemental_detectors"] = [
+            dict(item) for item in detector.supplemental_detectors
+        ]
     output = Path(output_video).resolve()
     resolved_preprocessing_mode = (
         str(preprocessing_mode).strip().lower()
