@@ -38,16 +38,38 @@ def _rows_from_mapping(mapping: dict[str, Any]) -> list[dict[str, Any]]:
     xyxy = _to_python(mapping.get("xyxy", mapping.get("bbox_xyxy")))
     conf = _to_python(mapping.get("conf", mapping.get("confidence")))
     cls = _to_python(mapping.get("cls", mapping.get("class_id", mapping.get("source_class_id"))))
+    class_name = _to_python(
+        mapping.get("class_name", mapping.get("source_class_name"))
+    )
+    metadata = _to_python(mapping.get("metadata", {}))
     if xyxy is None:
         return []
     if xyxy and isinstance(xyxy[0], int | float):
         xyxy = [xyxy]
         conf = [conf]
         cls = [cls]
-    return [
-        {"xyxy": box, "confidence": conf[index], "class_id": cls[index]}
-        for index, box in enumerate(xyxy)
-    ]
+        class_name = [class_name]
+        metadata = [metadata]
+    elif not isinstance(class_name, list | tuple):
+        class_name = [class_name] * len(xyxy)
+    if not isinstance(metadata, list | tuple):
+        metadata = [metadata] * len(xyxy)
+    rows = []
+    for index, box in enumerate(xyxy):
+        row = {
+            "xyxy": box,
+            "confidence": conf[index],
+            "class_id": cls[index],
+            "metadata": (
+                dict(metadata[index])
+                if isinstance(metadata[index], dict)
+                else {}
+            ),
+        }
+        if class_name[index] is not None:
+            row["class_name"] = str(class_name[index])
+        rows.append(row)
+    return rows
 
 
 def _rows_from_ultralytics_boxes(boxes: Any) -> list[dict[str, Any]]:
@@ -152,7 +174,18 @@ def postprocess_detections(
                 target_class_name=emitted_class_name,
                 image_width=image_width,
                 image_height=image_height,
-                metadata={"image_path": str(image_path)} if image_path is not None else {},
+                metadata={
+                    **(
+                        dict(row.get("metadata", {}))
+                        if isinstance(row.get("metadata"), dict)
+                        else {}
+                    ),
+                    **(
+                        {"image_path": str(image_path)}
+                        if image_path is not None
+                        else {}
+                    ),
+                },
             )
         )
     return sorted(

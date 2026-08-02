@@ -44,12 +44,15 @@ from football_tracking.adaptive_tracking.semantic_fusion import (
 from football_tracking.adaptive_tracking.semantic_queue import (
     SemanticCacheView,
     SemanticEventQueue,
+    _compact_fast_semantic_hint,
+    _requires_focused_qwen_inference,
     _validated_target_bbox,
     prepare_pending_events_with_locate,
     process_semantic_queue,
 )
 from football_tracking.adaptive_tracking.semantic_render import (
     _select_fitting_text,
+    _semantic_display_label,
     render_semantic_video,
 )
 from football_tracking.adaptive_tracking.shot_sampling import (
@@ -2127,6 +2130,19 @@ def test_semantic_label_text_is_bounded_to_frame_width() -> None:
     assert text.startswith("ID 17")
 
 
+def test_semantic_renderer_places_vehicle_color_before_fine_subtype() -> None:
+    label = _semantic_display_label(
+        {
+            "class_label": "car",
+            "fine_label": "suv",
+            "fine_accepted": True,
+            "attributes": {"color": "red"},
+        }
+    )
+
+    assert label == "red SUV"
+
+
 def _semantic_worker_fixture(
     tmp_path: Path,
 ) -> tuple[SemanticEventQueue, Path]:
@@ -2326,7 +2342,7 @@ def test_compact_grouped_qwen_schema_is_expanded_for_fusion() -> None:
                             "id": 7,
                             "label": "bird",
                             "fine": "kingfisher",
-                            "attrs": {"color": "blue"},
+                            "color": "blue",
                             "conf": 0.92,
                             "fine_conf": 0.86,
                             "frames": [10, 20],
@@ -2344,6 +2360,79 @@ def test_compact_grouped_qwen_schema_is_expanded_for_fusion() -> None:
     assert evidence[0].fine_label_type == "subtype"
     assert evidence[0].attributes == {"color": "blue"}
     assert evidence[0].evidence_frames == (10, 20)
+
+
+def test_compact_fast_semantic_hint_filters_weak_proposals() -> None:
+    event = {
+        "semantic_task": {
+            "fast_label_hint_threshold": 0.65,
+            "fast_color_hint_threshold": 0.55,
+        },
+        "fast_semantic_proposal": {
+            "class_label": "SUV",
+            "confidence": 0.35,
+            "visual_color": "gray",
+            "visual_color_confidence": 0.82,
+        },
+    }
+
+    assert _compact_fast_semantic_hint(event) == {"color": "gray"}
+
+    event["fast_semantic_proposal"]["confidence"] = 0.74
+    event["fast_semantic_proposal"]["visual_color_confidence"] = 0.42
+    assert _compact_fast_semantic_hint(event) == {"label": "SUV"}
+
+
+def test_weak_fast_label_hint_requires_focused_qwen_inference() -> None:
+    event = {
+        "semantic_task": {"fast_label_hint_threshold": 0.65},
+        "fast_semantic_proposal": {
+            "class_label": "SUV",
+            "confidence": 0.35,
+        },
+    }
+
+    assert _requires_focused_qwen_inference(event) is True
+
+    event["fast_semantic_proposal"]["confidence"] = 0.76
+    assert _requires_focused_qwen_inference(event) is False
+
+    event["fast_semantic_proposal"]["class_label"] = None
+    assert _requires_focused_qwen_inference(event) is False
+
+
+def test_temporal_vehicle_subtype_and_color_are_accepted_together() -> None:
+    evidence = parse_qwen_answer(
+        {
+            "answer": json.dumps(
+                {
+                    "p": [
+                        {
+                            "id": 7,
+                            "class": "car",
+                            "subtype": "sedan",
+                            "color": "silver",
+                            "q": 0.94,
+                            "sq": 0.91,
+                            "frames": [10, 22],
+                        }
+                    ]
+                }
+            )
+        }
+    )
+
+    fused = fuse_track_semantics(
+        evidence,
+        unknown_threshold=0.75,
+        fine_unknown_threshold=0.85,
+    )
+    row = fused["tracks"][0]
+
+    assert row["accepted"] is True
+    assert row["fine_accepted"] is True
+    assert row["fine_label"] == "sedan"
+    assert row["attributes"] == {"color": "silver"}
 
 
 def test_semantic_worker_quarantines_invalid_model_output(tmp_path: Path) -> None:

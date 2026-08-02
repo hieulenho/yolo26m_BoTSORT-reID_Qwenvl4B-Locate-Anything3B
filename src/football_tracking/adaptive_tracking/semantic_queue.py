@@ -33,6 +33,26 @@ class SemanticQueueError(RuntimeError):
     """Raised when realtime semantic queue data is invalid."""
 
 
+_VISIBLE_COLOR_LABELS = {
+    "black",
+    "white",
+    "gray",
+    "grey",
+    "silver",
+    "red",
+    "blue",
+    "green",
+    "yellow",
+    "orange",
+    "brown",
+    "beige",
+    "maroon",
+    "purple",
+    "pink",
+    "gold",
+}
+
+
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(f"{path.suffix}.{uuid4().hex}.tmp")
@@ -331,6 +351,7 @@ class SemanticEventQueue:
             track.metadata.get("base_detector_class_name", track.class_name)
         )
         fast_semantic_label = track.metadata.get("fast_semantic_label")
+        fast_visual_color = track.metadata.get("fast_visual_color")
         payload = {
             "schema_version": "2.0",
             "event_id": event_id,
@@ -341,9 +362,24 @@ class SemanticEventQueue:
             "detector_class_name": detector_class_name,
             "fast_semantic_proposal": (
                 {
-                    "class_label": str(fast_semantic_label),
+                    "class_label": (
+                        str(fast_semantic_label)
+                        if fast_semantic_label is not None
+                        else None
+                    ),
                     "confidence": float(
                         track.metadata.get("fast_semantic_confidence", 0.0)
+                    ),
+                    "visual_color": (
+                        str(fast_visual_color)
+                        if fast_visual_color is not None
+                        else None
+                    ),
+                    "visual_color_confidence": float(
+                        track.metadata.get(
+                            "fast_visual_color_confidence",
+                            0.0,
+                        )
                     ),
                     "source": str(
                         track.metadata.get(
@@ -353,6 +389,7 @@ class SemanticEventQueue:
                     ),
                 }
                 if fast_semantic_label is not None
+                or fast_visual_color is not None
                 else None
             ),
             "track_confidence": track.confidence,
@@ -730,11 +767,14 @@ class SemanticCacheView:
                     )
                 )
                 continue
-            deep_label = str(
-                semantic.get("display_label", semantic.get("class_label", "unknown"))
-            )
             base_label = str(
                 semantic.get("detector_class_name", track.class_name)
+            )
+            deep_label = _semantic_detail_label(
+                semantic,
+                base_label=base_label,
+                fast_label=str(track.metadata.get("fast_semantic_label", "")),
+                fast_color=str(track.metadata.get("fast_visual_color", "")),
             )
             label = (
                 base_label
@@ -761,6 +801,59 @@ class SemanticCacheView:
         return decorated
 
 
+def _semantic_detail_label(
+    semantic: dict[str, Any],
+    *,
+    base_label: str,
+    fast_label: str = "",
+    fast_color: str = "",
+) -> str:
+    base = str(base_label).strip() or "object"
+    class_label = str(semantic.get("class_label", "unknown")).strip()
+    fine_label = str(semantic.get("fine_label", "unknown")).strip()
+    if bool(semantic.get("fine_accepted")) and fine_label.casefold() not in {
+        "",
+        "unknown",
+        base.casefold(),
+        class_label.casefold(),
+    }:
+        detail = fine_label
+    elif class_label.casefold() not in {"", "unknown", base.casefold()}:
+        detail = class_label
+    elif fast_label.casefold() not in {"", "unknown", base.casefold()}:
+        detail = fast_label
+    else:
+        detail = base
+    attributes = semantic.get("attributes", {})
+    semantic_color = (
+        str(attributes.get("color", "")).strip().lower()
+        if isinstance(attributes, dict)
+        else ""
+    )
+    color = semantic_color or str(fast_color).strip().lower()
+    allowed_colors = {
+        "black",
+        "white",
+        "gray",
+        "grey",
+        "silver",
+        "red",
+        "blue",
+        "green",
+        "yellow",
+        "orange",
+        "brown",
+        "beige",
+        "maroon",
+        "purple",
+        "pink",
+        "gold",
+    }
+    if color in allowed_colors and color not in detail.casefold().split():
+        return f"{color} {detail}"
+    return detail
+
+
 def _event_prompt(event: dict[str, Any]) -> str:
     task = event.get("semantic_task") or {}
     label_mode = str(task.get("label_mode", "open")).strip().lower()
@@ -768,6 +861,7 @@ def _event_prompt(event: dict[str, Any]) -> str:
         task.get("enable_fine_labels", label_mode != "closed")
     )
     allowed_labels = [str(item) for item in task.get("allowed_labels", [])]
+    fine_taxonomy = _fine_taxonomy_payload(task)
     allowed_note = (
         "Choose class_label only from this closed taxonomy: "
         + json.dumps(allowed_labels, ensure_ascii=False)
@@ -807,6 +901,13 @@ def _event_prompt(event: dict[str, Any]) -> str:
         if isinstance(fast_proposal, dict)
         else "No fast semantic proposal is available."
     )
+    fine_note = (
+        "Use class_label only for the parent class and choose fine_label from this "
+        f"parent-to-subtype taxonomy: {json.dumps(fine_taxonomy, ensure_ascii=False)}. "
+        "Put visible color only in attributes.color, never in class_label or fine_label."
+        if enable_fine_labels and fine_taxonomy
+        else ""
+    )
     response_schema = (
         (
             f'{{"track_predictions":[{{"track_id":{int(event["track_id"])},'
@@ -826,6 +927,7 @@ Task: {task.get('task_name', task.get('task_id', 'tracked-object semantics'))}.
 Instruction: {instruction}
 Analyze all supplied images as temporal evidence for the same track_id. Do not count them as
 different objects. {allowed_note} {attribute_note}
+{fine_note}
 Allowed evidence frame_index values: {json.dumps(evidence_frames)}. Return only visually usable
 values in evidence_frames and never invent another frame_index.
 Return class_label="unknown" when confidence is below {unknown_threshold:.2f}. Do not guess a
@@ -1167,7 +1269,12 @@ def _group_event_prompt(events: list[dict[str, Any]]) -> str:
     enable_fine_labels = bool(
         task.get("enable_fine_labels", label_mode != "closed")
     )
+    requested_attributes = {
+        str(item).strip().casefold() for item in task.get("attributes", [])
+    }
+    request_color = "color" in requested_attributes
     allowed_labels = [str(item) for item in task.get("allowed_labels", [])]
+    fine_taxonomy = _fine_taxonomy_payload(task)
     allowed_note = (
         "Choose class_label only from this closed taxonomy: "
         + json.dumps(allowed_labels, ensure_ascii=False)
@@ -1187,28 +1294,21 @@ def _group_event_prompt(events: list[dict[str, Any]]) -> str:
                 "detector_hint": str(
                     event.get("detector_class_name", "unknown")
                 ),
-                "fast_semantic_hint": event.get("fast_semantic_proposal"),
+                "fast_semantic_hint": _compact_fast_semantic_hint(event),
                 "allowed_evidence_frames": evidence_frames,
             }
         )
         row: dict[str, Any] = {
             "id": int(event["track_id"]),
-            "label": "...",
+            "class": "...",
         }
         if enable_fine_labels:
-            row.update(
-                {
-                    "fine": "...",
-                }
-            )
-        row.update(
-            {
-                "conf": 0.0,
-            }
-        )
+            row["subtype"] = "..."
+        if request_color:
+            row["color"] = "..."
+        row["q"] = 0.0
         if enable_fine_labels:
-            row["fine_conf"] = 0.0
-        row["frames"] = evidence_frames
+            row["sq"] = 0.0
         schema_rows.append(row)
     instruction = str(
         task.get(
@@ -1217,6 +1317,25 @@ def _group_event_prompt(events: list[dict[str, Any]]) -> str:
         )
     ).strip()
     unknown_threshold = float(task.get("unknown_threshold", 0.70))
+    color_instruction = (
+        "For color, return one of black, white, gray, silver, red, blue, green, "
+        "yellow, orange, brown, beige, maroon, purple, pink, gold, or unknown "
+        "using only visible target pixels."
+        if request_color
+        else ""
+    )
+    fine_instruction = (
+        "Choose class only from the base taxonomy above. Choose subtype only from "
+        f"the matching parent entry here: "
+        f"{json.dumps(fine_taxonomy, ensure_ascii=False, separators=(',', ':'))}. "
+        "Never place a subtype in class and never place a color in subtype."
+        if enable_fine_labels and fine_taxonomy
+        else (
+            "A subtype must be more specific than class; never repeat class in subtype."
+            if enable_fine_labels
+            else ""
+        )
+    )
     return f"""
 Task: {task.get('task_name', task.get('task_id', 'tracked-object semantics'))}.
 Instruction: {instruction}
@@ -1227,10 +1346,96 @@ Expected tracks: {json.dumps(expected, ensure_ascii=False, separators=(',', ':')
 {allowed_note}
 Use only the allowed evidence frames listed for that track. Return class_label="unknown" below
 confidence {unknown_threshold:.2f}. Fine labels must be directly visible in the target crops;
-otherwise return fine_label="unknown". Do not return descriptions, attributes, or extra keys.
+otherwise return subtype="unknown". {fine_instruction}
+{color_instruction}
+Use q and sq for your own confidence rounded to one decimal place. Do not copy confidence
+from a detector hint. The system already records evidence frames, so do not return them.
+Do not return descriptions, unrequested attributes, or extra keys.
 Keep the answer compact and return JSON only:
 {json.dumps({"p": schema_rows}, ensure_ascii=False, separators=(',', ':'))}
 """.strip()
+
+
+def _compact_fast_semantic_hint(event: dict[str, Any]) -> dict[str, Any] | None:
+    proposal = event.get("fast_semantic_proposal")
+    if not isinstance(proposal, dict):
+        return None
+    task = event.get("semantic_task")
+    task_payload = task if isinstance(task, dict) else {}
+    label_threshold = float(task_payload.get("fast_label_hint_threshold", 0.65))
+    color_threshold = float(task_payload.get("fast_color_hint_threshold", 0.55))
+    output: dict[str, Any] = {}
+    label = proposal.get("class_label")
+    if (
+        label not in {None, "", "unknown"}
+        and float(proposal.get("confidence", 0.0)) >= label_threshold
+    ):
+        output["label"] = label
+    color = proposal.get("visual_color")
+    if (
+        color not in {None, "", "unknown"}
+        and float(proposal.get("visual_color_confidence", 0.0))
+        >= color_threshold
+    ):
+        output["color"] = color
+    return output or None
+
+
+def _requires_focused_qwen_inference(event: dict[str, Any]) -> bool:
+    proposal = event.get("fast_semantic_proposal")
+    if not isinstance(proposal, dict):
+        return False
+    label = proposal.get("class_label")
+    if label in {None, "", "unknown"}:
+        return False
+    task = event.get("semantic_task")
+    task_payload = task if isinstance(task, dict) else {}
+    threshold = float(task_payload.get("fast_label_hint_threshold", 0.65))
+    confidence = float(proposal.get("confidence", 0.0))
+    return 0.0 < confidence < threshold
+
+
+def _fine_taxonomy_payload(task: dict[str, Any]) -> dict[str, list[str]]:
+    raw = task.get("fine_label_taxonomy")
+    if not isinstance(raw, dict):
+        return {}
+    output: dict[str, list[str]] = {}
+    for parent, values in raw.items():
+        if not isinstance(values, list | tuple):
+            continue
+        parent_label = str(parent).strip()
+        fine_labels = [str(value).strip() for value in values if str(value).strip()]
+        if parent_label and fine_labels:
+            output[parent_label] = fine_labels
+    return output
+
+
+def _fine_alias_payload(task: dict[str, Any]) -> dict[str, str]:
+    raw = task.get("fine_label_aliases")
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(alias).strip().casefold().replace("_", " "): str(target)
+        .strip()
+        .casefold()
+        .replace("_", " ")
+        for alias, target in raw.items()
+        if str(alias).strip() and str(target).strip()
+    }
+
+
+def _label_alias_payload(task: dict[str, Any]) -> dict[str, str]:
+    raw = task.get("label_aliases")
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(alias).strip().casefold().replace("_", " "): str(target)
+        .strip()
+        .casefold()
+        .replace("_", " ")
+        for alias, target in raw.items()
+        if str(alias).strip() and str(target).strip()
+    }
 
 
 def _pending_claim_order(path: Path) -> tuple[float, int, str]:
@@ -1249,7 +1454,7 @@ def _validated_evidence_frames(
     }
     allowed.add(int(event["frame_index"]))
     validated = tuple(frame for frame in row.evidence_frames if frame in allowed)
-    return validated or (int(event["frame_index"]),)
+    return validated or tuple(sorted(allowed))
 
 
 def _enforce_event_taxonomy(
@@ -1268,6 +1473,19 @@ def _enforce_event_taxonomy(
         .replace("_", " ")
         for item in task.get("allowed_labels", [])
     }
+    fine_taxonomy = _fine_taxonomy_payload(task)
+    label_aliases = _label_alias_payload(task)
+    fine_aliases = _fine_alias_payload(task)
+    fine_to_parent: dict[str, tuple[str, str]] = {}
+    for parent, fine_labels in fine_taxonomy.items():
+        parent_key = parent.casefold().replace("_", " ")
+        canonical_parent = allowed_labels.get(parent_key, parent_key)
+        for fine_label in fine_labels:
+            fine_key = fine_label.casefold().replace("_", " ")
+            fine_to_parent[fine_key] = (
+                canonical_parent,
+                fine_key,
+            )
     normalized: list[TrackSemanticEvidence] = []
     for row in rows:
         attributes = {
@@ -1277,23 +1495,69 @@ def _enforce_event_taxonomy(
         }
         class_label = row.class_label
         confidence = row.confidence
+        fine_label = row.fine_label
+        fine_confidence = row.fine_confidence
+        fine_label_type = row.fine_label_type
+        class_key = class_label.casefold().replace("_", " ")
+        fine_key = fine_label.casefold().replace("_", " ")
+        class_key = label_aliases.get(class_key, class_key)
+        class_key = fine_aliases.get(class_key, class_key)
+        fine_key = fine_aliases.get(fine_key, fine_key)
+        if fine_key in _VISIBLE_COLOR_LABELS:
+            if "color" in allowed_attributes:
+                attributes.setdefault("color", fine_key)
+            fine_label = "unknown"
+            fine_key = "unknown"
+            fine_confidence = 0.0
+            fine_label_type = "unknown"
+        if class_key in _VISIBLE_COLOR_LABELS:
+            if "color" in allowed_attributes:
+                attributes.setdefault("color", class_key)
+            class_label = "unknown"
+            class_key = "unknown"
         if label_mode == "closed" and allowed_labels:
-            class_key = class_label.casefold().replace("_", " ")
-            fine_key = row.fine_label.casefold().replace("_", " ")
             if class_key in allowed_labels:
                 class_label = allowed_labels[class_key]
+            elif class_key in fine_to_parent:
+                class_label, promoted_fine = fine_to_parent[class_key]
+                fine_label = promoted_fine
+                fine_confidence = max(confidence, fine_confidence)
+                fine_label_type = "subtype"
             elif fine_key in allowed_labels:
                 class_label = allowed_labels[fine_key]
                 confidence = max(confidence, row.fine_confidence)
+                fine_label = "unknown"
+                fine_confidence = 0.0
+                fine_label_type = "unknown"
             else:
                 class_label = "unknown"
                 confidence = max(1.0 - confidence, 0.0)
+        if fine_to_parent:
+            fine_key = fine_label.casefold().replace("_", " ")
+            expected = fine_to_parent.get(fine_key)
+            if expected is not None and expected[0].casefold() == class_label.casefold():
+                fine_label = expected[1]
+                fine_label_type = "subtype"
+            else:
+                fine_label = "unknown"
+                fine_confidence = 0.0
+                fine_label_type = "unknown"
+        if class_label == "unknown":
+            fine_label = "unknown"
+            fine_confidence = 0.0
+            fine_label_type = "unknown"
+        color = str(attributes.get("color", "")).strip().casefold()
+        if color and color not in _VISIBLE_COLOR_LABELS:
+            attributes.pop("color", None)
         normalized.append(
             replace(
                 row,
                 class_label=class_label,
                 confidence=confidence,
                 attributes=attributes,
+                fine_label=fine_label,
+                fine_confidence=fine_confidence,
+                fine_label_type=fine_label_type,
             )
         )
     return normalized
@@ -1386,6 +1650,9 @@ def process_semantic_queue(
             group_events
             and len(events) > 1
             and total_image_count <= max_group_images
+            and not any(
+                _requires_focused_qwen_inference(event) for event in events
+            )
         )
         jobs = (
             [_qwen_group_job(events)]
@@ -1441,19 +1708,24 @@ def process_semantic_queue(
             and locate_class.casefold() not in {"", "unknown", "object"}
         ):
             locate_confidence = locate.get("confidence")
-            evidence.append(
-                TrackSemanticEvidence(
-                    track_id=int(event["track_id"]),
-                    class_label=locate_class,
-                    confidence=(
-                        float(locate_confidence)
-                        if locate_confidence is not None
-                        else 1.0
-                    )
-                    * float(locate.get("association_score", 0.0)),
-                    source="locateanything",
-                    evidence_frames=(event_frame,),
-                    evidence="event-triggered target-crop grounding",
+            evidence.extend(
+                _enforce_event_taxonomy(
+                    [
+                        TrackSemanticEvidence(
+                            track_id=int(event["track_id"]),
+                            class_label=locate_class,
+                            confidence=(
+                                float(locate_confidence)
+                                if locate_confidence is not None
+                                else 1.0
+                            )
+                            * float(locate.get("association_score", 0.0)),
+                            source="locateanything",
+                            evidence_frames=(event_frame,),
+                            evidence="event-triggered target-crop grounding",
+                        )
+                    ],
+                    event,
                 )
             )
         processed.append((path, event, batch))
@@ -1486,10 +1758,12 @@ def process_semantic_queue(
             if registry_candidate.is_absolute()
             else (project_root / registry_candidate).resolve()
         )
-        evidence = normalize_semantic_evidence(
-            evidence,
-            VocabularyRegistry.load(resolved_registry),
-        )
+        task = events[0].get("semantic_task") or {}
+        if str(task.get("label_mode", "open")).strip().casefold() != "closed":
+            evidence = normalize_semantic_evidence(
+                evidence,
+                VocabularyRegistry.load(resolved_registry),
+            )
         context_id = next(iter(context_ids))
         memory = TemporalSemanticMemory.load(memory_path, context_id=context_id)
         memory.merge(
@@ -1497,10 +1771,16 @@ def process_semantic_queue(
             max_observations_per_track=max_memory_observations_per_track,
         )
         memory.save(memory_path)
-        task = events[0].get("semantic_task") or {}
         fused = fuse_track_semantics(
             list(memory.observations),
             unknown_threshold=float(task.get("unknown_threshold", 0.70)),
+            fine_unknown_threshold=float(
+                task.get("fine_unknown_threshold", 0.85)
+            ),
+            fine_minimum_margin=float(task.get("fine_minimum_margin", 0.15)),
+            fine_minimum_temporal_stability=float(
+                task.get("fine_minimum_temporal_stability", 0.67)
+            ),
         )
         detector_labels = {
             int(event["track_id"]): str(event.get("detector_class_name", "object"))
@@ -1530,7 +1810,11 @@ def process_semantic_queue(
     processed_dir.mkdir(parents=True, exist_ok=True)
     for path, event, batch in processed:
         completed = {
-            **event,
+            **{
+                key: value
+                for key, value in event.items()
+                if key not in {"failure_reason", "model_result"}
+            },
             "model_result": batch,
         }
         completed_path = processed_dir / path.name

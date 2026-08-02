@@ -91,6 +91,13 @@ def create_detector(
             if not isinstance(supplement, UltralyticsDetector):
                 raise DetectorError("Nested routed composite detectors are not supported.")
             output_values = [int(item) for item in output_ids]
+            compatible_ids = value.get("compatible_tracker_class_ids")
+            if compatible_ids is not None and not isinstance(
+                compatible_ids, list | tuple
+            ):
+                raise DetectorError(
+                    "supplemental compatible_tracker_class_ids must be a list."
+                )
             routed.append(
                 SupplementalDetector(
                     detector=supplement,
@@ -111,6 +118,11 @@ def create_detector(
                         )
                     },
                     every_n_frames=int(value.get("every_n_frames", 1)),
+                    compatible_tracker_class_ids=(
+                        tuple(int(item) for item in compatible_ids)
+                        if compatible_ids is not None
+                        else None
+                    ),
                 )
             )
         return RoutedCompositeDetector(primary, routed)

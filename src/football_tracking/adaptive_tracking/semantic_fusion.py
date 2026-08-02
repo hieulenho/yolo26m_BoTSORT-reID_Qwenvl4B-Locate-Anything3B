@@ -187,22 +187,46 @@ def _expand_compact_qwen_payload(parsed: dict[str, Any]) -> dict[str, Any]:
     for row in compact:
         if not isinstance(row, dict):
             continue
-        fine_label = str(row.get("fine", "unknown"))
+        fine_label = str(
+            row.get(
+                "subtype",
+                row.get("f", row.get("fine", "unknown")),
+            )
+        )
+        attributes = dict(row.get("attrs", row.get("attributes", {})))
+        color = str(row.get("color", row.get("c", ""))).strip().lower()
+        if color and color != "unknown":
+            attributes["color"] = color
         expanded.append(
             {
                 "track_id": row.get("id", row.get("track_id")),
-                "class_label": row.get("label", row.get("class_label")),
+                "class_label": row.get(
+                    "class",
+                    row.get(
+                        "l",
+                        row.get("label", row.get("class_label")),
+                    ),
+                ),
                 "fine_label": fine_label,
                 "fine_label_type": (
                     "subtype"
                     if fine_label.strip().casefold() not in {"", "unknown"}
                     else "unknown"
                 ),
-                "attributes": row.get("attrs", row.get("attributes", {})),
-                "confidence": row.get("conf", row.get("confidence", 0.0)),
+                "attributes": attributes,
+                "confidence": row.get(
+                    "q",
+                    row.get("conf", row.get("confidence", 0.0)),
+                ),
                 "fine_confidence": row.get(
-                    "fine_conf",
-                    row.get("fine_confidence", 0.0),
+                    "sq",
+                    row.get(
+                        "fq",
+                        row.get(
+                            "fine_conf",
+                            row.get("fine_confidence", 0.0),
+                        ),
+                    ),
                 ),
                 "evidence_frames": row.get(
                     "frames",

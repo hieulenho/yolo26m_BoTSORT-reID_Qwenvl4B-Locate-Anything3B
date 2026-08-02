@@ -59,6 +59,57 @@ def _string_tuple(value: Any, name: str) -> tuple[str, ...]:
     return tuple(output)
 
 
+def _fine_label_taxonomy(
+    value: Any,
+    name: str,
+) -> dict[str, tuple[str, ...]]:
+    if value is None:
+        return {}
+    mapping = _mapping(value, name)
+    output: dict[str, tuple[str, ...]] = {}
+    used_labels: dict[str, str] = {}
+    for parent, labels in mapping.items():
+        parent_label = _non_empty_string(parent, f"{name} parent")
+        fine_labels = _string_tuple(labels, f"{name}.{parent_label}")
+        if not fine_labels:
+            raise TaskPipelineConfigError(
+                f"{name}.{parent_label} must contain at least one fine label."
+            )
+        for fine_label in fine_labels:
+            key = fine_label.casefold().replace("_", " ")
+            previous_parent = used_labels.get(key)
+            if (
+                previous_parent is not None
+                and previous_parent.casefold() != parent_label.casefold()
+            ):
+                raise TaskPipelineConfigError(
+                    f"Fine label {fine_label!r} belongs to both "
+                    f"{previous_parent!r} and {parent_label!r}."
+                )
+            used_labels[key] = parent_label
+        output[parent_label] = fine_labels
+    return output
+
+
+def _fine_label_aliases(value: Any, name: str) -> dict[str, str]:
+    if value is None:
+        return {}
+    mapping = _mapping(value, name)
+    output: dict[str, str] = {}
+    normalized_aliases: set[str] = set()
+    for alias, target in mapping.items():
+        alias_label = _non_empty_string(alias, f"{name} alias")
+        target_label = _non_empty_string(target, f"{name}.{alias_label}")
+        alias_key = alias_label.casefold().replace("_", " ")
+        if alias_key in normalized_aliases:
+            raise TaskPipelineConfigError(
+                f"{name} contains duplicate normalized alias {alias_label!r}."
+            )
+        normalized_aliases.add(alias_key)
+        output[alias_label] = target_label
+    return output
+
+
 def _class_ids(value: Any, name: str) -> tuple[int, ...] | None:
     if value is None:
         return None
@@ -138,6 +189,15 @@ def _supplemental_detectors(value: Any) -> tuple[dict[str, Any], ...]:
             raise TaskPipelineConfigError(
                 "Supplemental every_n_frames must be in [1, 300]."
             )
+        compatible_tracker_class_ids = (
+            _class_ids(
+                item.get("compatible_tracker_class_ids"),
+                "detector.supplemental_detectors"
+                f"[{index}].compatible_tracker_class_ids",
+            )
+            if item.get("compatible_tracker_class_ids") is not None
+            else None
+        )
         output.append(
             {
                 **item,
@@ -148,6 +208,11 @@ def _supplemental_detectors(value: Any) -> tuple[dict[str, Any], ...]:
                 "class_names": list(class_names),
                 "text_classes": list(text_classes),
                 "every_n_frames": every_n_frames,
+                "compatible_tracker_class_ids": (
+                    list(compatible_tracker_class_ids)
+                    if compatible_tracker_class_ids is not None
+                    else None
+                ),
                 "half": bool(item.get("half", False)),
             }
         )
@@ -195,9 +260,17 @@ class SemanticTaskConfig:
     label_mode: str
     enable_fine_labels: bool
     allowed_labels: tuple[str, ...]
+    label_aliases: dict[str, str]
+    fine_label_taxonomy: dict[str, tuple[str, ...]]
+    fine_label_aliases: dict[str, str]
     attributes: tuple[str, ...]
     instruction: str
     unknown_threshold: float
+    fine_unknown_threshold: float
+    fine_minimum_margin: float
+    fine_minimum_temporal_stability: float
+    fast_label_hint_threshold: float
+    fast_color_hint_threshold: float
     event_interval_frames: int
     events_per_frame: int
     max_pending_events: int
@@ -221,9 +294,22 @@ class SemanticTaskConfig:
             "label_mode": self.label_mode,
             "enable_fine_labels": self.enable_fine_labels,
             "allowed_labels": list(self.allowed_labels),
+            "label_aliases": dict(self.label_aliases),
+            "fine_label_taxonomy": {
+                parent: list(labels)
+                for parent, labels in self.fine_label_taxonomy.items()
+            },
+            "fine_label_aliases": dict(self.fine_label_aliases),
             "attributes": list(self.attributes),
             "instruction": self.instruction,
             "unknown_threshold": self.unknown_threshold,
+            "fine_unknown_threshold": self.fine_unknown_threshold,
+            "fine_minimum_margin": self.fine_minimum_margin,
+            "fine_minimum_temporal_stability": (
+                self.fine_minimum_temporal_stability
+            ),
+            "fast_label_hint_threshold": self.fast_label_hint_threshold,
+            "fast_color_hint_threshold": self.fast_color_hint_threshold,
             "max_evidence_images": self.max_evidence_images,
             "evidence_interval_frames": self.evidence_interval_frames,
             "evidence_collection_delay_seconds": (
@@ -379,9 +465,81 @@ def load_task_pipeline_config(path: str | Path) -> TaskPipelineConfig:
         semantic_raw.get("allowed_labels"),
         "semantic.allowed_labels",
     )
+    label_aliases = _fine_label_aliases(
+        semantic_raw.get("label_aliases"),
+        "semantic.label_aliases",
+    )
     if semantic_enabled and label_mode == "closed" and not allowed_labels:
         raise TaskPipelineConfigError(
             "semantic.allowed_labels is required when label_mode=closed."
+        )
+    allowed_label_keys = {
+        label.casefold().replace("_", " ") for label in allowed_labels
+    }
+    unknown_label_alias_targets = [
+        target
+        for target in label_aliases.values()
+        if target.casefold().replace("_", " ") not in allowed_label_keys
+    ]
+    if unknown_label_alias_targets:
+        raise TaskPipelineConfigError(
+            "Every semantic.label_aliases target must appear in "
+            f"semantic.allowed_labels: {unknown_label_alias_targets}"
+        )
+    fine_label_taxonomy = _fine_label_taxonomy(
+        semantic_raw.get("fine_label_taxonomy"),
+        "semantic.fine_label_taxonomy",
+    )
+    fine_label_aliases = _fine_label_aliases(
+        semantic_raw.get("fine_label_aliases"),
+        "semantic.fine_label_aliases",
+    )
+    if fine_label_taxonomy and not bool(
+        semantic_raw.get("enable_fine_labels", label_mode == "open")
+    ):
+        raise TaskPipelineConfigError(
+            "semantic.fine_label_taxonomy requires enable_fine_labels=true."
+        )
+    if label_mode == "closed" and fine_label_taxonomy:
+        allowed_keys = {
+            label.casefold().replace("_", " ") for label in allowed_labels
+        }
+        unknown_parents = [
+            parent
+            for parent in fine_label_taxonomy
+            if parent.casefold().replace("_", " ") not in allowed_keys
+        ]
+        if unknown_parents:
+            raise TaskPipelineConfigError(
+                "Every semantic.fine_label_taxonomy parent must appear in "
+                f"semantic.allowed_labels: {unknown_parents}"
+            )
+    canonical_fine_labels = {
+        label.casefold().replace("_", " "): label
+        for labels in fine_label_taxonomy.values()
+        for label in labels
+    }
+    unknown_alias_targets = [
+        target
+        for target in fine_label_aliases.values()
+        if target.casefold().replace("_", " ") not in canonical_fine_labels
+    ]
+    if unknown_alias_targets:
+        raise TaskPipelineConfigError(
+            "Every semantic.fine_label_aliases target must appear in "
+            f"semantic.fine_label_taxonomy: {unknown_alias_targets}"
+        )
+    conflicting_aliases = [
+        alias
+        for alias, target in fine_label_aliases.items()
+        if alias.casefold().replace("_", " ") in canonical_fine_labels
+        and alias.casefold().replace("_", " ")
+        != target.casefold().replace("_", " ")
+    ]
+    if conflicting_aliases:
+        raise TaskPipelineConfigError(
+            "semantic.fine_label_aliases cannot remap canonical fine labels: "
+            f"{conflicting_aliases}"
         )
     provider = str(semantic_raw.get("provider", "qwen")).strip().lower()
     quantization = str(semantic_raw.get("quantization", "8bit")).strip().lower()
@@ -412,6 +570,9 @@ def load_task_pipeline_config(path: str | Path) -> TaskPipelineConfig:
             semantic_raw.get("enable_fine_labels", label_mode == "open")
         ),
         allowed_labels=allowed_labels,
+        label_aliases=label_aliases,
+        fine_label_taxonomy=fine_label_taxonomy,
+        fine_label_aliases=fine_label_aliases,
         attributes=_string_tuple(semantic_raw.get("attributes"), "semantic.attributes"),
         instruction=_non_empty_string(
             semantic_raw.get(
@@ -423,6 +584,26 @@ def load_task_pipeline_config(path: str | Path) -> TaskPipelineConfig:
         unknown_threshold=_unit_interval(
             semantic_raw.get("unknown_threshold", 0.70),
             "semantic.unknown_threshold",
+        ),
+        fine_unknown_threshold=_unit_interval(
+            semantic_raw.get("fine_unknown_threshold", 0.85),
+            "semantic.fine_unknown_threshold",
+        ),
+        fine_minimum_margin=_unit_interval(
+            semantic_raw.get("fine_minimum_margin", 0.15),
+            "semantic.fine_minimum_margin",
+        ),
+        fine_minimum_temporal_stability=_unit_interval(
+            semantic_raw.get("fine_minimum_temporal_stability", 0.67),
+            "semantic.fine_minimum_temporal_stability",
+        ),
+        fast_label_hint_threshold=_unit_interval(
+            semantic_raw.get("fast_label_hint_threshold", 0.65),
+            "semantic.fast_label_hint_threshold",
+        ),
+        fast_color_hint_threshold=_unit_interval(
+            semantic_raw.get("fast_color_hint_threshold", 0.55),
+            "semantic.fast_color_hint_threshold",
         ),
         event_interval_frames=int(semantic_raw.get("event_interval_frames", 45)),
         events_per_frame=int(semantic_raw.get("events_per_frame", 2)),

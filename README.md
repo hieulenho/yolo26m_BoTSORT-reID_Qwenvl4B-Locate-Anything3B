@@ -106,9 +106,10 @@ nvidia-smi
 The preview opens automatically. Press `Q` or `Esc` to stop. `live` keeps Qwen loaded in a
 separate process and updates labels while capture continues. The detector label is immediate;
 the first deep label is delayed by model loading, evidence collection, and generation.
-On the measured RTX 4060 Laptop 8 GB system, one compact traffic job required about 19 seconds
-after an 18-22 second cold model load. The live queue therefore defaults to four in-flight
-tracks; raising it increases label wait time and disk work rather than model throughput.
+On the measured RTX 4060 Laptop 8 GB system, the verified grouped traffic run averaged
+14.24 seconds per two-track Qwen batch after model reuse, with a roughly 23.5-second cold load.
+The live queue therefore defaults to four in-flight tracks; raising it increases label wait time
+and disk work rather than model throughput.
 
 Use `-SemanticWorkerMode disabled` to measure detector/tracker throughput, or `deferred` when
 processing a file on one 8 GB GPU and final labels are allowed to appear after tracking ends.
@@ -188,6 +189,10 @@ Canonical machine-readable tables, plots, hashes, and limitations are in the
 [research report](docs/benchmarks/research_final/research_report.md).
 The measured queue and concurrent-Qwen behavior for a dense traffic stream is documented in
 the [dense traffic live semantic benchmark](docs/benchmarks/dense_traffic_live_semantics.md).
+The latest machine-readable deep-label verification is
+[traffic_deep_labels_verified.json](docs/benchmarks/traffic_deep_labels_verified.json).
+The longer local YouTube stress tests are recorded in
+[youtube_traffic_exploratory.json](docs/benchmarks/youtube_traffic_exploratory.json).
 
 ### Detector on SportsMOT validation
 

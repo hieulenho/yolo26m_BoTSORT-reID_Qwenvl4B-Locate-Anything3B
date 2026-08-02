@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "run_date": "2026-07-31",
+  "scope": "300-frame recorded-video verification; semantic coverage is not semantic accuracy",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "gpu_memory_bytes": 8585216000,
+    "system_memory_bytes": 16849256448,
+    "torch": "2.11.0+cu128",
+    "ultralytics": "8.4.82"
+  },
+  "source": {
+    "dataset": "UA-DETRAC",
+    "sequence": "MVI_40774",
+    "fps": 25.0,
+    "evaluated_frames": 300,
+    "sha256": "B847E2DDB90FF974F554E370C6CD806B1891678CB8150A92311CAD67B8160589"
+  },
+  "pipeline": {
+    "detector": "YOLO26n COCO plus sparse YOLOE-26s vehicle subtype proposals",
+    "tracker": "TrackTrack",
+    "semantic_model": "Qwen/Qwen3-VL-4B-Instruct",
+    "quantization": "8bit",
+    "task_config_sha256": "11539AD0E67020CCEAB2097C6642FFE8A75C8C94D595D2537A9B5D20DFC8B220"
+  },
+  "tracking_runtime": {
+    "end_to_end_fps": 15.29745597188519,
+    "processing_fps": 15.707821369880042,
+    "p95_frame_latency_ms": 103.36920000554528,
+    "source_fps": 25.0,
+    "keeps_up_with_source": false,
+    "unique_tracks": 25,
+    "fast_subtype_tracks": 5,
+    "fast_color_tracks": 16
+  },
+  "deferred_semantics": {
+    "eligible_tracks": 22,
+    "total_tracks": 25,
+    "track_coverage": 0.88,
+    "accepted_tracks": 22,
+    "accepted_box_coverage": 0.9900124843945068,
+    "fine_label_tracks": 11,
+    "fine_label_coverage_of_modeled_tracks": 0.5,
+    "color_tracks": 17,
+    "vehicle_tracks": 18,
+    "color_coverage_of_modeled_vehicle_tracks": 0.9444444444444444,
+    "qwen_batches": 11,
+    "summed_inference_seconds": 156.619425300014,
+    "mean_batch_inference_seconds": 14.2381295727285,
+    "last_session_peak_allocated_bytes": 5314136576,
+    "last_session_peak_reserved_bytes": 5387583488,
+    "failed_events": 0
+  },
+  "render": {
+    "semantic_accepted_tracks": 22,
+    "detector_fallback_tracks": 3,
+    "all_track_label_coverage": 1.0,
+    "all_box_label_coverage": 1.0
+  },
+  "artifacts": {
+    "runtime_metrics": "outputs/benchmarks/dense_traffic_runtime/traffic_deep_labels_verified_300/realtime_metrics.json",
+    "semantic_cache": "outputs/benchmarks/dense_traffic_runtime/traffic_deep_labels_verified_300/semantic_cache.json",
+    "semantic_worker_report": "outputs/benchmarks/dense_traffic_runtime/traffic_deep_labels_verified_300/semantic_worker_full_report.json",
+    "semantic_render_metrics": "outputs/benchmarks/dense_traffic_runtime/traffic_deep_labels_verified_300/tracked_semantic.semantic.metadata.json",
+    "video": "outputs/benchmarks/dense_traffic_runtime/traffic_deep_labels_verified_300/tracked_semantic.mp4",
+    "runtime_metrics_sha256": "070022B7BF78BC4B37B65C1D313982E70698318EBEA7BBC024459F0C5FF16938",
+    "semantic_cache_sha256": "8EE104D4BE3A985E499BB61B3E81FEA3324E7CD3B502BD23AEF46EF5E9D3F229"
+  },
+  "limitations": [
+    "UA-DETRAC does not provide ground truth for vehicle subtype or visible color.",
+    "Coverage measures how often a label was produced, not whether that label is correct.",
+    "Night lighting can bias visible-color estimates toward red, orange, or brown.",
+    "Deferred Qwen processing is suitable for recorded files; one 8 GB GPU cannot deeply label every new dense-traffic track at camera rate."
+  ]
+}

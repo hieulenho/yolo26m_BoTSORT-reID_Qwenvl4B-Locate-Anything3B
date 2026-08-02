@@ -311,6 +311,7 @@ class SupplementalDetector:
     class_id_map: dict[int, int]
     class_names: dict[int, str]
     every_n_frames: int = 1
+    compatible_tracker_class_ids: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.every_n_frames <= 0:
@@ -351,6 +352,11 @@ class RoutedCompositeDetector:
                     "class_id_map": item.class_id_map,
                     "class_names": item.class_names,
                     "every_n_frames": item.every_n_frames,
+                    "compatible_tracker_class_ids": (
+                        list(item.compatible_tracker_class_ids)
+                        if item.compatible_tracker_class_ids is not None
+                        else None
+                    ),
                     "inference_calls": self._supplemental_runs[index],
                 }
                 for index, item in enumerate(self.supplemental)
@@ -386,6 +392,14 @@ class RoutedCompositeDetector:
                         "confidence": row["confidence"],
                         "class_id": output_class_id,
                         "class_name": item.class_names[output_class_id],
+                        "metadata": {
+                            "semantic_proposal": True,
+                            "compatible_tracker_class_ids": (
+                                list(item.compatible_tracker_class_ids)
+                                if item.compatible_tracker_class_ids is not None
+                                else []
+                            ),
+                        },
                     }
                 )
         return rows

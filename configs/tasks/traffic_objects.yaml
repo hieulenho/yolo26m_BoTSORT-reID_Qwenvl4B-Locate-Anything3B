@@ -11,8 +11,21 @@ detector:
   name: yolo26n_coco_traffic
   backend: ultralytics
   checkpoint: yolo26n.pt
-  class_ids: [0, 1, 2, 3, 5, 7]
+  class_ids: [0, 1, 2, 3, 5, 7, 1100, 1101, 1102, 1103, 1104, 1105, 1106, 1107]
   tracker_class_ids: [0, 1, 2, 3, 5, 7]
+  supplemental_detectors:
+    - name: yoloe26s_vehicle_subtype_proposals
+      backend: ultralytics_yoloe
+      checkpoint: yoloe-26s-seg.pt
+      text_classes:
+        [sedan, sport utility vehicle, crossover SUV, hatchback, coupe,
+         station wagon, taxi, minivan]
+      input_class_ids: [0, 1, 2, 3, 4, 5, 6, 7]
+      output_class_ids: [1100, 1101, 1102, 1103, 1104, 1105, 1106, 1107]
+      class_names: [sedan, SUV, crossover, hatchback, coupe, station_wagon, taxi, minivan]
+      compatible_tracker_class_ids: [2]
+      every_n_frames: 8
+      half: false
   preserve_source_classes: true
   target_class_id: 2
   target_class_name: vehicle
@@ -42,20 +55,82 @@ semantic:
   label_mode: closed
   enable_fine_labels: true
   allowed_labels: [pedestrian, bicycle, motorcycle, car, van, bus, truck, unknown]
-  attributes: [vehicle_type, color, motion_state, visible_markings]
+  label_aliases:
+    person: pedestrian
+    people: pedestrian
+    human: pedestrian
+    motorbike: motorcycle
+    automobile: car
+    auto: car
+    lorry: truck
+  fine_label_taxonomy:
+    pedestrian: [adult pedestrian, child pedestrian, road worker, traffic officer]
+    bicycle: [road bicycle, mountain bicycle, city bicycle, cargo bicycle]
+    motorcycle:
+      [scooter, moped, sport motorcycle, cruiser motorcycle,
+       commuter motorcycle, touring motorcycle]
+    car:
+      [sedan, SUV, crossover, hatchback, coupe, station wagon,
+       convertible, taxi, police car]
+    van: [minivan, passenger van, cargo van, ambulance, camper van]
+    bus: [city bus, coach, minibus, school bus, double-decker bus]
+    truck:
+      [pickup truck, box truck, dump truck, tanker truck, tractor-trailer,
+       flatbed truck, garbage truck, tow truck, cement mixer, fire engine]
+  fine_label_aliases:
+    saloon: sedan
+    sport utility vehicle: SUV
+    crossover SUV: crossover
+    estate: station wagon
+    estate car: station wagon
+    MPV: minivan
+    panel van: cargo van
+    delivery van: cargo van
+    transit bus: city bus
+    public bus: city bus
+    coach bus: coach
+    motor scooter: scooter
+    pickup: pickup truck
+    semi truck: tractor-trailer
+    semitruck: tractor-trailer
+    articulated truck: tractor-trailer
+    tractor trailer: tractor-trailer
+    cement truck: cement mixer
+    recovery truck: tow truck
+    fire truck: fire engine
+  attributes: [color]
   instruction: >-
-    Refine each road-user track using repeated visible evidence. Prefer stable
-    categories such as pedestrian, bicycle, motorcycle, car, van, bus, and truck.
-    Return unknown when subtype evidence is weak; do not guess make or model.
+    Refine each road-user track using repeated visible evidence. Separate the
+    stable parent class from the most specific supported subtype and visible
+    exterior color. Use service labels such as taxi, ambulance, police car, or
+    school bus only when markings or vehicle structure are directly visible.
+    Judge vehicle subtype from visible body geometry across all evidence:
+    an exposed cargo bed must produce class truck and subtype pickup truck,
+    never class car or subtype SUV; a sedan is a low
+    three-box body with a separate trunk; a hatchback is a short two-box body;
+    a station wagon has a long low roof; an SUV requires a clearly taller
+    enclosed body and increased ride height; a crossover is lower and more
+    car-like than an SUV. A front-only, tiny, blurred, or occluded crop is not
+    enough evidence for a fine subtype. Visible body geometry overrides a weak
+    detector or open-vocabulary hint.
+    Return unknown when subtype evidence is weak; never guess make, model,
+    license plate, occupancy, or an unseen vehicle function.
   unknown_threshold: 0.75
+  fine_unknown_threshold: 0.72
+  fine_minimum_margin: 0.08
+  fine_minimum_temporal_stability: 0.60
+  fast_label_hint_threshold: 0.65
+  fast_color_hint_threshold: 0.55
   event_interval_frames: 90
   events_per_frame: 1
   max_pending_events: 12
   minimum_track_age_frames: 15
-  max_evidence_images: 2
+  max_evidence_images: 3
+  evidence_interval_frames: 12
+  evidence_collection_delay_seconds: 0.75
   evidence_layout: panel
-  evidence_panel_width: 448
-  evidence_panel_height: 336
+  evidence_panel_width: 512
+  evidence_panel_height: 384
   minimum_crop_quality: 0.22
   replacement_quality_margin: 0.07
 

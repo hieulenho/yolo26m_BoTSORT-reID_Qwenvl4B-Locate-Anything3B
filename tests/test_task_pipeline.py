@@ -10,13 +10,19 @@ import pytest
 import yaml
 
 from football_tracking.adaptive_tracking import semantic_queue as semantic_queue_module
+from football_tracking.adaptive_tracking.fast_appearance import (
+    FastVisualAttributeStore,
+)
 from football_tracking.adaptive_tracking.fast_semantics import (
     FastSemanticProposalStore,
 )
+from football_tracking.adaptive_tracking.semantic_fusion import TrackSemanticEvidence
 from football_tracking.adaptive_tracking.semantic_queue import (
     SemanticCacheView,
     SemanticEventQueue,
+    _enforce_event_taxonomy,
     _event_prompt,
+    _group_event_prompt,
     _replace_file_with_retry,
 )
 from football_tracking.data.schemas import BoundingBoxXYXY
@@ -81,11 +87,21 @@ def test_dense_traffic_task_uses_bounded_live_semantics() -> None:
     assert task.semantic.label_mode == "closed"
     assert task.semantic.enable_fine_labels is True
     assert set(task.semantic.allowed_labels) >= {"car", "truck", "unknown"}
+    assert "SUV" in task.semantic.fine_label_taxonomy["car"]
+    assert "tractor-trailer" in task.semantic.fine_label_taxonomy["truck"]
+    assert task.semantic.label_aliases["person"] == "pedestrian"
+    assert task.semantic.fine_label_aliases["semi truck"] == "tractor-trailer"
+    assert task.semantic.fine_unknown_threshold == pytest.approx(0.72)
+    assert task.semantic.fast_label_hint_threshold == pytest.approx(0.65)
+    assert task.semantic.fast_color_hint_threshold == pytest.approx(0.55)
     assert task.semantic.events_per_frame == 1
     assert task.semantic.max_pending_events == 12
     assert task.semantic.minimum_track_age_frames == 15
-    assert task.semantic.evidence_panel_width == 448
-    assert task.semantic.evidence_panel_height == 336
+    assert task.semantic.max_evidence_images == 3
+    assert task.semantic.evidence_interval_frames == 12
+    assert task.semantic.evidence_collection_delay_seconds == pytest.approx(0.75)
+    assert task.semantic.evidence_panel_width == 512
+    assert task.semantic.evidence_panel_height == 384
 
 
 def test_runtime_preprocessing_override_is_recorded(tmp_path: Path) -> None:
@@ -244,6 +260,52 @@ def test_classroom_task_combines_person_recall_with_sparse_role_proposals(
     assert supplemental["backend"] == "ultralytics_yoloe"
     assert supplemental["every_n_frames"] == 6
     assert supplemental["output_class_ids"] == [1000, 1001, 1002, 1003]
+    assert supplemental["compatible_tracker_class_ids"] == [0]
+    assert generated["detector"]["source_class_names"] == {
+        "1000": "student",
+        "1001": "teacher",
+        "1002": "classroom_staff",
+        "1003": "visitor",
+    }
+
+
+def test_sparse_semantic_proposal_respects_base_class_compatibility() -> None:
+    store = FastSemanticProposalStore(minimum_observations=1)
+    person = _track(track_id=7, class_id=0, class_name="person")
+    proposal = TrackerDetection.from_xyxy(
+        frame_index=1,
+        sequence_name="test",
+        bbox_xyxy=person.bbox_xyxy,
+        confidence=0.9,
+        class_id=1100,
+        class_name="sedan",
+        metadata={"compatible_tracker_class_ids": [2]},
+    )
+
+    result = store.update([person], [proposal], frame_index=1)[0]
+
+    assert result.class_name == "person"
+    assert store.diagnostics()["matched_proposals"] == 0
+
+
+def test_fast_vehicle_color_requires_temporal_consensus() -> None:
+    store = FastVisualAttributeStore(
+        sample_interval_frames=1,
+        minimum_observations=3,
+    )
+    frame = np.zeros((140, 140, 3), dtype=np.uint8)
+    frame[16:112, 16:112] = (0, 0, 220)
+    car = _track(class_id=2, class_name="car")
+
+    first = store.update(frame, [car], frame_index=1)[0]
+    second = store.update(frame, [car], frame_index=2)[0]
+    third = store.update(frame, [car], frame_index=3)[0]
+
+    assert first.class_name == "car"
+    assert second.class_name == "car"
+    assert third.class_name == "red car"
+    assert third.metadata["fast_visual_color"] == "red"
+    assert store.diagnostics()["stable_track_count"] == 1
 
 
 def test_semantic_queue_replaces_a_pending_crop_with_better_temporal_evidence(
@@ -586,6 +648,195 @@ def test_semantic_cache_exposes_waiting_pending_unknown_and_accepted_states(
     assert decorated[2].class_name == "person | teacher"
     assert decorated[3].class_name == "person"
     assert decorated[3].metadata["semantic_status"] == "waiting"
+
+
+def test_semantic_cache_renders_vehicle_color_and_fine_subtype(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "semantic.json"
+    path.write_text(
+        json.dumps(
+            {
+                "tracks": [
+                    {
+                        "track_id": 1,
+                        "accepted": True,
+                        "class_label": "car",
+                        "detector_class_name": "car",
+                        "fine_label": "sedan",
+                        "fine_accepted": True,
+                        "attributes": {"color": "silver"},
+                        "confidence": 0.91,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache = SemanticCacheView(path)
+    assert cache.refresh()
+
+    decorated = cache.decorate(
+        [_track(class_id=2, class_name="car")],
+        semantic_enabled=True,
+    )
+
+    assert decorated[0].class_name == "car | silver sedan"
+
+
+def test_group_prompt_requests_compact_color_and_distinct_fine_label() -> None:
+    task = {
+        "task_id": "traffic",
+        "label_mode": "closed",
+        "enable_fine_labels": True,
+        "allowed_labels": ["car", "truck", "unknown"],
+        "fine_label_taxonomy": {"car": ["sedan", "SUV"]},
+        "attributes": ["color"],
+    }
+    events = [
+        {
+            "track_id": track_id,
+            "frame_index": 10 + track_id,
+            "evidence_frame_indices": [10 + track_id, 20 + track_id],
+            "detector_class_name": "car",
+            "semantic_task": task,
+        }
+        for track_id in (1, 2)
+    ]
+
+    prompt = _group_event_prompt(events)
+
+    assert '"class":"..."' in prompt
+    assert '"subtype":"..."' in prompt
+    assert '"color":"..."' in prompt
+    assert '"q":0.0' in prompt
+    assert '"frames"' not in prompt.split("return JSON only:", 1)[-1]
+    assert "Never place a subtype in class" in prompt
+    assert "silver" in prompt
+    assert '"SUV"' in prompt
+
+
+def test_closed_taxonomy_repairs_vehicle_subtype_and_color_field_swaps() -> None:
+    rows = _enforce_event_taxonomy(
+        [
+            TrackSemanticEvidence(
+                track_id=23,
+                class_label="SUV",
+                fine_label="red",
+                confidence=0.8,
+                fine_confidence=0.8,
+                fine_label_type="subtype",
+                attributes={"color": "red"},
+                source="qwen",
+            )
+        ],
+        {
+            "semantic_task": {
+                "label_mode": "closed",
+                "allowed_labels": ["car", "truck", "unknown"],
+                "fine_label_taxonomy": {
+                    "car": ["sedan", "SUV", "hatchback"],
+                    "truck": ["pickup"],
+                },
+                "attributes": ["color"],
+            }
+        },
+    )
+
+    assert len(rows) == 1
+    assert rows[0].class_label == "car"
+    assert rows[0].fine_label == "suv"
+    assert rows[0].fine_confidence == pytest.approx(0.8)
+    assert rows[0].attributes == {"color": "red"}
+
+
+def test_closed_taxonomy_normalizes_vehicle_subtype_aliases() -> None:
+    rows = _enforce_event_taxonomy(
+        [
+            TrackSemanticEvidence(
+                track_id=24,
+                class_label="semi truck",
+                fine_label="unknown",
+                confidence=0.9,
+                fine_confidence=0.0,
+                source="qwen",
+            )
+        ],
+        {
+            "semantic_task": {
+                "label_mode": "closed",
+                "allowed_labels": ["car", "truck", "unknown"],
+                "fine_label_taxonomy": {
+                    "car": ["sedan", "SUV"],
+                    "truck": ["box truck", "tractor-trailer"],
+                },
+                "fine_label_aliases": {
+                    "semi truck": "tractor-trailer",
+                },
+                "attributes": ["color"],
+            }
+        },
+    )
+
+    assert len(rows) == 1
+    assert rows[0].class_label == "truck"
+    assert rows[0].fine_label == "tractor-trailer"
+    assert rows[0].fine_confidence == pytest.approx(0.9)
+
+
+def test_closed_taxonomy_normalizes_base_label_aliases() -> None:
+    rows = _enforce_event_taxonomy(
+        [
+            TrackSemanticEvidence(
+                track_id=25,
+                class_label="person",
+                fine_label="adult pedestrian",
+                confidence=0.92,
+                fine_confidence=0.9,
+                source="qwen",
+            )
+        ],
+        {
+            "semantic_task": {
+                "label_mode": "closed",
+                "allowed_labels": ["pedestrian", "car", "unknown"],
+                "label_aliases": {"person": "pedestrian"},
+                "fine_label_taxonomy": {
+                    "pedestrian": ["adult pedestrian"],
+                    "car": ["sedan"],
+                },
+                "attributes": [],
+            }
+        },
+    )
+
+    assert len(rows) == 1
+    assert rows[0].class_label == "pedestrian"
+    assert rows[0].fine_label == "adult pedestrian"
+
+
+def test_task_rejects_unknown_fine_label_alias_target(tmp_path: Path) -> None:
+    payload = yaml.safe_load(
+        Path("configs/tasks/traffic_objects.yaml").read_text(encoding="utf-8")
+    )
+    payload["semantic"]["fine_label_aliases"]["lorry"] = "unknown truck kind"
+    path = tmp_path / "invalid_alias.yaml"
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(TaskPipelineConfigError, match="aliases target"):
+        load_task_pipeline_config(path)
+
+
+def test_task_rejects_unknown_base_label_alias_target(tmp_path: Path) -> None:
+    payload = yaml.safe_load(
+        Path("configs/tasks/traffic_objects.yaml").read_text(encoding="utf-8")
+    )
+    payload["semantic"]["label_aliases"]["person"] = "road user"
+    path = tmp_path / "invalid_base_alias.yaml"
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(TaskPipelineConfigError, match="label_aliases target"):
+        load_task_pipeline_config(path)
 
 
 def test_webcam_requirements_exclude_research_only_dependencies() -> None:

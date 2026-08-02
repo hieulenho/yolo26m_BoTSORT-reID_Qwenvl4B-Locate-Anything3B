@@ -107,9 +107,7 @@ def render_semantic_video(
                     and bool(detector.get("class_name"))
                 )
                 if accepted:
-                    label = str(
-                        semantic.get("display_label", semantic.get("class_label", "unknown"))
-                    )
+                    label = _semantic_display_label(semantic)
                     confidence = float(semantic.get("confidence", 0.0))
                 elif modeled:
                     label = "unknown"
@@ -124,7 +122,10 @@ def render_semantic_video(
                 x1, y1, x2, y2 = _clip_bbox(row.bbox_xyxy(), width, height)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
                 base_text = f"ID {row.track_id} | {_truncate_label(label)}"
-                attributes = _short_attributes(semantic.get("attributes", {}))
+                attributes = _short_attributes(
+                    semantic.get("attributes", {}),
+                    exclude={"color"} if accepted else set(),
+                )
                 confidence_text = (
                     f" {confidence:.2f}"
                     if show_confidence and (accepted or fallback)
@@ -268,10 +269,55 @@ def _track_color(
     )
 
 
-def _short_attributes(attributes: Any) -> str:
+def _semantic_display_label(semantic: dict[str, Any]) -> str:
+    class_label = str(semantic.get("class_label", "unknown")).strip().lower()
+    fine_label = str(semantic.get("fine_label", "unknown")).strip().lower()
+    if bool(semantic.get("fine_accepted")) and fine_label not in {
+        "",
+        "unknown",
+        class_label,
+    }:
+        detail = fine_label
+    else:
+        detail = class_label or "unknown"
+    detail = {"suv": "SUV"}.get(detail, detail)
+    attributes = semantic.get("attributes", {})
+    color = (
+        str(attributes.get("color", "")).strip().lower()
+        if isinstance(attributes, dict)
+        else ""
+    )
+    if color in {
+        "black",
+        "white",
+        "gray",
+        "grey",
+        "silver",
+        "red",
+        "blue",
+        "green",
+        "yellow",
+        "orange",
+        "brown",
+        "beige",
+        "maroon",
+        "purple",
+        "pink",
+        "gold",
+    } and not detail.casefold().startswith(f"{color} "):
+        return f"{color} {detail}"
+    return detail
+
+
+def _short_attributes(attributes: Any, *, exclude: set[str] | None = None) -> str:
     if not isinstance(attributes, dict):
         return ""
-    pieces = [f"{key}={value}" for key, value in list(attributes.items())[:2]]
+    excluded = {str(value).casefold() for value in (exclude or set())}
+    pieces = [
+        f"{key}={value}"
+        for key, value in attributes.items()
+        if str(key).casefold() not in excluded
+    ][:2]
     return ",".join(pieces)
 
 

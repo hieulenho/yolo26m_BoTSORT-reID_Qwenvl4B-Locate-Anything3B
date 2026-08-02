@@ -1,0 +1,155 @@
+{
+  "schema_version": "1.0",
+  "run_date": "2026-07-31",
+  "scope": "Exploratory recorded-video stress tests; no semantic ground truth is available",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "gpu_memory_mib": 8188,
+    "semantic_model": "Qwen/Qwen3-VL-4B-Instruct",
+    "semantic_quantization": "8bit"
+  },
+  "pipeline": {
+    "task_config": "configs/tasks/traffic_objects.yaml",
+    "task_config_sha256": "828F32379EA9E59FC3B8A15FAC81B718F115DB2B3ABB45EF77583E3D6E27C0FB",
+    "detector": "YOLO26n COCO plus sparse YOLOE-26s subtype proposals",
+    "tracker": "TrackTrack",
+    "semantic_mode": "deferred",
+    "semantic_event_limit": 32,
+    "semantic_batch_size": 2,
+    "semantic_max_group_images": 2
+  },
+  "runs": [
+    {
+      "run_id": "youtube_traffic_hcm_motorcycles_36s",
+      "source": {
+        "url": "https://www.youtube.com/watch?v=V8paX22Sgzg",
+        "title": "Crazy rush hour traffic in Saigon - Ho Chi Minh City, Vietnam",
+        "channel": "Thoai Nguyen Anh",
+        "source_license_metadata": null,
+        "local_file": "F:/videos/youtube_traffic_hcm_motorcycles_36s.mp4",
+        "local_file_sha256": "74269AD7F4A6785E275DC4272517E18CEBE6CEDF227AA0D307570B8470E3F9A1",
+        "width": 1280,
+        "height": 720,
+        "fps": 29.825,
+        "frames": 1058
+      },
+      "tracking_runtime": {
+        "unique_tracks": 151,
+        "track_boxes": 16249,
+        "end_to_end_fps": 16.300779945483374,
+        "processing_fps": 16.87010953086749,
+        "p95_frame_latency_ms": 102.85599999770056,
+        "detector_fps": 35.60318895806762,
+        "tracker_fps": 45.60648582558949,
+        "keeps_up_with_source": false
+      },
+      "deferred_semantics": {
+        "events_enqueued": 89,
+        "events_dropped_queue_full": 207,
+        "processed_events": 32,
+        "failed_events": 0,
+        "qwen_calls": 16,
+        "elapsed_seconds": 234.74678659999336,
+        "accepted_tracks": 32,
+        "accepted_track_coverage": 0.2119205298013245,
+        "accepted_box_coverage": 0.2819865837897717,
+        "fine_label_tracks": 9,
+        "fine_label_coverage_of_modeled_tracks": 0.28125,
+        "accepted_class_counts": {
+          "pedestrian": 14,
+          "motorcycle": 14,
+          "car": 2,
+          "van": 1,
+          "bus": 1
+        },
+        "accepted_fine_label_counts": {
+          "scooter": 4,
+          "commuter motorcycle": 2,
+          "adult pedestrian": 2,
+          "city bus": 1
+        }
+      },
+      "artifacts": {
+        "root": "outputs/benchmarks/youtube_traffic/youtube_traffic_hcm_motorcycles_36s",
+        "video": "outputs/benchmarks/youtube_traffic/youtube_traffic_hcm_motorcycles_36s/tracked_semantic.mp4",
+        "runtime_metrics_sha256": "1B7B688C1779D98372A84FA4C97C127C429EC28DF5223C2FA28B856028402B32",
+        "semantic_cache_sha256": "85015DE5ABFE8FEC7653DFDF1AEA96ED2BCBA60AF9A1BDD5522B9111FBEECEE8"
+      }
+    },
+    {
+      "run_id": "youtube_traffic_cctv_mixed_45s",
+      "source": {
+        "url": "https://www.youtube.com/watch?v=RXrssNeDULo",
+        "title": "HD1080p Traffic People",
+        "channel": "EyeLynxCCTV",
+        "source_license_metadata": null,
+        "source_segment_seconds": [
+          15,
+          60
+        ],
+        "local_file": "F:/videos/youtube_traffic_cctv_mixed_45s.mp4",
+        "local_file_sha256": "8FED99B90EBA94EAAE227D8333607431E8CE1A227B4EF7366304CDFBB44F6DDA",
+        "width": 1280,
+        "height": 720,
+        "fps": 8.0,
+        "frames": 360
+      },
+      "tracking_runtime": {
+        "unique_tracks": 128,
+        "track_boxes": 5229,
+        "end_to_end_fps": 15.46709798101472,
+        "processing_fps": 16.035076694660685,
+        "p95_frame_latency_ms": 105.06079999322537,
+        "detector_fps": 35.50199645493606,
+        "tracker_fps": 43.53578225886548,
+        "keeps_up_with_source": true
+      },
+      "deferred_semantics": {
+        "events_enqueued": 80,
+        "events_dropped_queue_full": 53,
+        "processed_events": 32,
+        "failed_events": 0,
+        "qwen_calls": 17,
+        "elapsed_seconds": 249.46589689998655,
+        "accepted_tracks": 32,
+        "accepted_track_coverage": 0.25,
+        "accepted_box_coverage": 0.5941862688850641,
+        "fine_label_tracks": 3,
+        "fine_label_coverage_of_modeled_tracks": 0.09375,
+        "accepted_class_counts": {
+          "car": 23,
+          "pedestrian": 8,
+          "van": 1
+        },
+        "accepted_fine_label_counts": {
+          "adult pedestrian": 1,
+          "hatchback": 1,
+          "sedan": 1
+        }
+      },
+      "artifacts": {
+        "root": "outputs/benchmarks/youtube_traffic/youtube_traffic_cctv_mixed_45s",
+        "video": "outputs/benchmarks/youtube_traffic/youtube_traffic_cctv_mixed_45s/tracked_semantic.mp4",
+        "runtime_metrics_sha256": "6E5826686DE2DA3CFD99AFE8331F50E3E6FD44258BAEA6D04EB099D026C58EEA",
+        "semantic_cache_sha256": "869548E1A44EB35B122EEAA5E9299F606E7CFFFDD2F1C7054D4BD8F89B47790C"
+      }
+    }
+  ],
+  "validation": {
+    "invalid_closed_ontology_base_labels": 0,
+    "manual_visual_check_frames_per_run": 3,
+    "pickup_regression": {
+      "status": "passed",
+      "result": "truck > pickup truck",
+      "confidence": 0.98,
+      "artifact": "outputs/benchmarks/youtube_traffic/pickup_single_morphology_fix/semantic_cache.json"
+    }
+  },
+  "limitations": [
+    "The YouTube metadata did not declare a reusable license; source clips remain local test inputs and are not repository artifacts.",
+    "No ground truth for track identity, vehicle subtype, or visible color is available for these clips.",
+    "Accepted semantic coverage is not semantic accuracy.",
+    "The 32-event cap intentionally exposes bounded-queue behavior; later tracks retain detector fallback labels.",
+    "The dense motorcycle clip exceeds single-GPU foreground capacity at its 29.825 FPS source rate."
+  ]
+}

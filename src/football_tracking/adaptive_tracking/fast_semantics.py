@@ -29,8 +29,9 @@ class FastSemanticProposalStore:
         minimum_association_score: float = 0.35,
         minimum_observations: int = 2,
         history_frames: int = 90,
-        retention_frames: int = 180,
+        retention_frames: int = 900,
         minimum_consensus: float = 0.55,
+        switch_consensus: float = 0.70,
     ) -> None:
         if minimum_semantic_class_id < 1:
             raise ValueError("minimum_semantic_class_id must be positive.")
@@ -44,12 +45,17 @@ class FastSemanticProposalStore:
             )
         if not 0.0 <= minimum_consensus <= 1.0:
             raise ValueError("minimum_consensus must be in [0, 1].")
+        if not minimum_consensus <= switch_consensus <= 1.0:
+            raise ValueError(
+                "switch_consensus must be in [minimum_consensus, 1]."
+            )
         self.minimum_semantic_class_id = int(minimum_semantic_class_id)
         self.minimum_association_score = float(minimum_association_score)
         self.minimum_observations = int(minimum_observations)
         self.history_frames = int(history_frames)
         self.retention_frames = int(retention_frames)
         self.minimum_consensus = float(minimum_consensus)
+        self.switch_consensus = float(switch_consensus)
         self._history: dict[int, deque[_ProposalObservation]] = defaultdict(deque)
         self._stable: dict[int, tuple[int, str, float, int]] = {}
         self.matched_proposals = 0
@@ -106,6 +112,7 @@ class FastSemanticProposalStore:
             "minimum_observations": self.minimum_observations,
             "history_frames": self.history_frames,
             "retention_frames": self.retention_frames,
+            "switch_consensus": self.switch_consensus,
             "active_track_count": len(self._history),
             "stable_track_count": len(self._stable),
             "matched_proposals": self.matched_proposals,
@@ -144,6 +151,12 @@ class FastSemanticProposalStore:
                 1.0,
             )
             previous = self._stable.get(track_id)
+            if (
+                previous is not None
+                and previous[:2] != candidate
+                and consensus < self.switch_consensus
+            ):
+                continue
             next_value = (
                 candidate[0],
                 candidate[1],
@@ -198,6 +211,17 @@ def _greedy_matches(
     candidates: list[tuple[float, int, int]] = []
     for track_index, track in enumerate(tracks):
         for proposal_index, proposal in enumerate(proposals):
+            compatible_ids = proposal.metadata.get(
+                "compatible_tracker_class_ids"
+            )
+            if (
+                isinstance(compatible_ids, list | tuple)
+                and compatible_ids
+                and int(track.class_id) not in {
+                    int(value) for value in compatible_ids
+                }
+            ):
+                continue
             score = _overlap_score(track.bbox_xyxy, proposal.bbox_xyxy)
             if score >= minimum_score:
                 candidates.append((score, track_index, proposal_index))

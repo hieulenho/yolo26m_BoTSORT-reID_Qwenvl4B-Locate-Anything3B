@@ -4,6 +4,7 @@ import pytest
 
 from football_tracking.detection.detector import DetectorError
 from football_tracking.detection.detector_factory import create_detector, detector_name_from_config
+from football_tracking.detection.postprocessing import iter_prediction_rows
 
 
 def test_detector_factory_uses_configured_detector_name() -> None:
@@ -82,6 +83,7 @@ def test_detector_factory_routes_and_remaps_supplemental_classes() -> None:
                     "input_class_ids": [32],
                     "output_class_ids": [32],
                     "class_names": ["sports ball"],
+                    "compatible_tracker_class_ids": [0],
                     "every_n_frames": 2,
                 }
             ],
@@ -96,5 +98,29 @@ def test_detector_factory_routes_and_remaps_supplemental_classes() -> None:
 
     assert [int(row["class_id"]) for row in first] == [0, 32]
     assert first[1]["class_name"] == "sports ball"
+    assert first[1]["metadata"]["compatible_tracker_class_ids"] == [0]
     assert [int(row["class_id"]) for row in second] == [0]
     assert detector.metadata()["supplemental"][0]["inference_calls"] == 1
+
+
+def test_routed_class_names_survive_prediction_row_normalization() -> None:
+    rows = iter_prediction_rows(
+        [
+            {
+                "xyxy": [1, 2, 10, 20],
+                "confidence": 0.8,
+                "class_id": 1000,
+                "class_name": "student",
+            }
+        ]
+    )
+
+    assert rows == [
+        {
+            "xyxy": [1, 2, 10, 20],
+            "confidence": 0.8,
+            "class_id": 1000,
+            "class_name": "student",
+            "metadata": {},
+        }
+    ]

@@ -14,6 +14,9 @@ from typing import Any
 
 import cv2
 
+from football_tracking.adaptive_tracking.fast_appearance import (
+    FastVisualAttributeStore,
+)
 from football_tracking.adaptive_tracking.fast_semantics import (
     FastSemanticProposalStore,
 )
@@ -158,6 +161,7 @@ def run_realtime_tracking(
         else None
     )
     fast_semantics = FastSemanticProposalStore()
+    fast_appearance = FastVisualAttributeStore()
     checkpoint = resolve_detector_checkpoint(config.model, config.project_root)
     detector_load_started = time.perf_counter()
     detector = create_detector(
@@ -326,6 +330,7 @@ def run_realtime_tracking(
                     if class_stabilizer is not None:
                         class_stabilizer.reset()
                     fast_semantics.reset()
+                    fast_appearance.reset()
                     trajectory = TrajectoryStore(
                         config.trajectory_length,
                         enabled=config.show_trajectory,
@@ -385,6 +390,7 @@ def run_realtime_tracking(
                 detection_only,
                 frame_index,
             )
+            tracks = fast_appearance.update(frame, tracks, frame_index)
             for track in tracks:
                 class_key = (int(track.class_id), str(track.class_name))
                 confidence = float(
@@ -548,6 +554,7 @@ def run_realtime_tracking(
             else {"enabled": False}
         ),
         "fast_semantic_proposals": fast_semantics.diagnostics(),
+        "fast_visual_attributes": fast_appearance.diagnostics(),
         "device": config.device,
         "hardware": runtime_versions(),
         "resources": process_monitor.summary(total_seconds),
