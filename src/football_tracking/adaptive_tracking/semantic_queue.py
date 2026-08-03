@@ -132,6 +132,11 @@ class SemanticEventQueue:
         self.evidence_panel_height = int(
             self.semantic_task.get("evidence_panel_height", 384)
         )
+        self.evidence_context_fraction = float(
+            self.semantic_task.get("evidence_context_fraction", 0.55)
+        )
+        self.crop_padding = float(self.semantic_task.get("crop_padding", 0.15))
+        self.crop_size = int(self.semantic_task.get("crop_size", 256))
         self.minimum_crop_quality = float(
             self.semantic_task.get("minimum_crop_quality", 0.0)
         )
@@ -193,6 +198,9 @@ class SemanticEventQueue:
                 self.evidence_panel_width,
                 self.evidence_panel_height,
             ],
+            "evidence_context_fraction": self.evidence_context_fraction,
+            "crop_padding": self.crop_padding,
+            "crop_size": self.crop_size,
         }
 
     def enqueue(
@@ -203,9 +211,11 @@ class SemanticEventQueue:
         track: TrackOutput,
         reason: str,
         minimum_frame_gap: int = 90,
-        crop_padding: float = 0.15,
-        crop_size: int = 256,
+        crop_padding: float | None = None,
+        crop_size: int | None = None,
     ) -> Path | None:
+        crop_padding = self.crop_padding if crop_padding is None else crop_padding
+        crop_size = self.crop_size if crop_size is None else crop_size
         if minimum_frame_gap < 1:
             raise SemanticQueueError("minimum_frame_gap must be positive.")
         if not 0.0 <= crop_padding <= 1.0:
@@ -319,6 +329,7 @@ class SemanticEventQueue:
                 evidence,
                 width=self.evidence_panel_width,
                 height=self.evidence_panel_height,
+                context_fraction=self.evidence_context_fraction,
             )
             if not cv2.imwrite(str(panel_path), panel):
                 crop_path.unlink(missing_ok=True)
@@ -621,12 +632,15 @@ def _build_evidence_panel(
     *,
     width: int,
     height: int,
+    context_fraction: float = 0.55,
 ) -> Any:
     """Compose scene context and temporal crops into one bounded Qwen image."""
     import numpy as np
 
     panel = np.full((height, width, 3), 24, dtype=np.uint8)
-    context_width = max(int(round(width * 0.64)), 1)
+    if not 0.0 < context_fraction < 1.0:
+        raise SemanticQueueError("context_fraction must be between 0 and 1.")
+    context_width = max(int(round(width * context_fraction)), 1)
     context = frame.copy()
     box = track.bbox_xyxy
     cv2.rectangle(
@@ -962,7 +976,12 @@ def prepare_pending_events_with_locate(
             "minimum_association_score must be between 0 and 1."
         )
     root = Path(queue_dir)
-    pending_paths = sorted((root / "pending").glob("*.json"))
+    # Match the exact claim order used by process_semantic_queue. Otherwise a
+    # bounded Locate pass can prepare one track while Qwen claims another.
+    pending_paths = sorted(
+        (root / "pending").glob("*.json"),
+        key=_pending_claim_order,
+    )
     candidates = []
     for path in pending_paths:
         event = json.loads(path.read_text(encoding="utf-8"))
@@ -1036,7 +1055,24 @@ def prepare_pending_events_with_locate(
                 selected
                 and selected["association_score"] >= minimum_association_score
             )
-            qwen_paths = [str(crop_path.resolve())]
+            existing_paths = [
+                str(Path(str(value)).resolve())
+                for value in (
+                    event.get("qwen_image_paths")
+                    or [event.get("evidence_panel_path") or crop_path]
+                )
+                if value and Path(str(value)).is_file()
+            ]
+            # Keep the temporal evidence panel as Qwen's primary image. Locate
+            # contributes a second, tighter view instead of replacing history.
+            qwen_paths = existing_paths[:1] or [str(crop_path.resolve())]
+            qwen_labels = [
+                str(value) for value in event.get("qwen_image_labels", [])[:1]
+            ]
+            if not qwen_labels:
+                qwen_labels = [
+                    f"Track {int(event['track_id'])} temporal evidence panel."
+                ]
             grounded_crop_path: str | None = None
             if accepted and selected is not None:
                 grounded_crop = _crop_grounded_region(
@@ -1054,6 +1090,9 @@ def prepare_pending_events_with_locate(
                         )
                     grounded_crop_path = str(output_path.resolve())
                     qwen_paths.append(grounded_crop_path)
+                    qwen_labels.append(
+                        f"LocateAnything-refined crop for track {int(event['track_id'])}."
+                    )
                 accepted_count += 1
             runtime = getattr(result, "runtime_info", None)
             locate_payload = {
@@ -1087,6 +1126,7 @@ def prepare_pending_events_with_locate(
                     **event,
                     "locateanything": locate_payload,
                     "qwen_image_paths": qwen_paths,
+                    "qwen_image_labels": qwen_labels,
                 },
             )
     finally:
@@ -1096,6 +1136,8 @@ def prepare_pending_events_with_locate(
         "status": "ok",
         "prepared_event_count": len(candidates),
         "accepted_event_count": accepted_count,
+        "prepared_event_ids": [str(event["event_id"]) for _path, event in candidates],
+        "prepared_track_ids": [int(event["track_id"]) for _path, event in candidates],
         "elapsed_seconds": time.perf_counter() - started,
         "model_id": model_id,
         "quantization": quantization,
@@ -1693,41 +1735,15 @@ def process_semantic_queue(
             )
             continue
         parsed = _enforce_event_taxonomy(parsed, event)
-        event_frame = int(event["frame_index"])
         parsed = [
             replace(row, evidence_frames=_validated_evidence_frames(row, event))
             for row in parsed
         ]
         evidence.extend(parsed)
-        locate = event.get("locateanything") or {}
-        locate_class = str(
-            event.get("detector_class_name") or "unknown"
-        ).strip()
-        if (
-            locate.get("accepted") is True
-            and locate_class.casefold() not in {"", "unknown", "object"}
-        ):
-            locate_confidence = locate.get("confidence")
-            evidence.extend(
-                _enforce_event_taxonomy(
-                    [
-                        TrackSemanticEvidence(
-                            track_id=int(event["track_id"]),
-                            class_label=locate_class,
-                            confidence=(
-                                float(locate_confidence)
-                                if locate_confidence is not None
-                                else 1.0
-                            )
-                            * float(locate.get("association_score", 0.0)),
-                            source="locateanything",
-                            evidence_frames=(event_frame,),
-                            evidence="event-triggered target-crop grounding",
-                        )
-                    ],
-                    event,
-                )
-            )
+        # LocateAnything verifies and tightens the target region; it does not
+        # independently classify that region. Voting the detector hint as a
+        # Locate semantic label suppresses valid Qwen refinements such as
+        # detector "car" -> visually supported "van".
         processed.append((path, event, batch))
 
     failed_dir = root / "failed"
@@ -1829,6 +1845,102 @@ def process_semantic_queue(
         "grouped_events": grouped,
         "semantic_output": str(Path(semantic_output).resolve()),
         "memory_path": str(Path(memory_path).resolve()),
+        "fusion_summary": fused["summary"],
+    }
+
+
+def rebuild_semantic_cache_from_processed(
+    *,
+    processed_dir: str | Path,
+    semantic_output: str | Path,
+    registry_path: str | Path = "configs/ontology/vocabulary_registry.yaml",
+) -> dict[str, Any]:
+    """Rebuild fusion from saved Qwen outputs without another model call."""
+
+    started = time.perf_counter()
+    paths = sorted(Path(processed_dir).glob("*.json"))
+    if not paths:
+        raise SemanticQueueError(
+            f"No processed semantic events found: {Path(processed_dir)}"
+        )
+    events = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+    context_ids = {str(event.get("context_id", "")) for event in events}
+    if len(context_ids) != 1 or not next(iter(context_ids)):
+        raise SemanticQueueError(
+            "Processed semantic events must share one non-empty context_id."
+        )
+    tasks = [event.get("semantic_task") or {} for event in events]
+    if any(task != tasks[0] for task in tasks[1:]):
+        raise SemanticQueueError("Processed semantic events use different tasks.")
+    task = tasks[0]
+    evidence: list[TrackSemanticEvidence] = []
+    detector_labels: dict[int, str] = {}
+    invalid_events: list[str] = []
+    for event in events:
+        batch = event.get("model_result") or {}
+        try:
+            parsed = [
+                row
+                for row in parse_qwen_answer({"answer": batch.get("answer", "")})
+                if row.track_id == int(event["track_id"])
+            ]
+        except SemanticFusionError:
+            parsed = []
+        if not parsed:
+            invalid_events.append(str(event.get("event_id", "unknown")))
+            continue
+        parsed = _enforce_event_taxonomy(parsed, event)
+        evidence.extend(
+            replace(row, evidence_frames=_validated_evidence_frames(row, event))
+            for row in parsed
+        )
+        detector_labels[int(event["track_id"])] = str(
+            event.get("detector_class_name", "object")
+        )
+    if not evidence:
+        raise SemanticQueueError("Saved Qwen outputs contain no valid track evidence.")
+
+    if str(task.get("label_mode", "open")).strip().casefold() != "closed":
+        project_root = get_project_root()
+        registry_candidate = Path(registry_path)
+        resolved_registry = (
+            registry_candidate.resolve()
+            if registry_candidate.is_absolute()
+            else (project_root / registry_candidate).resolve()
+        )
+        evidence = normalize_semantic_evidence(
+            evidence,
+            VocabularyRegistry.load(resolved_registry),
+        )
+    fused = fuse_track_semantics(
+        evidence,
+        unknown_threshold=float(task.get("unknown_threshold", 0.70)),
+        fine_unknown_threshold=float(task.get("fine_unknown_threshold", 0.85)),
+        fine_minimum_margin=float(task.get("fine_minimum_margin", 0.15)),
+        fine_minimum_temporal_stability=float(
+            task.get("fine_minimum_temporal_stability", 0.67)
+        ),
+    )
+    for row in fused.get("tracks", []):
+        track_id = int(row["track_id"])
+        row["detector_class_name"] = detector_labels.get(track_id, "object")
+        row["task_id"] = task.get("task_id")
+    fused["runtime"] = {
+        "mode": "rebuild_from_saved_qwen_outputs",
+        "context_id": next(iter(context_ids)),
+        "processed_event_count": len(events),
+        "valid_event_count": len(events) - len(invalid_events),
+        "invalid_event_ids": invalid_events,
+        "elapsed_seconds": time.perf_counter() - started,
+    }
+    output = Path(semantic_output)
+    _atomic_json(output, fused)
+    return {
+        "status": "ok",
+        "processed_event_count": len(events),
+        "valid_event_count": len(events) - len(invalid_events),
+        "invalid_event_ids": invalid_events,
+        "semantic_output": str(output.resolve()),
         "fusion_summary": fused["summary"],
     }
 

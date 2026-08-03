@@ -37,6 +37,7 @@ def convert_multidomain_gt(
     if manifest_path.exists() and not overwrite:
         raise MultiDomainGtError(f"Output exists and overwrite=false: {manifest_path}")
     normalized_format = source_format.strip().lower().replace("-", "_")
+    ignored_regions_by_sequence: dict[str, list[dict[str, float]]] = {}
     if normalized_format == "bdd100k_scalabel":
         sequences, categories = _read_bdd100k(source)
     elif normalized_format == "tao_coco_video":
@@ -47,6 +48,7 @@ def convert_multidomain_gt(
         sequences, categories = _read_ctc_masks(source)
     elif normalized_format == "ua_detrac_xml":
         sequences, categories = _read_ua_detrac(source)
+        ignored_regions_by_sequence = _read_ua_detrac_ignored_regions(source)
     else:
         raise MultiDomainGtError(f"Unsupported source format: {source_format}")
     if max_frames is not None:
@@ -68,7 +70,9 @@ def convert_multidomain_gt(
     output.mkdir(parents=True, exist_ok=True)
     sequence_rows = []
     for sequence_name, rows in sorted(sequences.items()):
-        sequence_dir = output / _safe_name(sequence_name) / "gt"
+        normalized_sequence = _safe_name(sequence_name)
+        sequence_root = output / normalized_sequence
+        sequence_dir = sequence_root / "gt"
         sequence_dir.mkdir(parents=True, exist_ok=True)
         gt_path = sequence_dir / "gt.txt"
         rendered = "\n".join(_mot_line(row) for row in sorted(rows)) + "\n"
@@ -79,14 +83,33 @@ def convert_multidomain_gt(
             resolved_media_root,
             media_fps=media_fps,
         )
-        seqinfo_path = sequence_dir.parent / "seqinfo.ini"
+        seqinfo_path = sequence_root / "seqinfo.ini"
         _write_text_atomic(seqinfo_path, _seqinfo_text(sequence_name, sequence_info))
+        ignored_regions = ignored_regions_by_sequence.get(sequence_name, [])
+        ignored_regions_path = None
+        if ignored_regions:
+            ignored_regions_path = sequence_root / "ignored_regions.json"
+            _write_text_atomic(
+                ignored_regions_path,
+                json.dumps(
+                    {
+                        "sequence": sequence_name,
+                        "coordinate_format": "xywh",
+                        "regions": ignored_regions,
+                    },
+                    indent=2,
+                ),
+            )
         sequence_rows.append(
             {
                 "sequence": sequence_name,
-                "normalized_sequence": _safe_name(sequence_name),
+                "normalized_sequence": normalized_sequence,
                 "gt_path": str(gt_path),
                 "seqinfo_path": str(seqinfo_path),
+                "ignored_regions_path": (
+                    str(ignored_regions_path) if ignored_regions_path is not None else None
+                ),
+                "ignored_region_count": len(ignored_regions),
                 "media_path": sequence_info.get("media_path"),
                 "annotation_count": len(rows),
                 "frame_count": sequence_info["frame_count"],
@@ -328,6 +351,35 @@ def _read_ua_detrac(source: Path) -> tuple[dict[str, list[tuple]], dict[int, str
                     )
                 )
     return dict(sequences), {value: key for key, value in name_to_id.items()}
+
+
+def _read_ua_detrac_ignored_regions(
+    source: Path,
+) -> dict[str, list[dict[str, float]]]:
+    """Preserve static UA-DETRAC regions excluded by the benchmark protocol."""
+    import xml.etree.ElementTree as ET
+
+    paths = sorted(source.rglob("*.xml")) if source.is_dir() else [source]
+    regions_by_sequence: dict[str, list[dict[str, float]]] = {}
+    for path in paths:
+        try:
+            root = ET.parse(path).getroot()
+        except ET.ParseError as exc:
+            raise MultiDomainGtError(f"Invalid UA-DETRAC XML: {path}") from exc
+        sequence = str(root.attrib.get("name") or path.stem)
+        regions: list[dict[str, float]] = []
+        for box in root.findall("./ignored_region/box"):
+            region = {
+                "x": float(box.attrib["left"]),
+                "y": float(box.attrib["top"]),
+                "width": float(box.attrib["width"]),
+                "height": float(box.attrib["height"]),
+            }
+            if region["width"] > 0.0 and region["height"] > 0.0:
+                regions.append(region)
+        if regions:
+            regions_by_sequence[sequence] = regions
+    return regions_by_sequence
 
 
 def _row(

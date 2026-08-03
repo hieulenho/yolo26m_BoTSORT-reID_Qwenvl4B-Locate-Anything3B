@@ -102,6 +102,22 @@ def test_dense_traffic_task_uses_bounded_live_semantics() -> None:
     assert task.semantic.evidence_collection_delay_seconds == pytest.approx(0.75)
     assert task.semantic.evidence_panel_width == 512
     assert task.semantic.evidence_panel_height == 384
+    assert task.semantic.evidence_context_fraction == pytest.approx(0.55)
+    assert task.semantic.crop_padding == pytest.approx(0.15)
+    assert task.semantic.crop_size == 256
+
+
+def test_traffic_quality_task_uses_measured_accuracy_profile() -> None:
+    task = load_task_pipeline_config("configs/tasks/traffic_objects_quality.yaml")
+
+    assert task.detector.checkpoint == "yolo26s.pt"
+    assert task.detector.imgsz == 768
+    assert task.tracker.name == "tracktrack_reid"
+    assert task.semantic.max_pending_events == 512
+    assert task.semantic.max_evidence_images == 2
+    assert task.semantic.evidence_context_fraction == pytest.approx(0.45)
+    assert task.semantic.crop_padding == pytest.approx(0.25)
+    assert task.semantic.crop_size == 384
 
 
 def test_runtime_preprocessing_override_is_recorded(tmp_path: Path) -> None:
@@ -150,6 +166,25 @@ def test_runtime_tracker_override_is_recorded(tmp_path: Path) -> None:
 
     resolved = json.loads(paths["resolved_task"].read_text(encoding="utf-8"))
     assert Path(resolved["tracker"]["config"]).resolve() == override.resolve()
+    assert resolved["tracker"]["name"] == "tracktrack"
+
+
+def test_runtime_tracker_override_records_reid_variant(tmp_path: Path) -> None:
+    task = load_task_pipeline_config("configs/tasks/traffic_objects.yaml")
+    override = Path("configs/trackers/tracktrack_reid_realtime.yaml")
+    paths = write_task_runtime(
+        config=task,
+        output_dir=tmp_path / "runtime",
+        output_video=tmp_path / "tracked.mp4",
+        device="cpu",
+        overwrite=False,
+        tracker_config_path=override,
+    )
+
+    resolved = json.loads(paths["resolved_task"].read_text(encoding="utf-8"))
+    tracking = load_tracking_config(paths["tracking_config"])
+    assert resolved["tracker"]["name"] == "tracktrack_reid"
+    assert tracking.tracker_name == "tracktrack_reid"
 
 
 @pytest.mark.parametrize(

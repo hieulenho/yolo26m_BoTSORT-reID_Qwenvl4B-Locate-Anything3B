@@ -10,6 +10,9 @@ from pathlib import Path
 
 from football_tracking.evaluation.mot_transform import (
     MotTransformError,
+    filter_mot_file_by_ignore_regions,
+    load_normalized_mot_ignore_regions,
+    stage_ignore_filtered_mot_ground_truth,
     stage_scaled_mot_ground_truth,
 )
 from football_tracking.evaluation.multi_tracker_trackeval import (
@@ -38,6 +41,16 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--gt-scale-x", type=float, default=1.0)
     parser.add_argument("--gt-scale-y", type=float, default=1.0)
+    parser.add_argument(
+        "--ignore-overlap-threshold",
+        type=float,
+        default=0.5,
+        help=(
+            "Intersection-over-box-area threshold for normalized static ignore "
+            "regions, such as UA-DETRAC ignored_region boxes."
+        ),
+    )
+    parser.add_argument("--disable-ignore-regions", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -50,20 +63,59 @@ def main() -> int:
     if missing:
         sys.stderr.write(f"Error: Prediction does not exist: {missing[0]}\n")
         return 2
+    if not 0.0 < args.ignore_overlap_threshold <= 1.0:
+        sys.stderr.write("Error: --ignore-overlap-threshold must be in (0, 1].\n")
+        return 2
     summary_path = args.output_dir / "trackeval_summary.json"
     if summary_path.exists() and not args.overwrite:
         sys.stderr.write(f"Error: Output exists and overwrite=false: {summary_path}\n")
         return 2
     tracker_dir = args.output_dir / "inputs" / args.tracker_name / args.split
     tracker_dir.mkdir(parents=True, exist_ok=True)
+    sequence_names = [sequence for sequence, _prediction in pairs]
+    try:
+        ignore_regions = (
+            {}
+            if args.disable_ignore_regions
+            else load_normalized_mot_ignore_regions(
+                gt_root=args.gt_root.resolve(),
+                sequences=sequence_names,
+                scale_x=args.gt_scale_x,
+                scale_y=args.gt_scale_y,
+            )
+        )
+    except MotTransformError as exc:
+        sys.stderr.write(f"Error: {exc}\n")
+        return 2
+    prediction_filter_stats: dict[str, dict] = {}
     for sequence, prediction in pairs:
-        shutil.copy2(prediction, tracker_dir / f"{sequence}.txt")
+        destination = tracker_dir / f"{sequence}.txt"
+        regions = ignore_regions.get(sequence, [])
+        try:
+            if regions:
+                prediction_filter_stats[sequence] = filter_mot_file_by_ignore_regions(
+                    source=prediction,
+                    destination=destination,
+                    regions=regions,
+                    overlap_threshold=args.ignore_overlap_threshold,
+                )
+            else:
+                shutil.copy2(prediction, destination)
+                prediction_filter_stats[sequence] = {
+                    "input_rows": 0,
+                    "kept_rows": 0,
+                    "removed_rows": 0,
+                }
+        except MotTransformError as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            return 2
     seqmap = args.output_dir / "seqmap.txt"
     seqmap.write_text(
         "name\n" + "\n".join(sequence for sequence, _ in pairs) + "\n",
         encoding="utf-8",
     )
     evaluation_gt_root = args.gt_root.resolve()
+    gt_filter_stats: dict[str, dict] = {}
     try:
         if args.gt_scale_x != 1.0 or args.gt_scale_y != 1.0:
             evaluation_gt_root = stage_scaled_mot_ground_truth(
@@ -72,6 +124,14 @@ def main() -> int:
                 output_root=(args.output_dir / "scaled_gt").resolve(),
                 scale_x=args.gt_scale_x,
                 scale_y=args.gt_scale_y,
+            )
+        if ignore_regions:
+            evaluation_gt_root, gt_filter_stats = stage_ignore_filtered_mot_ground_truth(
+                gt_root=evaluation_gt_root,
+                sequences=sequence_names,
+                output_root=(args.output_dir / "ignore_filtered_gt").resolve(),
+                regions_by_sequence=ignore_regions,
+                overlap_threshold=args.ignore_overlap_threshold,
             )
     except MotTransformError as exc:
         sys.stderr.write(f"Error: {exc}\n")
@@ -91,6 +151,14 @@ def main() -> int:
         "evaluation_root": str(evaluation_gt_root),
         "scale_x": args.gt_scale_x,
         "scale_y": args.gt_scale_y,
+    }
+    payload["ignore_region_filter"] = {
+        "enabled": bool(ignore_regions),
+        "overlap_measure": "intersection_over_box_area",
+        "overlap_threshold": args.ignore_overlap_threshold,
+        "region_count": sum(len(regions) for regions in ignore_regions.values()),
+        "prediction": prediction_filter_stats,
+        "ground_truth": gt_filter_stats,
     }
     args.output_dir.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

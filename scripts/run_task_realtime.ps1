@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$TaskConfig,
     [string]$Source = "0",
+    [string]$SourceEnvironmentVariable = "",
     [string]$RunName = "task_realtime",
     [string]$OutputRoot = "outputs\task_realtime",
     [string]$OutputVideo = "",
@@ -18,6 +19,17 @@ param(
     [int]$SemanticWorkerBatchSize = 2,
     [ValidateRange(1, 2)]
     [int]$SemanticWorkerMaxGroupImages = 2,
+    [switch]$DisableSemanticGrouping,
+    [switch]$LocateFirst,
+    [string]$LocateModelId = "nvidia/LocateAnything-3B",
+    [ValidateSet("none", "8bit", "4bit")]
+    [string]$LocateQuantization = "8bit",
+    [ValidateRange(32, 2048)]
+    [int]$LocateMaxNewTokens = 256,
+    [ValidateRange(4096, 1048576)]
+    [int]$LocateImageMaxPixels = 65536,
+    [ValidateRange(0.0, 1.0)]
+    [double]$LocateMinimumAssociationScore = 0.10,
     [ValidateRange(0, 1000000)]
     [int]$SemanticWorkerMaxEvents = 0,
     [ValidateRange(0, 1000000)]
@@ -45,6 +57,22 @@ if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $TaskConfig -PathType Leaf)) {
     throw "Task config does not exist: $TaskConfig"
+}
+if ($LocateFirst -and $SemanticWorkerMode -ne "deferred") {
+    throw "-LocateFirst requires -SemanticWorkerMode deferred so LocateAnything and Qwen never share VRAM."
+}
+$EffectiveSource = $Source
+if ($SourceEnvironmentVariable) {
+    if ($SourceEnvironmentVariable -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') {
+        throw "Invalid source environment variable name: $SourceEnvironmentVariable"
+    }
+    $EffectiveSource = [System.Environment]::GetEnvironmentVariable(
+        $SourceEnvironmentVariable,
+        "Process"
+    )
+    if ([string]::IsNullOrWhiteSpace($EffectiveSource)) {
+        throw "Source environment variable is empty or missing: $SourceEnvironmentVariable"
+    }
 }
 
 $ResolvedOutputRoot = if ([System.IO.Path]::IsPathRooted($OutputRoot)) {
@@ -157,7 +185,7 @@ if (-not [bool]$Task.semantic.enabled) { $SemanticWorkerMode = "disabled" }
 $EventInterval = [int]$Task.semantic.event_interval_frames
 $EventsPerFrame = [int]$Task.semantic.events_per_frame
 $TaskMaxPending = [int]$Task.semantic.max_pending_events
-$IsFileSource = Test-Path -LiteralPath $Source -PathType Leaf
+$IsFileSource = Test-Path -LiteralPath $EffectiveSource -PathType Leaf
 if ($SemanticMaxPendingEvents -gt 0) {
     $MaxPending = $SemanticMaxPendingEvents
 }
@@ -180,13 +208,26 @@ $WorkerArgs = @(
     "--semantic-output", $SemanticCache,
     "--memory", $SemanticMemory,
     "--max-events", "$SemanticWorkerBatchSize",
-    "--group-events",
     "--max-group-images", "$SemanticWorkerMaxGroupImages",
     "--report", $WorkerReport,
     "--pid-file", $WorkerPidFile,
     "--status-file", $WorkerStatus,
     "--parent-pid", "$PID"
 )
+if (-not $DisableSemanticGrouping) {
+    $WorkerArgs += "--group-events"
+}
+if ($LocateFirst) {
+    $WorkerArgs += @(
+        "--locate-first",
+        "--locate-model-id", $LocateModelId,
+        "--locate-device", $Device,
+        "--locate-quantization", $LocateQuantization,
+        "--locate-max-new-tokens", "$LocateMaxNewTokens",
+        "--locate-image-max-pixels", "$LocateImageMaxPixels",
+        "--locate-minimum-association-score", "$LocateMinimumAssociationScore"
+    )
+}
 $SemanticWorker = $null
 if ($SemanticWorkerMode -eq "live") {
     Write-Host (
@@ -212,12 +253,17 @@ $RealtimeArgs = @(
     "scripts\runtime\run_realtime_adaptive.py",
     "--config", $GeneratedConfig,
     "--task-config", $TaskConfig,
-    "--source", $Source,
     "--output-video", $OutputVideo,
     "--output-mot", $OutputMot,
     "--metadata", $Metadata,
     "--semantic-cache-reload-frames", "$SemanticCacheReloadFrames"
 )
+if ($SourceEnvironmentVariable) {
+    $RealtimeArgs += @("--source-env", $SourceEnvironmentVariable)
+}
+else {
+    $RealtimeArgs += @("--source", $Source)
+}
 if ($SemanticWorkerMode -ne "disabled") {
     $RealtimeArgs += @(
         "--semantic-queue-dir", $SemanticQueue,
@@ -301,7 +347,13 @@ if (
     $SemanticWorkerMode -eq "deferred" -and
     -not $SkipDeferredSemanticDrain
 ) {
-    Write-Host "==> Process queued tracks with one Qwen 8-bit session"
+    $SemanticStages = if ($LocateFirst) {
+        "LocateAnything $LocateQuantization first, then one Qwen 8-bit session"
+    }
+    else {
+        "one Qwen 8-bit session"
+    }
+    Write-Host "==> Process queued tracks with $SemanticStages"
     $DrainArgs = @($WorkerArgs) + @("--drain")
     if ($SemanticWorkerMaxEvents -gt 0) {
         $DrainArgs += @("--max-total-events", "$SemanticWorkerMaxEvents")
@@ -312,11 +364,11 @@ if (
         Write-Warning "Qwen worker failed; queued jobs were kept for retry."
         if ($RealtimeExitCode -eq 0) { $RealtimeExitCode = $WorkerExitCode }
     }
-    elseif ((Test-Path -LiteralPath $Source -PathType Leaf) -and (Test-Path -LiteralPath $SemanticCache -PathType Leaf)) {
+    elseif ($IsFileSource -and (Test-Path -LiteralPath $SemanticCache -PathType Leaf)) {
         Write-Host "==> Render accepted Qwen labels on the completed file"
         $RenderArgs = @(
             "-m", "football_tracking.adaptive_tracking.cli", "render-semantics",
-            "--source", $Source,
+            "--source", $EffectiveSource,
             "--tracks", $OutputMot,
             "--semantics", $SemanticCache,
             "--tracking-metadata", $Metadata,

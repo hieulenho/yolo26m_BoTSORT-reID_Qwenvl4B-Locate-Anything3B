@@ -195,6 +195,9 @@ def test_ua_detrac_xml_conversion_preserves_vehicle_classes(tmp_path: Path) -> N
     annotation = tmp_path / "MVI_1.xml"
     annotation.write_text(
         """<sequence name="MVI_1">
+        <ignored_region>
+          <box left="50" top="0" width="30" height="10"/>
+        </ignored_region>
         <frame num="1"><target_list>
           <target id="7"><box left="1" top="2" width="30" height="20"/>
           <attribute vehicle_type="van" truncation_ratio="0.25"/></target>
@@ -226,6 +229,12 @@ def test_ua_detrac_xml_conversion_preserves_vehicle_classes(tmp_path: Path) -> N
 
     assert result["annotation_count"] == 1
     assert result["categories"]["2"] == "van"
+    sequence = result["sequences"][0]
+    assert sequence["ignored_region_count"] == 1
+    ignored = json.loads(Path(sequence["ignored_regions_path"]).read_text())
+    assert ignored["regions"] == [
+        {"x": 50.0, "y": 0.0, "width": 30.0, "height": 10.0}
+    ]
     gt = (tmp_path / "normalized" / "MVI_1" / "gt" / "gt.txt").read_text()
     assert gt.startswith(
         "1,7,1.000000,2.000000,30.000000,20.000000,1.000000,2,0.750000"

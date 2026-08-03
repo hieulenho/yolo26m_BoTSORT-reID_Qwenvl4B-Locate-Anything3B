@@ -1,0 +1,138 @@
+schema_version: "1.0"
+
+task:
+  id: traffic_objects_quality
+  name: Accuracy-first road-user tracking and deep vehicle labeling
+  description: >-
+    Offline quality profile for road users. It prioritizes detector recall,
+    identity continuity, and conservative track-level subtype labels over FPS.
+
+detector:
+  name: yolo26s_coco_traffic_quality
+  backend: ultralytics
+  checkpoint: yolo26s.pt
+  class_ids: [0, 1, 2, 3, 5, 7, 1100, 1101, 1102, 1103, 1104, 1105, 1106, 1107]
+  tracker_class_ids: [0, 1, 2, 3, 5, 7]
+  supplemental_detectors:
+    - name: yoloe26s_vehicle_subtype_proposals
+      backend: ultralytics_yoloe
+      checkpoint: yoloe-26s-seg.pt
+      text_classes:
+        [sedan, sport utility vehicle, crossover SUV, hatchback, coupe,
+         station wagon, taxi, minivan]
+      input_class_ids: [0, 1, 2, 3, 4, 5, 6, 7]
+      output_class_ids: [1100, 1101, 1102, 1103, 1104, 1105, 1106, 1107]
+      class_names: [sedan, SUV, crossover, hatchback, coupe, station_wagon, taxi, minivan]
+      compatible_tracker_class_ids: [2]
+      every_n_frames: 6
+      half: false
+  preserve_source_classes: true
+  target_class_id: 2
+  target_class_name: vehicle
+  imgsz: 768
+  conf: 0.20
+  iou: 0.65
+  max_det: 300
+  half: true
+  preprocessing:
+    mode: none
+    clahe_clip_limit: 2.0
+    clahe_grid_size: 8
+    low_light_threshold: 65
+
+tracker:
+  name: tracktrack_reid
+  config: configs/trackers/tracktrack_reid_realtime.yaml
+  stabilize_classes: true
+  class_history_frames: 45
+  class_switch_margin: 0.25
+
+semantic:
+  enabled: true
+  provider: qwen
+  model_id: Qwen/Qwen3-VL-4B-Instruct
+  quantization: 8bit
+  label_mode: closed
+  enable_fine_labels: true
+  allowed_labels: [pedestrian, bicycle, motorcycle, car, van, bus, truck, unknown]
+  label_aliases:
+    person: pedestrian
+    people: pedestrian
+    human: pedestrian
+    motorbike: motorcycle
+    automobile: car
+    auto: car
+    lorry: truck
+  fine_label_taxonomy:
+    pedestrian: [adult pedestrian, child pedestrian, road worker, traffic officer]
+    bicycle: [road bicycle, mountain bicycle, city bicycle, cargo bicycle]
+    motorcycle:
+      [scooter, moped, sport motorcycle, cruiser motorcycle,
+       commuter motorcycle, touring motorcycle]
+    car:
+      [sedan, SUV, crossover, hatchback, coupe, station wagon,
+       convertible, taxi, police car]
+    van: [minivan, passenger van, cargo van, ambulance, camper van]
+    bus: [city bus, coach, minibus, school bus, double-decker bus]
+    truck:
+      [pickup truck, box truck, dump truck, tanker truck, tractor-trailer,
+       flatbed truck, garbage truck, tow truck, cement mixer, fire engine]
+  fine_label_aliases:
+    saloon: sedan
+    sport utility vehicle: SUV
+    crossover SUV: crossover
+    estate: station wagon
+    estate car: station wagon
+    MPV: minivan
+    panel van: cargo van
+    delivery van: cargo van
+    transit bus: city bus
+    public bus: city bus
+    coach bus: coach
+    motor scooter: scooter
+    pickup: pickup truck
+    semi truck: tractor-trailer
+    semitruck: tractor-trailer
+    articulated truck: tractor-trailer
+    tractor trailer: tractor-trailer
+    cement truck: cement mixer
+    recovery truck: tow truck
+    fire truck: fire engine
+  attributes: [color]
+  instruction: >-
+    Refine each road-user track from the highlighted scene and temporally
+    separated target crops. Keep parent class, subtype, and visible exterior
+    color separate. Use a service subtype only when markings or body structure
+    are visible. An exposed cargo bed means truck/pickup truck; sedan requires a
+    separate trunk; hatchback requires a short two-box body; SUV requires a tall
+    enclosed body and raised stance. Return unknown for tiny, blurred, frontal,
+    heavily occluded, or otherwise ambiguous subtype evidence. Never infer make,
+    model, plate, occupancy, or unseen function.
+  unknown_threshold: 0.75
+  fine_unknown_threshold: 0.74
+  fine_minimum_margin: 0.10
+  fine_minimum_temporal_stability: 0.67
+  fast_label_hint_threshold: 0.70
+  fast_color_hint_threshold: 0.60
+  event_interval_frames: 45
+  events_per_frame: 2
+  max_pending_events: 512
+  minimum_track_age_frames: 10
+  max_evidence_images: 2
+  evidence_interval_frames: 18
+  evidence_collection_delay_seconds: 0.75
+  evidence_layout: panel
+  evidence_panel_width: 640
+  evidence_panel_height: 384
+  evidence_context_fraction: 0.45
+  crop_padding: 0.25
+  crop_size: 384
+  minimum_crop_quality: 0.20
+  replacement_quality_margin: 0.06
+
+render:
+  show_confidence: true
+  show_trajectory: true
+  trajectory_length: 36
+  line_thickness: 2
+  font_scale: 0.55

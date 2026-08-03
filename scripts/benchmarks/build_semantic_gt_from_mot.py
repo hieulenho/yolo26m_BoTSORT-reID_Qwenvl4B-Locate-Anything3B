@@ -29,6 +29,16 @@ def main() -> int:
     parser.add_argument("--domain", required=True)
     parser.add_argument("--detector-route", default="")
     parser.add_argument("--iou-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--unmatched-policy",
+        choices=("unknown", "ignore"),
+        default="unknown",
+        help=(
+            "How to score predicted tracks with no GT match. Use 'ignore' for "
+            "class-incomplete datasets such as UA-DETRAC, which annotates vehicles "
+            "but not every visible road user."
+        ),
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
@@ -49,6 +59,7 @@ def main() -> int:
             domain=args.domain,
             detector_route=args.detector_route,
             iou_threshold=args.iou_threshold,
+            unmatched_policy=args.unmatched_policy,
             output_dir=args.output_dir,
             overwrite=args.overwrite,
         )
@@ -76,6 +87,7 @@ def build_semantic_gt_from_mot(
     domain: str,
     detector_route: str,
     iou_threshold: float,
+    unmatched_policy: str,
     output_dir: Path,
     overwrite: bool,
 ) -> dict[str, Any]:
@@ -112,6 +124,10 @@ def build_semantic_gt_from_mot(
     predicted = _mot_by_frame(prediction)
     gt = _mot_by_frame(ground_truth)
     evidence = _match_tracks(predicted, gt, selected_ids, category_map, iou_threshold)
+    scored_evidence, unscored_evidence = _partition_evidence(
+        evidence,
+        unmatched_policy=unmatched_policy,
+    )
 
     gt_tracks = [
         {
@@ -122,10 +138,14 @@ def build_semantic_gt_from_mot(
             "matched_observation_count": row["matched_observation_count"],
             "predicted_observation_count": row["predicted_observation_count"],
         }
-        for row in evidence
+        for row in scored_evidence
     ]
     known_classes = sorted(
-        {row["class_label"] for row in evidence if row["class_label"] != "unknown"}
+        {
+            row["class_label"]
+            for row in scored_evidence
+            if row["class_label"] != "unknown"
+        }
     )
     artifacts: dict[str, str] = {
         "discovery": str(discovery.resolve()),
@@ -156,6 +176,8 @@ def build_semantic_gt_from_mot(
                         for label in known_classes
                     ],
                     "tracks": gt_tracks,
+                    "unmatched_prediction_policy": unmatched_policy,
+                    "unscored_track_count": len(unscored_evidence),
                 },
             }
         ],
@@ -169,10 +191,25 @@ def build_semantic_gt_from_mot(
         "categories": str(categories.resolve()),
         "selection_semantics": str(selection_semantics.resolve()),
         "iou_threshold": iou_threshold,
+        "unmatched_policy": unmatched_policy,
         "selected_track_count": len(selected_ids),
-        "known_track_count": sum(row["class_label"] != "unknown" for row in evidence),
-        "unknown_track_count": sum(row["class_label"] == "unknown" for row in evidence),
-        "tracks": evidence,
+        "scored_track_count": len(scored_evidence),
+        "unscored_track_count": len(unscored_evidence),
+        "known_track_count": sum(
+            row["class_label"] != "unknown" for row in scored_evidence
+        ),
+        "unknown_track_count": sum(
+            row["class_label"] == "unknown" for row in scored_evidence
+        ),
+        "tracks": [
+            {
+                **row,
+                "evaluation_status": (
+                    "unscored" if row in unscored_evidence else "scored"
+                ),
+            }
+            for row in evidence
+        ],
     }
     mapping_path.write_text(json.dumps(mapping, indent=2), encoding="utf-8")
     return {
@@ -180,9 +217,25 @@ def build_semantic_gt_from_mot(
         "manifest": str(manifest_path),
         "mapping": str(mapping_path),
         "selected_track_count": len(selected_ids),
+        "scored_track_count": mapping["scored_track_count"],
+        "unscored_track_count": mapping["unscored_track_count"],
         "known_track_count": mapping["known_track_count"],
         "unknown_track_count": mapping["unknown_track_count"],
     }
+
+
+def _partition_evidence(
+    evidence: list[dict[str, Any]],
+    *,
+    unmatched_policy: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if unmatched_policy not in {"unknown", "ignore"}:
+        raise ValueError("unmatched_policy must be 'unknown' or 'ignore'.")
+    if unmatched_policy == "unknown":
+        return list(evidence), []
+    scored = [row for row in evidence if int(row["matched_observation_count"]) > 0]
+    unscored = [row for row in evidence if int(row["matched_observation_count"]) == 0]
+    return scored, unscored
 
 
 def _match_tracks(

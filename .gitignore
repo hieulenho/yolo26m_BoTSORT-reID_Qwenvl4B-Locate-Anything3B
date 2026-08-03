@@ -99,6 +99,7 @@ data/semantic_gt/**/contact_sheets/
 .env
 .env.*
 !.env.example
+.camera_credentials/
 .vscode/
 .idea/
 

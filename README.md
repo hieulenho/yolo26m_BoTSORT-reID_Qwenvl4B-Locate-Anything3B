@@ -1,8 +1,9 @@
 # Realtime Tracking With Qwen Semantics
 
 This repository implements a task-configured video pipeline that detects objects, assigns
-stable track IDs, and enriches selected tracks with deeper labels from one asynchronous
-`Qwen/Qwen3-VL-4B-Instruct` 8-bit worker.
+stable track IDs, and enriches selected tracks with deeper labels from
+`Qwen/Qwen3-VL-4B-Instruct` 8-bit. Accuracy-oriented offline runs can first use
+LocateAnything-3B 8-bit to refine the target region; Qwen remains the semantic decision model.
 
 The main runtime is deliberately explicit. A task file states what the user wants to track,
 which detector checkpoint to use, which labels are valid, and which attributes matter. The
@@ -18,10 +19,13 @@ flowchart LR
     D --> E[Immediate bbox, base class, and track ID]
     D --> F[Track evidence manager]
     F --> G[Bounded semantic queue]
-    G --> H[Qwen3-VL-4B 8-bit worker]
-    H --> I[Temporal fusion and unknown rejection]
-    I --> J[Semantic cache]
-    J --> E
+    G --> H{Deferred Locate-first mode?}
+    H -->|No| I[Qwen3-VL-4B 8-bit worker]
+    H -->|Yes| L[LocateAnything-3B 8-bit localization]
+    L --> I
+    I --> J[Temporal fusion and unknown rejection]
+    J --> M[Semantic cache]
+    M --> E
     E --> K[MP4, MOT TXT, JSON metrics]
 ```
 
@@ -45,10 +49,12 @@ frames. This avoids running a 4B model on every frame.
   a weaker pending crop without creating an unbounded queue.
 - **Unknown is a valid result.** A role, species, subtype, make, or model is not rendered as fact
   unless confidence, margin, taxonomy, and temporal checks pass.
+- **LocateAnything is localization evidence, not a class voter.** In deferred quality mode it
+  refines a partly occluded target crop before Qwen, but cannot overwrite Qwen's semantic label.
 
-LocateAnything is retained only under the legacy/ablation code. It is not part of the main
-single-VLM runtime because the measured Qwen-only traffic sample was more accurate and the
-second 3B model adds substantial latency and deployment complexity.
+Live mode uses Qwen alone because a second 3B model adds substantial latency on one 8 GB GPU.
+Deferred quality mode runs LocateAnything and Qwen sequentially so their VRAM peaks do not
+overlap. This gives Qwen both temporal track evidence and a refined spatial crop.
 
 ## Requirements
 
@@ -76,7 +82,7 @@ Optional YOLOE open-vocabulary support:
 .\.venv\Scripts\python.exe -m pip install -r requirements\open_vocab.txt
 ```
 
-Optional legacy LocateAnything ablations:
+Optional LocateAnything support for deferred quality runs and legacy ablations:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements\locate_tracking.txt
@@ -103,6 +109,17 @@ nvidia-smi
   -Overwrite
 ```
 
+`CameraIndex` is a logical inventory shared by local webcams and RTSP cameras. Local webcams
+are listed first; discoverable RTSP cameras follow. Therefore the same command can open a
+Yoosee stream at index 1 without installing a virtual-camera driver, provided the camera is on
+the same network and its RTSP service is enabled. Inspect the current mapping with:
+
+```powershell
+.\scripts\run_task_webcam.ps1 `
+  -TaskConfig configs\tasks\generic_coco_realtime.yaml `
+  -ListOnly
+```
+
 The preview opens automatically. Press `Q` or `Esc` to stop. `live` keeps Qwen loaded in a
 separate process and updates labels while capture continues. The detector label is immediate;
 the first deep label is delayed by model loading, evidence collection, and generation.
@@ -117,6 +134,68 @@ For dense traffic on a single 8 GB GPU, `disabled` preserves the highest foregro
 `deferred` is the reliable way to obtain deep labels for every retained track. Concurrent
 `live` Qwen inference competes with YOLO for the same GPU and cannot deeply label every
 short-lived vehicle at camera rate.
+
+### IP camera (Yoosee/ONVIF/RTSP)
+
+A Yoosee IP camera is powered by its USB cable but normally sends video over the local network,
+not as a Windows UVC webcam. Pair it with the Yoosee phone app on the same 2.4 GHz Wi-Fi, enable
+the NVR/RTSP connection, set a dedicated NVR password, and find its DHCP address. Disable the
+camera's own motion-following mode when evaluating tracker identity stability.
+
+Use the low-resolution sub-stream for lower live latency:
+
+```powershell
+.\scripts\run_ip_camera.ps1 `
+  -CameraIp 192.168.1.120 `
+  -Stream sub `
+  -TaskConfig configs\tasks\generic_coco_realtime.yaml `
+  -RunName yoosee_generic `
+  -SemanticWorkerMode live `
+  -Overwrite
+```
+
+The script asks for the NVR/RTSP password without echoing it, verifies three frames, then starts
+the pipeline. Use `-Stream main` when image detail matters more than latency. Credentials are
+passed through a temporary environment variable and are redacted from runtime metadata.
+Yoosee firmware varies: when the app has no NVR/DVR, RTSP, or ONVIF option, obtain the exact
+stream URL from the device manual or seller and pass it with `-RtspUrl`; a P2P-only firmware
+cannot be converted into an RTSP source by this repository.
+
+To avoid entering the RTSP password on every run, save it once with Windows DPAPI:
+
+```powershell
+.\scripts\save_camera_credential.ps1 -Username admin
+```
+
+The command prompts once and writes only an encrypted value under `.camera_credentials/`,
+which is excluded from Git. It can be decrypted only by the same Windows account on the same
+machine. Future `run_task_webcam.ps1`, `run_camera.ps1`, and `run_ip_camera.ps1` commands load
+it automatically. Recreate it with `-Overwrite` after changing the NVR password.
+
+For one index-style command across local and network cameras, first inspect the current
+inventory and then select its logical index:
+
+```powershell
+.\scripts\run_camera.ps1 -ListOnly
+
+.\scripts\run_camera.ps1 `
+  -CameraIndex 1 `
+  -TaskConfig configs\tasks\generic_coco_realtime.yaml `
+  -RunName portable_camera `
+  -SemanticWorkerMode live `
+  -Overwrite
+```
+
+Local webcams are listed first and RTSP endpoints follow. RTSP discovery scans only port 554
+on bounded private `/24` networks. Use `-ScanNetwork 192.168.137.0/24` to restrict discovery
+to a Windows Mobile Hotspot subnet. Because this is a dynamic inventory rather than a Windows
+device ID, run `-ListOnly` after changing adapters or networks before selecting 0, 1, or 2.
+
+For portable use, give Windows Mobile Hotspot a fixed SSID and password, set its band to
+2.4 GHz, and pair the camera with that hotspot once. The laptop may change its upstream Wi-Fi
+while the camera continues to use the laptop hotspot. A small travel router is more reliable
+for long unattended sessions. Connecting the laptop to an arbitrary new Wi-Fi does not move
+the camera to that network automatically.
 
 ### Recorded video
 
@@ -135,6 +214,27 @@ short-lived vehicle at camera rate.
 Deferred mode first writes the complete MOT result, processes queued tracks in one persistent
 Qwen session, then renders accepted labels back onto the video.
 
+For the accuracy-first traffic profile, run LocateAnything before Qwen and keep one track per
+prompt:
+
+```powershell
+.\scripts\run_task_realtime.ps1 `
+  -TaskConfig configs\tasks\traffic_objects_quality.yaml `
+  -Source F:\videos\traffic.mp4 `
+  -RunName traffic_quality `
+  -SemanticWorkerMode deferred `
+  -LocateFirst `
+  -DisableSemanticGrouping `
+  -SemanticWorkerBatchSize 1 `
+  -DisableFrameDropping `
+  -SynchronousVideoWrite `
+  -Device cuda `
+  -NoWindow `
+  -Overwrite
+```
+
+This command prioritizes identity and semantic quality, not realtime throughput.
+
 ### Provided task profiles
 
 | Task file | Detector scope | Deep semantic objective |
@@ -143,6 +243,7 @@ Qwen session, then renders accepted labels back onto the video.
 | `football_roles.yaml` | football people | team/role taxonomy |
 | `classroom_roles.yaml` | people | student/teacher/staff/visitor |
 | `traffic_objects.yaml` | traffic classes | vehicle subtype and visible attributes |
+| `traffic_objects_quality.yaml` | traffic classes + subtype proposals | Locate-refined subtype and color |
 | `wildlife_birds.yaml` | birds | conservative species/subtype |
 | `microscopy_cells.yaml` | task adapter | morphology without diagnosis |
 | `open_vocabulary_example.yaml` | explicit YOLOE text classes | open hierarchical label |
@@ -184,6 +285,22 @@ The rendered label source matters:
 Coverage is not accuracy. A box having some label does not prove that its deep label is correct.
 
 ## Verified Results
+
+### Traffic quality benchmark
+
+The current official UA-DETRAC comparison covers ten detector/tracker combinations on 750
+frames with all four dataset ignore regions applied. YOLO26s + TrackTrack CNN-ReID achieved
+HOTA 87.605, IDF1 96.399, and 0 IDSW at 14.16 processing FPS. YOLO26s + ByteTrack was the
+fastest measured profile at 49.52 FPS.
+
+The corrected LocateAnything -> Qwen run processed 24 tracks. Eight tracks had official
+vehicle-class GT and reached 87.5% parent-class accuracy, 85.45% Macro-F1, and 100% coverage.
+Sixteen predictions were unscored because UA-DETRAC does not annotate every visible class or
+ignore-region object. Fine subtype/color accuracy and unknown-rejection F1 remain N/A until
+reviewed GT for those labels exists.
+
+See the [traffic quality report](docs/benchmarks/traffic_quality/traffic_quality_report.md) and
+its [artifact audit](docs/benchmarks/traffic_quality/artifact_audit.json).
 
 Canonical machine-readable tables, plots, hashes, and limitations are in the
 [research report](docs/benchmarks/research_final/research_report.md).

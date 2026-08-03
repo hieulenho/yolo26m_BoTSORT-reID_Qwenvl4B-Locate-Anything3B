@@ -16,6 +16,16 @@ nvidia-smi
   -LiveSemanticMaxPendingEvents 4 `
   -Overwrite
 
+# 3a. Portable launcher: list local webcams and RTSP cameras, then select 0/1/2.
+.\scripts\save_camera_credential.ps1 -Username admin
+.\scripts\run_camera.ps1 -ListOnly
+.\scripts\run_camera.ps1 `
+  -CameraIndex 1 `
+  -TaskConfig configs\tasks\generic_coco_realtime.yaml `
+  -RunName portable_camera `
+  -SemanticWorkerMode live `
+  -Overwrite
+
 # 4. Recorded classroom video: track first, run one Qwen session, render final labels.
 .\scripts\run_task_realtime.ps1 `
   -TaskConfig configs\tasks\classroom_roles.yaml `
@@ -46,6 +56,23 @@ nvidia-smi
   -RunName wildlife_open `
   -OutputRoot F:\videos\final `
   -SemanticWorkerMode deferred `
+  -Device cuda `
+  -NoWindow `
+  -Overwrite
+
+# 6a. Accuracy-first traffic video: TrackTrack CNN-ReID, Locate first, then Qwen.
+.\.venv\Scripts\python.exe -m pip install -r requirements\locate_tracking.txt
+.\scripts\run_task_realtime.ps1 `
+  -TaskConfig configs\tasks\traffic_objects_quality.yaml `
+  -Source F:\videos\traffic.mp4 `
+  -RunName traffic_quality `
+  -OutputRoot F:\videos\final `
+  -SemanticWorkerMode deferred `
+  -LocateFirst `
+  -DisableSemanticGrouping `
+  -SemanticWorkerBatchSize 1 `
+  -DisableFrameDropping `
+  -SynchronousVideoWrite `
   -Device cuda `
   -NoWindow `
   -Overwrite
@@ -106,6 +133,11 @@ nvidia-smi
 # 12. Rebuild the canonical report, CSV tables, and figures from saved artifacts.
 .\.venv\Scripts\python.exe scripts\benchmarks\build_task_research_report.py `
   --config configs\benchmarks\task_research_report.yaml `
+  --overwrite
+
+# 12a. Build the focused official traffic quality report.
+.\.venv\Scripts\python.exe scripts\benchmarks\build_traffic_quality_report.py `
+  --config configs\benchmarks\traffic_quality_report.yaml `
   --overwrite
 
 # 13. Code-quality gate.

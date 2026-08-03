@@ -49,6 +49,7 @@ from football_tracking.adaptive_tracking.semantic_queue import (
     _validated_target_bbox,
     prepare_pending_events_with_locate,
     process_semantic_queue,
+    rebuild_semantic_cache_from_processed,
 )
 from football_tracking.adaptive_tracking.semantic_render import (
     _select_fitting_text,
@@ -1584,7 +1585,13 @@ def test_realtime_deferred_locate_prepares_verified_qwen_images(
     assert summary["accepted_event_count"] == 1
     assert event["locateanything"]["accepted"] is True
     assert len(event["qwen_image_paths"]) == 2
+    assert event["qwen_image_paths"][0] == event["evidence_panel_path"]
     assert Path(event["qwen_image_paths"][1]).is_file()
+    assert "LocateAnything-refined" in event["qwen_image_labels"][1]
+    # Locate is localization evidence only. A detector class must not become a
+    # second semantic vote that can override Qwen's refinement.
+    event["detector_class_name"] = "car"
+    event_path.write_text(json.dumps(event), encoding="utf-8")
     assert len(event["target_bbox_in_crop_xyxy"]) == 4
 
     captured_jobs: list[dict] = []
@@ -1635,6 +1642,17 @@ def test_realtime_deferred_locate_prepares_verified_qwen_images(
         for frame in observation["evidence_frames"]
     } == {10}
 
+    rebuilt_path = tmp_path / "semantic_rebuilt.json"
+    rebuilt = rebuild_semantic_cache_from_processed(
+        processed_dir=queue.processed_dir,
+        semantic_output=rebuilt_path,
+    )
+    rebuilt_payload = json.loads(rebuilt_path.read_text(encoding="utf-8"))
+
+    assert rebuilt["fusion_summary"]["accepted_count"] == 1
+    assert rebuilt_payload["tracks"][0]["sources"] == ["qwen"]
+    assert rebuilt_payload["runtime"]["mode"] == "rebuild_from_saved_qwen_outputs"
+
 
 def test_realtime_locate_target_bbox_falls_back_after_invalid_clipping() -> None:
     assert _validated_target_bbox(
@@ -1642,6 +1660,70 @@ def test_realtime_locate_target_bbox_falls_back_after_invalid_clipping() -> None
         width=64,
         height=64,
     ) == (0.0, 0.0, 64.0, 64.0)
+
+
+def test_realtime_locate_uses_same_priority_order_as_qwen(tmp_path: Path) -> None:
+    queue = SemanticEventQueue(tmp_path / "queue", context_id="priority")
+    frame = np.zeros((80, 120, 3), dtype=np.uint8)
+    periodic = TrackOutput.from_xyxy(
+        frame_index=1,
+        sequence_name="live",
+        track_id=1,
+        bbox_xyxy=BoundingBoxXYXY(10, 10, 50, 70),
+        confidence=0.6,
+        class_id=2,
+        class_name="car",
+    )
+    unknown = TrackOutput.from_xyxy(
+        frame_index=2,
+        sequence_name="live",
+        track_id=2,
+        bbox_xyxy=BoundingBoxXYXY(60, 10, 110, 70),
+        confidence=0.9,
+        class_id=2,
+        class_name="car",
+    )
+    assert queue.enqueue(
+        frame=frame,
+        frame_index=1,
+        track=periodic,
+        reason="periodic_refresh",
+    )
+    assert queue.enqueue(
+        frame=frame,
+        frame_index=2,
+        track=unknown,
+        reason="unknown_track",
+    )
+
+    class GroundedBox:
+        bbox_xyxy = (0.0, 0.0, 50.0, 60.0)
+        confidence = 0.9
+
+    class Result:
+        boxes = [GroundedBox()]
+        runtime_info = None
+
+    class Service:
+        @staticmethod
+        def ground_image(*, image_path: Path, query: str) -> Result:
+            assert image_path.is_file()
+            assert query == "the car"
+            return Result()
+
+    summary = prepare_pending_events_with_locate(
+        queue_dir=queue.root,
+        max_events=1,
+        service=Service(),
+    )
+
+    assert summary["prepared_track_ids"] == [2]
+    located = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in queue.pending_dir.glob("*.json")
+        if "locateanything" in path.read_text(encoding="utf-8")
+    ]
+    assert [event["track_id"] for event in located] == [2]
 
 
 def test_qwen_temporal_observations_are_fused_in_frame_order() -> None:

@@ -41,7 +41,7 @@ from football_tracking.tracking.pipeline import (
 )
 from football_tracking.tracking.tracker_factory import create_tracker
 from football_tracking.tracking.trajectory import TrajectoryStore
-from football_tracking.video_capture import open_video_capture
+from football_tracking.video_capture import open_video_capture, redact_capture_source
 from football_tracking.visualization.draw_tracks import (
     draw_detection_overlays,
     draw_tracks,
@@ -178,9 +178,10 @@ def run_realtime_tracking(
     tracker_load_seconds = time.perf_counter() - tracker_load_started
 
     source_value = _capture_source(stream_source)
+    display_source = redact_capture_source(source_value)
     capture, capture_backend = open_video_capture(source_value)
     if capture is None:
-        raise RealtimeTrackingError(f"Could not open stream source: {stream_source}")
+        raise RealtimeTrackingError(f"Could not open stream source: {display_source}")
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
     source_fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
@@ -266,7 +267,7 @@ def run_realtime_tracking(
     semantic_queue = (
         SemanticEventQueue(
             semantic_queue_dir,
-            context_id=f"{Path(config_path).resolve()}::{stream_source}",
+            context_id=f"{Path(config_path).resolve()}::{display_source}",
             max_pending_events=semantic_max_pending_events,
             semantic_task=semantic_task,
         )
@@ -535,7 +536,7 @@ def run_realtime_tracking(
     total_seconds = stream_finished - started
     result = {
         "mode": "realtime",
-        "stream_source": str(stream_source),
+        "stream_source": display_source,
         "capture_backend": capture_backend,
         "capture_mode": "latest_frame" if latest_reader is not None else "sequential",
         "config": str(Path(config_path).resolve()),

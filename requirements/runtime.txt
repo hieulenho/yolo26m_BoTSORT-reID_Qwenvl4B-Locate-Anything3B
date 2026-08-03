@@ -5,4 +5,5 @@ numpy
 scipy
 PyYAML
 tqdm
+psutil
 deep-sort-realtime

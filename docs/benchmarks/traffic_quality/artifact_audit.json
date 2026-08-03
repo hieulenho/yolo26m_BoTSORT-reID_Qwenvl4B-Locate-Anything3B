@@ -1,0 +1,136 @@
+{
+  "status": "ok",
+  "error_count": 0,
+  "warning_count": 3,
+  "issues": [
+    {
+      "severity": "WARNING",
+      "code": "fine_label_gt_missing",
+      "message": "Fine-label accuracy is not measurable from UA-DETRAC GT."
+    },
+    {
+      "severity": "WARNING",
+      "code": "unknown_gt_missing",
+      "message": "Unknown-rejection F1 is not measurable from this GT."
+    },
+    {
+      "severity": "WARNING",
+      "code": "single_sequence_scope",
+      "message": "Traffic quality conclusions currently cover one 750-frame sequence."
+    }
+  ],
+  "sources": [
+    {
+      "path": "F:\\Tracking\\data\\benchmarks\\normalized\\ua_detrac_mvi_40774\\normalized_gt_manifest.json",
+      "sha256": "bf5eda3ef1c402cc9c293f821a00e8fb76c4c477baf4f3a25e93c26295151b4e"
+    },
+    {
+      "path": "F:\\Tracking\\configs\\benchmarks\\traffic_quality_report.yaml",
+      "sha256": "f2c35da36c511c13c2bb10b228bcb9ffdb06d699baddbc2f3ff380344351d097"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_botsort_reid\\evaluation_ignore_aware\\trackeval_summary.json",
+      "sha256": "888a3511807e8919289e0e783ac93e81ca8e08ee7d615882a2d322f249f96920"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_bytetrack\\evaluation_ignore_aware\\trackeval_summary.json",
+      "sha256": "e30452e8144a96150f32b5761be82c2c3db5a744cfe8a2adaf12fe16ca4e2268"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_deepocsort_reid\\evaluation_ignore_aware\\trackeval_summary.json",
+      "sha256": "99ba8d9ca855110668784e87d0fd7f1c494ae4a64cb698e84ac7feb65e7f5c43"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_ocsort\\evaluation_ignore_aware\\trackeval_summary.json",
+      "sha256": "b907039fc315fe8403652811b9d6f55436ada3263c6768f95acb341e49ce94a0"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_tracktrack_no_reid\\evaluation_ignore_aware\\trackeval_summary.json",
+      "sha256": "5d218505405b823e7c80fe83050d3164358026efc04f709935c649037a42aaa8"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_tracktrack_reid\\evaluation_ignore_aware\\trackeval_summary.json",
+      "sha256": "891002cefe06c0d9c2f7c477acf14cc4f84cb2f394ca4f24ac320386d50443ea"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle1_yolo26s_botsort_reid\\evaluation_ignore_aware\\trackeval_summary.json",
+      "sha256": "89c4ec7677293d8f428f98a2140f8a66086e43f1f54dc9a3833ba88ef2a9f8af"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle1_yolo26m_botsort_reid\\evaluation_ignore_aware\\trackeval_summary.json",
+      "sha256": "aa5615287806e5b4a5206b2e8a3f2a6f5140d582fc965fed4ff301c7e44f9260"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle1_yolo26s_bytetrack\\evaluation\\trackeval_summary.json",
+      "sha256": "08a0f3c07d808c4223ba0a2240a1452d6851e4e7ff33dd781510ebaa19393d04"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle1_yolo26s_tracktrack_reid\\evaluation\\trackeval_summary.json",
+      "sha256": "f3d2caa1d2487522b6d44553ca9e7fa60ff17e2a41c4bb446ca4012a9230b266"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_botsort_reid\\runs\\MVI_40774\\realtime_metrics.json",
+      "sha256": "8125f9a30cb908fce0e5c38460495ce745eb1d271734c3c5b7ad39da7e9fdab2"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_bytetrack\\runs\\MVI_40774\\realtime_metrics.json",
+      "sha256": "ecd40e74be3c9f1b0a5300fa8012e2ac3fd91e0af0e1313484a4a1688ff31968"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_deepocsort_reid\\runs\\MVI_40774\\realtime_metrics.json",
+      "sha256": "376df9dbc5be65cb3d33168bcddac544042fa1213409c190f9115dc11e314388"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_ocsort\\runs\\MVI_40774\\realtime_metrics.json",
+      "sha256": "1b5a8cd8fc30d2c67ae5619b279d58d32896d129d3177a89a47aa69c8e968859"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_tracktrack_no_reid\\runs\\MVI_40774\\realtime_metrics.json",
+      "sha256": "e7f7b877a2ca44228dbfaae9a256a33917c98c72bfd8cf70f5d1bdf620c3d1cf"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle0_tracktrack_reid\\runs\\MVI_40774\\realtime_metrics.json",
+      "sha256": "4c5d9b282b6615a5341f77aafc647a9ed54005a02c715c3c50d0f0f02902749c"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle1_yolo26s_botsort_reid\\runs\\MVI_40774\\realtime_metrics.json",
+      "sha256": "d20491b7644094595b78a8f6499cda0c84f1d7f3d5979404ca0a9be05aecf511"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle1_yolo26m_botsort_reid\\runs\\MVI_40774\\realtime_metrics.json",
+      "sha256": "715a4b9ded299fa01e01ece03cb1b9db55a719266bdc7f0556015375a0213052"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle1_yolo26s_bytetrack\\runs\\MVI_40774\\realtime_metrics.json",
+      "sha256": "6511e8f924f71de77d47de25c26ac2890daffc041dd8eee26c22d8e41e948ab2"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\benchmarks\\tracking_optimization\\cycle1_yolo26s_tracktrack_reid\\runs\\MVI_40774\\realtime_metrics.json",
+      "sha256": "b4b655d09ecd08043ba6d957d4ca1881fc0203bf6e78a976180b148412c82da9"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\validation\\traffic_quality_locate_qwen_8tracks\\evaluation_quality24\\metrics\\semantic_benchmark_summary.json",
+      "sha256": "0a3cdde2579592e3af74256c4aa8dbb2a6665501646aaa1e1d8dc15948bc4412"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\validation\\traffic_quality_locate_qwen_8tracks\\evaluation_quality24\\track_gt_mapping.json",
+      "sha256": "30580fdd6ee6109b43935634a7115e037d6cfa9a3b233c73bf94b57a497da265"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\validation\\traffic_quality_locate_qwen_8tracks\\semantic_cache.quality24.json",
+      "sha256": "20cc1d7b3b821d5c40ae4a40131bc16ea989397c664bf10f700a8807a03094a8"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\validation\\traffic_quality_locate_qwen_8tracks\\tracked_semantic_quality24.semantic.metadata.json",
+      "sha256": "cd39ca2547e54fc6f929da22e09ead21ee68ef151594ae187a948af13d0f28d3"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\validation\\traffic_quality_locate_qwen_8tracks\\semantic_worker_report.json",
+      "sha256": "209817a49ce69c866f03114eb9c775281ff4420bec668d6f65835ba10084b869"
+    },
+    {
+      "path": "F:\\Tracking\\outputs\\validation\\traffic_quality_locate_qwen_8tracks\\semantic_worker_report_24tracks.json",
+      "sha256": "6bdeca97ab9bdece0a73986f51a6ea048078bddf61722e2ffcf85181101dd18d"
+    }
+  ]
+}

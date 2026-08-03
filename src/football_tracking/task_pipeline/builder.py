@@ -35,6 +35,37 @@ def _supplemental_class_names(
     return names
 
 
+def _tracker_runtime_name(
+    *,
+    default_name: str,
+    config_path: Path,
+    is_override: bool,
+) -> str:
+    """Return the factory name represented by an explicit tracker override."""
+    if not is_override:
+        return default_name
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"Tracker config root must be a mapping: {config_path}")
+    tracker = raw.get("tracker")
+    if not isinstance(tracker, dict):
+        raise ValueError(
+            f"Tracker override must contain a tracker mapping: {config_path}"
+        )
+    tracker_type = str(tracker.get("tracker_type", "")).strip().casefold()
+    if not tracker_type:
+        raise ValueError(
+            f"Tracker override must define tracker.tracker_type: {config_path}"
+        )
+    if bool(tracker.get("with_reid", False)) and tracker_type in {
+        "botsort",
+        "deepocsort",
+        "tracktrack",
+    }:
+        return f"{tracker_type}_reid"
+    return tracker_type
+
+
 def build_tracking_payload(
     config: TaskPipelineConfig,
     *,
@@ -85,6 +116,11 @@ def build_tracking_payload(
     )
     if not resolved_tracker_config.is_file():
         raise ValueError(f"Tracker config does not exist: {resolved_tracker_config}")
+    tracker_runtime_name = _tracker_runtime_name(
+        default_name=config.tracker.name,
+        config_path=resolved_tracker_config,
+        is_override=tracker_config_path is not None,
+    )
     return {
         "model": model,
         "detector": {
@@ -114,7 +150,7 @@ def build_tracking_payload(
             },
         },
         "tracker": {
-            "name": config.tracker.name,
+            "name": tracker_runtime_name,
             "config": str(resolved_tracker_config),
             "stabilize_classes": config.tracker.stabilize_classes,
             "class_history_frames": config.tracker.class_history_frames,

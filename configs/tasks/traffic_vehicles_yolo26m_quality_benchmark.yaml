@@ -1,0 +1,63 @@
+schema_version: "1.0"
+
+task:
+  id: traffic_vehicles_yolo26m_quality_benchmark
+  name: UA-DETRAC vehicles - YOLO26m maximum quality
+  description: >-
+    Maximum-accuracy traffic benchmark using YOLO26m and identity-stable
+    BoT-SORT ReID association on an 8 GB CUDA GPU.
+
+detector:
+  name: yolo26m_coco_vehicles_quality
+  backend: ultralytics
+  checkpoint: yolo26m.pt
+  class_ids: [2, 3, 5, 7]
+  tracker_class_ids: [2, 3, 5, 7]
+  preserve_source_classes: true
+  target_class_id: 2
+  target_class_name: vehicle
+  imgsz: 960
+  conf: 0.20
+  iou: 0.65
+  max_det: 300
+  half: true
+  preprocessing:
+    mode: none
+    clahe_clip_limit: 2.0
+    clahe_grid_size: 8
+    low_light_threshold: 65
+
+tracker:
+  name: botsort_reid
+  config: configs/trackers/botsort_reid_identity_stable.yaml
+  stabilize_classes: true
+  class_history_frames: 30
+  class_switch_margin: 0.20
+
+semantic:
+  enabled: true
+  provider: qwen
+  model_id: Qwen/Qwen3-VL-4B-Instruct
+  quantization: 8bit
+  label_mode: open
+  attributes: [vehicle_type, color, motion_state]
+  instruction: >-
+    Refine a tracked road vehicle as car, van, bus, truck, or unknown using only
+    repeated visible evidence. Do not infer a make, model, or license plate.
+  unknown_threshold: 0.75
+  event_interval_frames: 45
+  events_per_frame: 2
+  max_pending_events: 128
+  max_evidence_images: 2
+  evidence_layout: panel
+  evidence_panel_width: 512
+  evidence_panel_height: 384
+  minimum_crop_quality: 0.22
+  replacement_quality_margin: 0.07
+
+render:
+  show_confidence: true
+  show_trajectory: true
+  trajectory_length: 24
+  line_thickness: 2
+  font_scale: 0.55

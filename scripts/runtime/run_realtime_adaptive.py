@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -11,12 +12,23 @@ from football_tracking.adaptive_tracking.realtime import (
     RealtimeTrackingError,
     run_realtime_tracking,
 )
+from football_tracking.video_capture import resolve_capture_source
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--source", default="0", help="Camera index, RTSP URL, or video path.")
+    source_group = parser.add_mutually_exclusive_group()
+    source_group.add_argument(
+        "--source",
+        default=None,
+        help="Camera index, RTSP URL, or video path.",
+    )
+    source_group.add_argument(
+        "--source-env",
+        default=None,
+        help="Environment variable containing the camera index, stream URL, or video path.",
+    )
     parser.add_argument("--output-video", type=Path, default=None)
     parser.add_argument("--output-mot", type=Path, default=None)
     parser.add_argument("--metadata", type=Path, default=None)
@@ -43,9 +55,14 @@ def main() -> int:
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
     try:
+        stream_source = resolve_capture_source(
+            args.source,
+            args.source_env,
+            environment=os.environ,
+        )
         result = run_realtime_tracking(
             config_path=args.config,
-            stream_source=args.source,
+            stream_source=stream_source,
             output_video=args.output_video,
             output_mot=args.output_mot,
             metadata_path=args.metadata,

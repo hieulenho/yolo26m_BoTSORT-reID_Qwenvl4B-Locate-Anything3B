@@ -281,6 +281,9 @@ class SemanticTaskConfig:
     evidence_layout: str
     evidence_panel_width: int
     evidence_panel_height: int
+    evidence_context_fraction: float
+    crop_padding: float
+    crop_size: int
     minimum_crop_quality: float
     replacement_quality_margin: float
 
@@ -318,6 +321,9 @@ class SemanticTaskConfig:
             "evidence_layout": self.evidence_layout,
             "evidence_panel_width": self.evidence_panel_width,
             "evidence_panel_height": self.evidence_panel_height,
+            "evidence_context_fraction": self.evidence_context_fraction,
+            "crop_padding": self.crop_padding,
+            "crop_size": self.crop_size,
             "minimum_crop_quality": self.minimum_crop_quality,
             "replacement_quality_margin": self.replacement_quality_margin,
         }
@@ -623,6 +629,14 @@ def load_task_pipeline_config(path: str | Path) -> TaskPipelineConfig:
         ).strip().lower(),
         evidence_panel_width=int(semantic_raw.get("evidence_panel_width", 512)),
         evidence_panel_height=int(semantic_raw.get("evidence_panel_height", 384)),
+        evidence_context_fraction=float(
+            semantic_raw.get("evidence_context_fraction", 0.55)
+        ),
+        crop_padding=_unit_interval(
+            semantic_raw.get("crop_padding", 0.15),
+            "semantic.crop_padding",
+        ),
+        crop_size=int(semantic_raw.get("crop_size", 256)),
         minimum_crop_quality=_unit_interval(
             semantic_raw.get("minimum_crop_quality", 0.25),
             "semantic.minimum_crop_quality",
@@ -668,6 +682,12 @@ def load_task_pipeline_config(path: str | Path) -> TaskPipelineConfig:
         raise TaskPipelineConfigError(
             "semantic evidence panel is too large for the 8 GiB realtime profile."
         )
+    if not 0.30 <= semantic.evidence_context_fraction <= 0.75:
+        raise TaskPipelineConfigError(
+            "semantic.evidence_context_fraction must be in [0.30, 0.75]."
+        )
+    if not 64 <= semantic.crop_size <= 1024:
+        raise TaskPipelineConfigError("semantic.crop_size must be in [64, 1024].")
 
     render = _mapping(root.get("render", {}), "render")
     return TaskPipelineConfig(

@@ -1,0 +1,75 @@
+schema_version: 1
+
+dataset:
+  name: UA-DETRAC MVI_40774
+  manifest: data/benchmarks/normalized/ua_detrac_mvi_40774/normalized_gt_manifest.json
+  sequence: MVI_40774
+  frame_count: 750
+  gt_track_count: 15
+  note: Vehicle-only official GT with four ignore regions.
+
+tracking_runs:
+  - id: yolo26n_botsort_reid
+    label: YOLO26n + BoT-SORT ReID
+    short_label: n + BoT-R
+    evaluation: outputs/benchmarks/tracking_optimization/cycle0_botsort_reid/evaluation_ignore_aware/trackeval_summary.json
+    runtime: outputs/benchmarks/tracking_optimization/cycle0_botsort_reid/runs/MVI_40774/realtime_metrics.json
+  - id: yolo26n_bytetrack
+    label: YOLO26n + ByteTrack
+    short_label: n + Byte
+    evaluation: outputs/benchmarks/tracking_optimization/cycle0_bytetrack/evaluation_ignore_aware/trackeval_summary.json
+    runtime: outputs/benchmarks/tracking_optimization/cycle0_bytetrack/runs/MVI_40774/realtime_metrics.json
+  - id: yolo26n_deepocsort_reid
+    label: YOLO26n + DeepOCSORT ReID
+    short_label: n + DeepOC-R
+    evaluation: outputs/benchmarks/tracking_optimization/cycle0_deepocsort_reid/evaluation_ignore_aware/trackeval_summary.json
+    runtime: outputs/benchmarks/tracking_optimization/cycle0_deepocsort_reid/runs/MVI_40774/realtime_metrics.json
+  - id: yolo26n_ocsort
+    label: YOLO26n + OC-SORT
+    short_label: n + OC
+    evaluation: outputs/benchmarks/tracking_optimization/cycle0_ocsort/evaluation_ignore_aware/trackeval_summary.json
+    runtime: outputs/benchmarks/tracking_optimization/cycle0_ocsort/runs/MVI_40774/realtime_metrics.json
+  - id: yolo26n_tracktrack
+    label: YOLO26n + TrackTrack
+    short_label: n + TT
+    evaluation: outputs/benchmarks/tracking_optimization/cycle0_tracktrack_no_reid/evaluation_ignore_aware/trackeval_summary.json
+    runtime: outputs/benchmarks/tracking_optimization/cycle0_tracktrack_no_reid/runs/MVI_40774/realtime_metrics.json
+  - id: yolo26n_tracktrack_reid
+    label: YOLO26n + TrackTrack CNN-ReID
+    short_label: n + TT-R
+    evaluation: outputs/benchmarks/tracking_optimization/cycle0_tracktrack_reid/evaluation_ignore_aware/trackeval_summary.json
+    runtime: outputs/benchmarks/tracking_optimization/cycle0_tracktrack_reid/runs/MVI_40774/realtime_metrics.json
+  - id: yolo26s_botsort_reid
+    label: YOLO26s + BoT-SORT ReID
+    short_label: s + BoT-R
+    evaluation: outputs/benchmarks/tracking_optimization/cycle1_yolo26s_botsort_reid/evaluation_ignore_aware/trackeval_summary.json
+    runtime: outputs/benchmarks/tracking_optimization/cycle1_yolo26s_botsort_reid/runs/MVI_40774/realtime_metrics.json
+  - id: yolo26m_botsort_reid
+    label: YOLO26m + BoT-SORT ReID
+    short_label: m + BoT-R
+    evaluation: outputs/benchmarks/tracking_optimization/cycle1_yolo26m_botsort_reid/evaluation_ignore_aware/trackeval_summary.json
+    runtime: outputs/benchmarks/tracking_optimization/cycle1_yolo26m_botsort_reid/runs/MVI_40774/realtime_metrics.json
+  - id: yolo26s_bytetrack
+    label: YOLO26s + ByteTrack
+    short_label: s + Byte
+    evaluation: outputs/benchmarks/tracking_optimization/cycle1_yolo26s_bytetrack/evaluation/trackeval_summary.json
+    runtime: outputs/benchmarks/tracking_optimization/cycle1_yolo26s_bytetrack/runs/MVI_40774/realtime_metrics.json
+  - id: yolo26s_tracktrack_reid
+    label: YOLO26s + TrackTrack CNN-ReID
+    short_label: s + TT-R
+    evaluation: outputs/benchmarks/tracking_optimization/cycle1_yolo26s_tracktrack_reid/evaluation/trackeval_summary.json
+    runtime: outputs/benchmarks/tracking_optimization/cycle1_yolo26s_tracktrack_reid/runs/MVI_40774/realtime_metrics.json
+
+semantic:
+  name: LocateAnything-3B 8-bit -> Qwen3-VL-4B 8-bit
+  metrics: outputs/validation/traffic_quality_locate_qwen_8tracks/evaluation_quality24/metrics/semantic_benchmark_summary.json
+  mapping: outputs/validation/traffic_quality_locate_qwen_8tracks/evaluation_quality24/track_gt_mapping.json
+  cache: outputs/validation/traffic_quality_locate_qwen_8tracks/semantic_cache.quality24.json
+  render_metadata: outputs/validation/traffic_quality_locate_qwen_8tracks/tracked_semantic_quality24.semantic.metadata.json
+  worker_reports:
+    - outputs/validation/traffic_quality_locate_qwen_8tracks/semantic_worker_report.json
+    - outputs/validation/traffic_quality_locate_qwen_8tracks/semantic_worker_report_24tracks.json
+
+output:
+  root: outputs/reports/traffic_quality
+  publish_root: docs/benchmarks/traffic_quality
