@@ -68,7 +68,7 @@ overlap. This gives Qwen both temporal track evidence and a refined spatial crop
 ### Install after cloning
 
 ```powershell
-git clone https://github.com/hieulenho/Football-Player-Detection-and-Multi-Object-Tracking-using-YOLOv8m-and-DeepSORT.git Tracking
+git clone https://github.com/hieulenho/yolo26m_BoTSORT-reID_Qwenvl4B-Locate-Anything3B.git Tracking
 cd Tracking
 Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\setup_webcam.ps1
@@ -390,5 +390,5 @@ tests/                         regression and contract tests
 See [LICENSE](LICENSE) and [third-party notices](NOTICE.md). Datasets, dependencies
 and model checkpoints retain their original licenses.
 
-The repository URL and internal `football_tracking` package retain their historical
-names for compatibility; neither requires football data or football-trained weights.
+The internal `football_tracking` package name is retained for import compatibility;
+the public workflow, examples and reported results focus on traffic.
