@@ -15,7 +15,7 @@ param(
     [string]$CredentialFile = ".camera_credentials\yoosee_rtsp.json",
     [ValidateSet("main", "sub")]
     [string]$Stream = "sub",
-    [string]$TaskConfig = "configs\tasks\generic_coco_realtime.yaml",
+    [string]$TaskConfig = "configs\tasks\traffic_realtime.yaml",
     [string]$RunName = "camera_session",
     [ValidateSet("live", "disabled")]
     [string]$SemanticWorkerMode = "live",

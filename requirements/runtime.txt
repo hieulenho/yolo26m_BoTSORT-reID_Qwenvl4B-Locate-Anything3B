@@ -1,9 +1,3 @@
-# Lightweight production runtime: detection, tracking, configuration, and I/O.
-ultralytics
-opencv-python
-numpy
-scipy
-PyYAML
-tqdm
-psutil
-deep-sort-realtime
+# Run from the repository root. The project declares all runtime dependencies.
+-c constraints-py312.txt
+-e .

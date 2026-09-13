@@ -151,7 +151,7 @@ def test_task_config_rejects_a_model_id_that_worker_would_not_run(
 
 
 def test_runtime_tracker_override_is_recorded(tmp_path: Path) -> None:
-    task = load_task_pipeline_config("configs/tasks/wildlife_birds.yaml")
+    task = load_task_pipeline_config("tests/fixtures/tasks/wildlife_birds.yaml")
     override = Path(
         "configs/benchmarks/tracker_profiles/tracktrack_open_t015.yaml"
     )
@@ -191,11 +191,9 @@ def test_runtime_tracker_override_records_reid_variant(tmp_path: Path) -> None:
     "config_path,task_id",
     [
         ("configs/tasks/traffic_objects.yaml", "traffic_objects"),
-        ("configs/tasks/classroom_roles.yaml", "classroom_roles"),
-        ("configs/tasks/football_roles.yaml", "football_roles"),
-        ("configs/tasks/wildlife_birds.yaml", "wildlife_birds"),
-        ("configs/tasks/microscopy_cells.yaml", "microscopy_cells"),
-        ("configs/tasks/open_vocabulary_example.yaml", "open_vocabulary_example"),
+        ("tests/fixtures/tasks/classroom_roles.yaml", "classroom_roles"),
+        ("tests/fixtures/tasks/wildlife_birds.yaml", "wildlife_birds"),
+        ("configs/tasks/traffic_realtime.yaml", "traffic_realtime"),
     ],
 )
 def test_supported_task_configs_are_valid(config_path: str, task_id: str) -> None:
@@ -277,7 +275,7 @@ def test_sparse_semantic_proposals_persist_on_the_matching_track() -> None:
 def test_classroom_task_combines_person_recall_with_sparse_role_proposals(
     tmp_path: Path,
 ) -> None:
-    task = load_task_pipeline_config("configs/tasks/classroom_roles.yaml")
+    task = load_task_pipeline_config("tests/fixtures/tasks/classroom_roles.yaml")
     paths = write_task_runtime(
         config=task,
         output_dir=tmp_path / "runtime",

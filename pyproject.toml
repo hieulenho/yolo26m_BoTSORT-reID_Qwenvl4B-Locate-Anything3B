@@ -3,20 +3,39 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "football-tracking"
+name = "traffic-semantic-tracking"
 version = "0.1.0"
-description = "Task-configured realtime object tracking with asynchronous Qwen semantics."
+description = "Realtime traffic tracking with asynchronous Qwen vehicle labels."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "PyYAML",
+    "ultralytics>=8.4.82,<8.5",
+    "torch>=2.11,<2.12",
+    "torchvision>=0.26,<0.27",
+    "opencv-python>=4.13,<5",
+    "numpy>=2.4,<3",
+    "scipy>=1.18,<2",
+    "PyYAML>=6,<7",
+    "tqdm>=4.66,<5",
+    "psutil>=5.9,<8",
+    "lap>=0.5.12,<0.6",
+    "deep-sort-realtime>=1.3.2,<2",
+]
+
+[project.optional-dependencies]
+semantic = [
+    "transformers==4.57.1",
+    "accelerate>=1.14,<2",
+    "bitsandbytes==0.49.2",
+    "qwen-vl-utils==0.0.14",
+    "pillow>=10,<13",
 ]
 
 [project.scripts]
-football-tracking = "football_tracking.cli:main"
+traffic-tracking = "football_tracking.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

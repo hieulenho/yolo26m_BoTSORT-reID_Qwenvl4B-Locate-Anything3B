@@ -18,7 +18,7 @@ param(
     [Parameter(ParameterSetName = "Camera")]
     [ValidateSet("main", "sub")]
     [string]$Stream = "sub",
-    [string]$TaskConfig = "configs\tasks\generic_coco_realtime.yaml",
+    [string]$TaskConfig = "configs\tasks\traffic_realtime.yaml",
     [string]$RunName = "yoosee_ip_camera",
     [string]$OutputRoot = "outputs\task_realtime",
     [ValidateSet("live", "disabled")]

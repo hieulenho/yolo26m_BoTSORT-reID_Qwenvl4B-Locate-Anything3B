@@ -11,7 +11,7 @@ from football_tracking.tracking.sequence_runner import SequenceSource
 
 def test_experiment_resume_loads_compatible_sequence(tmp_path: Path) -> None:
     config = load_compare_trackers_config(
-        "configs/benchmarks/tracking_sportsmot_yolo26m.yaml",
+        "tests/fixtures/configs/cached_tracking.yaml",
         overrides={"resume": True},
     )
     assert config.resume is True

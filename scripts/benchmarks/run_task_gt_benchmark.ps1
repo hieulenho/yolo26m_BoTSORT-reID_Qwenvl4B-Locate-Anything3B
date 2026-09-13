@@ -85,6 +85,8 @@ for ($Index = 0; $Index -lt $Sequences.Count; $Index++) {
             MaxFrames = $FrameCount
             NoWindow = $true
             Quiet = $true
+            DisableFrameDropping = $true
+            SynchronousVideoWrite = $true
         }
         if ($Overwrite) { $Arguments.Overwrite = $true }
         if ($TrackerConfig) { $Arguments.TrackerConfig = $TrackerConfig }

@@ -1,6 +1,6 @@
-# Realtime Tracking With Qwen Semantics
+# Realtime Traffic Tracking With Qwen Semantics
 
-This repository implements a task-configured video pipeline that detects objects, assigns
+This repository implements a task-configured video pipeline that detects road users, assigns
 stable track IDs, and enriches selected tracks with deeper labels from
 `Qwen/Qwen3-VL-4B-Instruct` 8-bit. Accuracy-oriented offline runs can first use
 LocateAnything-3B 8-bit to refine the target region; Qwen remains the semantic decision model.
@@ -29,7 +29,8 @@ flowchart LR
     E --> K[MP4, MOT TXT, JSON metrics]
 ```
 
-The detector and tracker process every frame. Qwen receives only bounded evidence for a
+The detector and tracker process incoming frames; stale frames may be dropped in live mode.
+Qwen receives only bounded evidence for a
 persistent track: a scene view with the target highlighted and up to two high-quality crops
 from different times. A semantic result is attached to the `track_id` and reused on later
 frames. This avoids running a 4B model on every frame.
@@ -38,7 +39,7 @@ frames. This avoids running a 4B model on every frame.
 
 - **Detector is selected per task.** Use a fine-tuned checkpoint for a private dataset, a
   pretrained YOLO checkpoint for known classes, or YOLOE with an explicit text vocabulary.
-- **TrackTrack is the default tracker.** It achieved the best saved SportsMOT HOTA. OC-SORT,
+- **TrackTrack is the default tracker.** The traffic quality results are reported below. OC-SORT,
   ByteTrack, BoT-SORT ReID, DeepSORT, Deep OC-SORT ReID, and FastTracker remain benchmark
   profiles.
 - **Base labels appear immediately.** Deep labels initially show `waiting` or `pending`, then
@@ -47,7 +48,7 @@ frames. This avoids running a 4B model on every frame.
   persistent track's class.
 - **Semantic work is bounded.** One pending job is retained per track; a better crop can replace
   a weaker pending crop without creating an unbounded queue.
-- **Unknown is a valid result.** A role, species, subtype, make, or model is not rendered as fact
+- **Unknown is a valid result.** A vehicle subtype, color, make, or model is not rendered as fact
   unless confidence, margin, taxonomy, and temporal checks pass.
 - **LocateAnything is localization evidence, not a class voter.** In deferred quality mode it
   refines a partly occluded target crop before Qwen, but cannot overwrite Qwen's semantic label.
@@ -67,14 +68,40 @@ overlap. This gives Qwen both temporal track evidence and a refined spatial crop
 ### Install after cloning
 
 ```powershell
-git clone <repository-url> Tracking
+git clone https://github.com/hieulenho/Football-Player-Detection-and-Multi-Object-Tracking-using-YOLOv8m-and-DeepSORT.git Tracking
 cd Tracking
+Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\setup_webcam.ps1
 ```
 
-The production installer uses `requirements/runtime.txt` plus `requirements/qwen.txt`. It does
-not install TrackEval, pandas, or plotting libraries. Public checkpoints are downloaded on first
+Setup selects CUDA when NVIDIA is available, otherwise CPU. CUDA installs
+`requirements/runtime.txt` plus `requirements/qwen.txt`; CPU installs detection/tracking only.
+TrackEval and research report tools are optional; Ultralytics brings its own common dependencies.
+Public checkpoints are downloaded on first
 use and are not stored in Git.
+
+If Python is missing, install it with `winget install -e --id Python.Python.3.12`,
+then reopen PowerShell. `-PythonExecutable` also accepts a full Python 3.12 executable path.
+No data or model path is tied to the original development machine.
+
+The shortest local webcam/video command is:
+
+```powershell
+.\scripts\run_traffic.ps1 -Source 0
+.\scripts\run_traffic.ps1 -Source "C:\Videos\traffic.mp4" -RunName traffic_demo
+```
+
+CPU-only setup and execution:
+
+```powershell
+.\scripts\setup_webcam.ps1 -TorchBackend cpu
+.\scripts\run_traffic.ps1 -Source 0 -Device cpu -SemanticWorkerMode disabled
+```
+
+CPU mode does not produce Qwen deep labels. To prefetch weights before a CUDA run,
+use `setup_webcam.ps1 -TorchBackend cuda -DownloadModels`. Qwen weights download in
+their original format and are quantized to 8-bit at model load, not stored as an
+8-bit download. The default traffic profile does not load YOLOE or LocateAnything.
 
 Optional YOLOE open-vocabulary support:
 
@@ -82,7 +109,7 @@ Optional YOLOE open-vocabulary support:
 .\.venv\Scripts\python.exe -m pip install -r requirements\open_vocab.txt
 ```
 
-Optional LocateAnything support for deferred quality runs and legacy ablations:
+Optional LocateAnything support for deferred quality runs and grounding ablations:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements\locate_tracking.txt
@@ -101,9 +128,9 @@ nvidia-smi
 
 ```powershell
 .\scripts\run_task_webcam.ps1 `
-  -TaskConfig configs\tasks\generic_coco_realtime.yaml `
+  -TaskConfig configs\tasks\traffic_realtime.yaml `
   -CameraIndex 0 `
-  -RunName webcam_generic `
+  -RunName webcam_traffic `
   -SemanticWorkerMode live `
   -LiveSemanticMaxPendingEvents 4 `
   -Overwrite
@@ -116,7 +143,7 @@ the same network and its RTSP service is enabled. Inspect the current mapping wi
 
 ```powershell
 .\scripts\run_task_webcam.ps1 `
-  -TaskConfig configs\tasks\generic_coco_realtime.yaml `
+  -TaskConfig configs\tasks\traffic_realtime.yaml `
   -ListOnly
 ```
 
@@ -131,7 +158,7 @@ and disk work rather than model throughput.
 Use `-SemanticWorkerMode disabled` to measure detector/tracker throughput, or `deferred` when
 processing a file on one 8 GB GPU and final labels are allowed to appear after tracking ends.
 For dense traffic on a single 8 GB GPU, `disabled` preserves the highest foreground FPS and
-`deferred` is the reliable way to obtain deep labels for every retained track. Concurrent
+`deferred` can process retained evidence without competing with the tracking loop. Concurrent
 `live` Qwen inference competes with YOLO for the same GPU and cannot deeply label every
 short-lived vehicle at camera rate.
 
@@ -148,8 +175,8 @@ Use the low-resolution sub-stream for lower live latency:
 .\scripts\run_ip_camera.ps1 `
   -CameraIp 192.168.1.120 `
   -Stream sub `
-  -TaskConfig configs\tasks\generic_coco_realtime.yaml `
-  -RunName yoosee_generic `
+  -TaskConfig configs\tasks\traffic_realtime.yaml `
+  -RunName yoosee_traffic `
   -SemanticWorkerMode live `
   -Overwrite
 ```
@@ -180,7 +207,7 @@ inventory and then select its logical index:
 
 .\scripts\run_camera.ps1 `
   -CameraIndex 1 `
-  -TaskConfig configs\tasks\generic_coco_realtime.yaml `
+  -TaskConfig configs\tasks\traffic_realtime.yaml `
   -RunName portable_camera `
   -SemanticWorkerMode live `
   -Overwrite
@@ -201,10 +228,10 @@ the camera to that network automatically.
 
 ```powershell
 .\scripts\run_task_realtime.ps1 `
-  -TaskConfig configs\tasks\classroom_roles.yaml `
-  -Source F:\videos\multidomain_education_classroom_60s.mp4 `
-  -RunName classroom_01 `
-  -OutputRoot F:\videos\final `
+  -TaskConfig configs\tasks\traffic_realtime.yaml `
+  -Source "C:\Videos\traffic.mp4" `
+  -RunName traffic_01 `
+  -OutputRoot outputs\traffic `
   -SemanticWorkerMode deferred `
   -Device cuda `
   -NoWindow `
@@ -220,7 +247,7 @@ prompt:
 ```powershell
 .\scripts\run_task_realtime.ps1 `
   -TaskConfig configs\tasks\traffic_objects_quality.yaml `
-  -Source F:\videos\traffic.mp4 `
+  -Source "C:\Videos\traffic.mp4" `
   -RunName traffic_quality `
   -SemanticWorkerMode deferred `
   -LocateFirst `
@@ -239,14 +266,10 @@ This command prioritizes identity and semantic quality, not realtime throughput.
 
 | Task file | Detector scope | Deep semantic objective |
 |---|---|---|
-| `generic_coco_realtime.yaml` | all COCO classes | open subtype/category |
-| `football_roles.yaml` | football people | team/role taxonomy |
-| `classroom_roles.yaml` | people | student/teacher/staff/visitor |
-| `traffic_objects.yaml` | traffic classes | vehicle subtype and visible attributes |
-| `traffic_objects_quality.yaml` | traffic classes + subtype proposals | Locate-refined subtype and color |
-| `wildlife_birds.yaml` | birds | conservative species/subtype |
-| `microscopy_cells.yaml` | task adapter | morphology without diagnosis |
-| `open_vocabulary_example.yaml` | explicit YOLOE text classes | open hierarchical label |
+| `traffic_realtime.yaml` | YOLO26n road users | Qwen subtype and visible color; lean live default |
+| `traffic_objects.yaml` | traffic + sparse YOLOE proposals | experimental subtype hints and Qwen labels |
+| `traffic_objects_quality.yaml` | YOLO26s + CNN ReID | accuracy-oriented subtype/color evaluation |
+| `traffic_vehicles*_benchmark.yaml` | traffic classes | controlled detector/tracker comparisons |
 
 For a private dataset, copy the closest task YAML, point `detector.checkpoint` to the trained
 weights, set detector classes, and define the semantic instruction and taxonomy. The runtime
@@ -302,8 +325,8 @@ reviewed GT for those labels exists.
 See the [traffic quality report](docs/benchmarks/traffic_quality/traffic_quality_report.md) and
 its [artifact audit](docs/benchmarks/traffic_quality/artifact_audit.json).
 
-Canonical machine-readable tables, plots, hashes, and limitations are in the
-[research report](docs/benchmarks/research_final/research_report.md).
+Machine-readable tables, plots, hashes and limitations are retained with the
+[traffic report](docs/benchmarks/traffic_quality/traffic_quality_report.md).
 The measured queue and concurrent-Qwen behavior for a dense traffic stream is documented in
 the [dense traffic live semantic benchmark](docs/benchmarks/dense_traffic_live_semantics.md).
 The latest machine-readable deep-label verification is
@@ -311,80 +334,33 @@ The latest machine-readable deep-label verification is
 The longer local YouTube stress tests are recorded in
 [youtube_traffic_exploratory.json](docs/benchmarks/youtube_traffic_exploratory.json).
 
-### Detector on SportsMOT validation
+![Traffic accuracy](docs/benchmarks/traffic_quality/figures/tracking_accuracy_comparison.png)
 
-| Model | Precision | Recall | mAP50 | mAP50-95 | Detector FPS |
-|---|---:|---:|---:|---:|---:|
-| YOLO26m fine-tuned | 0.9595 | 0.9601 | 0.9793 | 0.8306 | 54.97 |
-| YOLO26m pretrained | 0.8662 | 0.9026 | 0.8935 | 0.7361 | 55.16 |
-| YOLOv8m pretrained | 0.8555 | 0.9139 | 0.8932 | 0.7229 | 6.91 |
-| YOLO26n pretrained | 0.7865 | 0.8377 | 0.8401 | 0.5894 | 65.08 |
+![Traffic identity and speed](docs/benchmarks/traffic_quality/figures/tracking_identity_speed_tradeoff.png)
 
-### Tracking on 30 SportsMOT sequences
-
-| Tracker | HOTA | IDF1 | Official IDSW | Cached pipeline FPS |
-|---|---:|---:|---:|---:|
-| TrackTrack | 71.058 | 71.341 | 1,042 | 43.73 |
-| BoT-SORT ReID | 68.503 | 71.352 | 895 | 13.15 |
-| OC-SORT | 59.379 | 66.108 | 2,186 | 66.59 |
-| ByteTrack | 58.032 | 64.106 | 1,828 | 148.93 |
-
-TrackTrack is the default quality-balanced profile. BoT-SORT ReID has fewer ID switches but is
-roughly three times slower in this shared-detection benchmark. OC-SORT and ByteTrack are useful
-when throughput is more important than association quality.
-
-### GT-backed multidomain checks
-
-| Task | Frames | HOTA | MOTA | IDF1 | IDSW |
-|---|---:|---:|---:|---:|---:|
-| UA-DETRAC traffic, class-agnostic | 750 | 66.127 | 50.523 | 74.482 | 3 |
-| UA-DETRAC traffic, hard class gate | 750 | 64.993 | 49.733 | 73.463 | 4 |
-| AnimalTrack zebra, YOLOE zero-shot | 1,378 | 37.719 | 30.567 | 43.542 | 272 |
-| CTC microscopy, no preprocessing | 92 | 67.890 | 75.248 | 86.442 | 0 |
-| CTC microscopy, CLAHE | 92 | 69.526 | 80.373 | 88.009 | 0 |
-
-Class-agnostic association followed by temporal class stabilization improved every reported
-UA-DETRAC identity metric over the otherwise identical hard-gate run, so it is the production
-multiclass policy. The AnimalTrack result is a useful negative result: open vocabulary does not
-remove the need for a detector adapted to small or difficult targets. CLAHE improved the
-held-out microscopy score but reduced runtime throughput, so preprocessing remains task-specific.
-
-### Qwen semantic check
-
-On 20 UA-DETRAC tracks matched to official GT, Qwen reached 75.0% overall accuracy, 75.0%
-coverage, 73.3% selective accuracy, 61.5% unknown-rejection F1, and a 26.7% hallucination rate.
-The known-class Macro-F1 was 91.7%. This sample is too small to claim general multidomain
-semantic accuracy.
-
-![Pipeline architecture](docs/benchmarks/research_final/figures/research_pipeline_architecture.png)
-
-![Tracker tradeoff](docs/benchmarks/research_final/figures/research_tracker_tradeoff.png)
-
-![Multidomain tracking](docs/benchmarks/research_final/figures/research_multidomain_tracking.png)
-
-![Class-gate ablation](docs/benchmarks/research_final/figures/research_class_gate_ablation.png)
+These are saved file-benchmark measurements, not webcam capture-to-display latency.
+Their protocol and hardware must accompany any comparison; the lean live default
+must not be assigned another profile's accuracy or FPS.
 
 ## Reproduce Research Artifacts
 
 ```powershell
-.\scripts\benchmarks\run_task_runtime_suite.ps1 -Repeats 3 -Overwrite
-.\.venv\Scripts\python.exe scripts\benchmarks\build_task_research_report.py `
-  --config configs\benchmarks\task_research_report.yaml `
-  --overwrite
+.\.venv\Scripts\python.exe -m pip install -r requirements\dev.txt
 .\.venv\Scripts\python.exe -m ruff check src scripts tests
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-See [commands.txt](commands.txt) for the complete command set and
-[the TaskConfig design note](docs/REALTIME_SINGLE_VLM_PIPELINE_PLAN.txt) for stage-by-stage
-reasoning.
+See [benchmark instructions](docs/BENCHMARKS.md) for dataset preparation, GT-backed
+tracking and semantic evaluation. Dataset annotations and original run artifacts
+are required to regenerate measurements; a clone does not contain private videos.
+See [usage and troubleshooting](docs/USAGE.md) for execution details.
 
 ## Scientific Limits
 
 - Official detector/tracker claims use GT. The five-way IDSW subtype split is a heuristic
   diagnostic; only total TrackEval IDSW is official.
-- The saved 338-track multidomain semantic package is still awaiting human review. Until that
-  review is complete, per-domain semantic accuracy and Macro-F1 are intentionally not claimed.
+- Fine subtype/color accuracy needs independently reviewed GT; it is not inferred
+  from coverage or from the vehicle parent-class benchmark.
 - The formal 900-frame webcam foreground benchmark measures capture, detection, tracking,
   rendering, and queue bookkeeping. Qwen generation latency is reported separately.
 - A current TaskConfig camera smoke was limited by a camera source delivering about 1 FPS; it
@@ -401,14 +377,18 @@ configs/benchmarks/            measurement contracts
 src/football_tracking/task_pipeline/  TaskConfig validation/building
 src/football_tracking/tracking/       detector-to-track runtime
 src/football_tracking/adaptive_tracking/ semantic queue/fusion/cache
-scripts/run_task_realtime.ps1  primary file/stream entrypoint
+scripts/run_traffic.ps1        simple camera/video entrypoint
+scripts/run_task_realtime.ps1  advanced file/stream entrypoint
 scripts/run_task_webcam.ps1    primary webcam entrypoint
 scripts/benchmarks/            reproducible evaluation tools
-scripts/legacy/                historical A/B/C compatibility only
-docs/benchmarks/research_final/ canonical report, CSVs, and figures
+docs/benchmarks/traffic_quality/ traffic report, CSVs, and figures
 tests/                         regression and contract tests
 ```
 
 ## License
 
-See [LICENSE](LICENSE). Datasets and model checkpoints retain their original licenses.
+See [LICENSE](LICENSE) and [third-party notices](NOTICE.md). Datasets, dependencies
+and model checkpoints retain their original licenses.
+
+The repository URL and internal `football_tracking` package retain their historical
+names for compatibility; neither requires football data or football-trained weights.

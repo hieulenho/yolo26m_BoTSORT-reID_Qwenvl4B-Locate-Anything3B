@@ -1,32 +1,18 @@
-from __future__ import annotations
-
 import argparse
+
+import pytest
 
 from football_tracking.cli import _build_parser
 
 
-def test_final_milestone_commands_are_registered() -> None:
+def test_public_cli_is_dataset_independent() -> None:
     parser = _build_parser()
-    subparser_action = next(
-        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
-    )
+    action = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    assert {'doctor', 'track-video', 'compare-trackers', 'evaluate-tracking'} <= set(action.choices)
+    assert not any('sportsmot' in command or 'team' in command for command in action.choices)
 
-    commands = set(subparser_action.choices)
 
-    assert {
-        "doctor",
-        "prepare-dataset",
-        "train-detector",
-        "evaluate-detector",
-        "build-domain-configs",
-        "cache-detections",
-        "track",
-        "compare-trackers",
-        "evaluate-tracking",
-        "plan-tracker-grid",
-        "render-video",
-        "analyze-tracking-vlm",
-        "benchmark",
-        "generate-report",
-        "summarize-experiments",
-    }.issubset(commands)
+def test_tracking_requires_an_explicit_config() -> None:
+    with pytest.raises(SystemExit) as error:
+        _build_parser().parse_args(['track-video'])
+    assert error.value.code == 2

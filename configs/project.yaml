@@ -1,5 +1,5 @@
 project:
-  name: adaptive-multi-domain-tracking
+  name: traffic-semantic-tracking
   seed: 42
 
 paths:
@@ -16,4 +16,3 @@ runtime:
   device: auto
   num_workers: 4
   log_level: INFO
-

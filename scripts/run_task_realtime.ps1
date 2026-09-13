@@ -5,6 +5,7 @@ param(
     [string]$TaskConfig,
     [string]$Source = "0",
     [string]$SourceEnvironmentVariable = "",
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_.-]*$')]
     [string]$RunName = "task_realtime",
     [string]$OutputRoot = "outputs\task_realtime",
     [string]$OutputVideo = "",
@@ -50,6 +51,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot "runtime\process_arguments.ps1")
 Set-Location $ProjectRoot
 $Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
@@ -238,7 +240,7 @@ if ($SemanticWorkerMode -eq "live") {
     Normalize-ProcessPathEnvironment
     $SemanticWorker = Start-Process `
         -FilePath $Python `
-        -ArgumentList $LiveArgs `
+        -ArgumentList (ConvertTo-WindowsArguments $LiveArgs) `
         -RedirectStandardOutput $WorkerStdout `
         -RedirectStandardError $WorkerStderr `
         -WindowStyle Hidden `
