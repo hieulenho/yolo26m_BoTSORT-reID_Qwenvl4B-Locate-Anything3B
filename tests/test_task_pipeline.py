@@ -302,6 +302,35 @@ def test_classroom_task_combines_person_recall_with_sparse_role_proposals(
     }
 
 
+def test_jetson_engine_uses_coco_names_and_yoloe_subtypes(tmp_path: Path) -> None:
+    task = load_task_pipeline_config("configs/tasks/traffic_realtime_jetson.yaml")
+    paths = write_task_runtime(
+        config=task,
+        output_dir=tmp_path / "runtime",
+        output_video=tmp_path / "traffic.mp4",
+        device="cuda",
+        overwrite=False,
+    )
+    generated = yaml.safe_load(paths["tracking_config"].read_text(encoding="utf-8"))
+
+    expected_coco_names = {
+        "0": "person",
+        "1": "bicycle",
+        "2": "car",
+        "3": "motorcycle",
+        "5": "bus",
+        "7": "truck",
+    }
+    names = generated["detector"]["source_class_names"]
+    assert {key: names[key] for key in expected_coco_names} == expected_coco_names
+    assert names["1100"] == "sedan"
+    assert names["1101"] == "SUV"
+    assert names["1106"] == "taxi"
+    assert generated["model"]["supplemental_detectors"][0][
+        "compatible_tracker_class_ids"
+    ] == [2]
+
+
 def test_sparse_semantic_proposal_respects_base_class_compatibility() -> None:
     store = FastSemanticProposalStore(minimum_observations=1)
     person = _track(track_id=7, class_id=0, class_name="person")

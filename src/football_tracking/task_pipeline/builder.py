@@ -91,9 +91,10 @@ def build_tracking_payload(
         model["supplemental_detectors"] = [
             dict(item) for item in detector.supplemental_detectors
         ]
-    supplemental_class_names = _supplemental_class_names(
-        detector.supplemental_detectors
-    )
+    source_class_names = {
+        **{str(class_id): name for class_id, name in detector.source_class_names.items()},
+        **_supplemental_class_names(detector.supplemental_detectors),
+    }
     output = Path(output_video).resolve()
     resolved_preprocessing_mode = (
         str(preprocessing_mode).strip().lower()
@@ -141,7 +142,7 @@ def build_tracking_payload(
             "target_class_id": detector.target_class_id,
             "target_class_name": detector.target_class_name,
             "preserve_source_classes": detector.preserve_source_classes,
-            "source_class_names": supplemental_class_names,
+            "source_class_names": source_class_names,
             "preprocessing": {
                 "mode": resolved_preprocessing_mode,
                 "clahe_clip_limit": detector.clahe_clip_limit,

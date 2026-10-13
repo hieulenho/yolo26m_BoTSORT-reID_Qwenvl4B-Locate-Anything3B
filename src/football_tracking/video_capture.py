@@ -69,10 +69,45 @@ def capture_backend_candidates(source: str | int) -> tuple[tuple[str, int | None
     return (("default", None),)
 
 
-def open_video_capture(source: str | int) -> tuple[Any | None, str | None]:
+def open_video_capture(
+    source: str | int,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+    fps: float | None = None,
+    fourcc: str | None = None,
+) -> tuple[Any | None, str | None]:
+    requested = {
+        "width": width,
+        "height": height,
+        "fps": fps,
+        "fourcc": fourcc,
+    }
+    if any(value is not None for value in requested.values()) and not isinstance(source, int):
+        raise ValueError("Capture format options require a numeric camera source.")
+    if width is not None and width <= 0:
+        raise ValueError("Capture width must be positive.")
+    if height is not None and height <= 0:
+        raise ValueError("Capture height must be positive.")
+    if fps is not None and fps <= 0:
+        raise ValueError("Capture FPS must be positive.")
+    codec = str(fourcc).upper() if fourcc is not None else None
+    if codec is not None and len(codec) != 4:
+        raise ValueError("Capture FOURCC must contain exactly four characters.")
+
     for backend_name, backend in capture_backend_candidates(source):
         capture = cv2.VideoCapture(source) if backend is None else cv2.VideoCapture(source, backend)
         if capture.isOpened():
+            settings = (
+                ("FOURCC", cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*codec) if codec else None),
+                ("width", cv2.CAP_PROP_FRAME_WIDTH, width),
+                ("height", cv2.CAP_PROP_FRAME_HEIGHT, height),
+                ("FPS", cv2.CAP_PROP_FPS, fps),
+            )
+            for name, property_id, value in settings:
+                if value is not None and not capture.set(property_id, value):
+                    capture.release()
+                    raise ValueError(f"Camera rejected capture {name} setting: {value}")
             return capture, backend_name
         capture.release()
     return None, None

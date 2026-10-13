@@ -7,6 +7,20 @@ from types import SimpleNamespace
 from football_tracking.vlm import qwen_runner
 
 
+def test_jetson_int8_prefill_padding_is_hardware_specific(monkeypatch) -> None:
+    import torch
+
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _device: (8, 7))
+    device = SimpleNamespace(type="cuda")
+    config = SimpleNamespace(quantization="8bit")
+    assert qwen_runner._jetson_int8_padding_multiple(config, device) == 128
+    assert qwen_runner._jetson_int8_padding_multiple(
+        SimpleNamespace(quantization="none"), device
+    ) is None
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _device: (8, 9))
+    assert qwen_runner._jetson_int8_padding_multiple(config, device) is None
+
+
 def test_qwen_batch_session_loads_once_for_multiple_calls(
     monkeypatch,
     capsys,

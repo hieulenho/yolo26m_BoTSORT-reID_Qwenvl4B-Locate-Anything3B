@@ -28,6 +28,7 @@ from football_tracking.adaptive_tracking.ontology import (
     VocabularyRegistryError,
     normalize_objects,
 )
+from football_tracking.adaptive_tracking.realtime import _TimelineVideoWriter
 from football_tracking.adaptive_tracking.router import build_detector_route
 from football_tracking.adaptive_tracking.schemas import SceneDiscovery
 from football_tracking.adaptive_tracking.semantic_cache import (
@@ -69,6 +70,31 @@ from football_tracking.vlm.tracking_context import MotTrackRow
 
 def _registry() -> VocabularyRegistry:
     return VocabularyRegistry.load("configs/ontology/vocabulary_registry.yaml")
+
+
+class _CollectingWriter:
+    def __init__(self) -> None:
+        self.frames: list[str] = []
+        self.released = False
+
+    def write(self, frame: str) -> None:
+        self.frames.append(frame)
+
+    def release(self) -> None:
+        self.released = True
+
+
+def test_live_timeline_writer_preserves_dropped_frame_duration() -> None:
+    sink = _CollectingWriter()
+    writer = _TimelineVideoWriter(sink, align_to_source=True)
+
+    writer.write("frame-10", source_frame_index=10)
+    writer.write("frame-13", source_frame_index=13)
+    writer.release()
+
+    assert sink.frames == ["frame-10", "frame-10", "frame-10", "frame-13"]
+    assert sink.released is True
+    assert writer.summary()["duplicated_frames"] == 2
 
 
 def _discovery(domain: str, raw_objects: list[dict]) -> SceneDiscovery:
@@ -1388,7 +1414,7 @@ def test_hierarchical_fusion_rejects_under_threshold_subtype() -> None:
                 "qwen",
                 evidence_frames=(10,),
                 fine_label="articulated",
-                fine_confidence=0.843,
+                fine_confidence=0.70,
             ),
             TrackSemanticEvidence(
                 5,
@@ -1397,7 +1423,7 @@ def test_hierarchical_fusion_rejects_under_threshold_subtype() -> None:
                 "qwen",
                 evidence_frames=(30,),
                 fine_label="articulated",
-                fine_confidence=0.843,
+                fine_confidence=0.70,
             ),
         ]
     )

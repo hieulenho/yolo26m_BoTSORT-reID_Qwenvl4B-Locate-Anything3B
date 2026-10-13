@@ -857,7 +857,10 @@ def _infer_fine_label_type(*, domain: str | None, base_class: str) -> str:
 def _fine_required_threshold(label_type: str, *, default: float) -> float:
     thresholds = {
         "role": 0.82,
-        "subtype": 0.85,
+        # Vehicle subtype tasks can opt into a lower task-level threshold. The
+        # temporal and independent-frame checks still guard against one-frame
+        # guesses before a Qwen label is accepted.
+        "subtype": 0.70,
         "species": 0.97,
         "breed": 0.97,
         "make": 0.95,

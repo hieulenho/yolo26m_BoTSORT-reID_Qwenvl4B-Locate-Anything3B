@@ -1,0 +1,1503 @@
+TRAFFIC PIPELINE AUDIT: ORIGINAL WINDOWS LAPTOP -> JETSON AGX ORIN
+Audit completed: 2026-10-07, Asia/Bangkok
+Repository: F:\Tracking
+Reviewed HEAD: 2d9f2c2c442ae40a458c8fb6966cd6d8932c1757
+
+This report is the single requested output. Source code, configurations, model
+weights, saved experiments and Git history were not modified. No model inference,
+camera session, download, commit, checkout, pull or reset was run during this audit.
+Paths below are relative to F:\Tracking unless an absolute path is supplied.
+Code references use one-based line numbers at the reviewed HEAD.
+
+MAIN FINDINGS
+
+1. The exact examples were FOUND in a saved run, including raw Qwen answers:
+   outputs/benchmarks/youtube_traffic/youtube_traffic_monitoring_diverse_60s
+   ID 8:  white + suv,           confidence 0.95, fine_confidence 0.95.
+   ID 9:  yellow + taxi,         confidence 0.90, fine_confidence 0.90.
+   ID 11: white + flatbed truck, confidence 0.90, fine_confidence 0.90.
+   A retained inspection image also visibly shows the ID 8 and ID 11 examples.
+
+2. That particular run was DEFERRED, not simultaneous live Qwen labeling. It
+   finished tracking, drained the queue through Qwen, then rendered the video
+   again using the final cache. The matching run included sparse YOLOE proposals.
+   Its worker report says mode=drain and locateanything=null.
+
+3. The current default run_traffic.ps1 uses traffic_realtime.yaml: YOLO26n,
+   TrackTrack without ReID, and an asynchronous Qwen3-VL-4B 8-bit worker. It has
+   NO Qwen readiness barrier and NO Qwen preload before camera capture. Qwen is
+   loaded only after the first pending event arrives.
+
+4. The live renderer and the deferred renderer use different label formats and
+   confidence fields. The live renderer retains the detector class and detector/
+   tracker score; the deferred renderer produces the exact example format and
+   displays the fused semantic base confidence.
+
+5. Generic detector names and absent deep labels are two separate issues.
+   The original name fallback is class_2/class_7, with an underscore. The exact
+   Jetson spelling class2/class7 cannot be traced here because its Linux script,
+   engine and runtime logs are absent. Seeing a detector score does not prove
+   that Qwen is loaded, generating valid JSON, or supplying an accepted cache.
+
+6. Configured fine_unknown_threshold=0.72 is not the effective subtype threshold.
+   The subtype risk floor makes it max(0.72, 0.85)=0.85. Fine labels also need at
+   least two distinct evidence frame indices and the margin/stability checks.
+
+7. A TensorRT detector can occupy the detector boundary while keeping the semantic
+   code path, but its class names, class IDs and boxes in original-image coordinates
+   must satisfy the same contracts. Replacing YOLO26n with YOLO26m can change crops,
+   IDs and predictions; identical numerical results are not established by this audit.
+
+===============================================================================
+1. GIT / REPO STATE AND VERSION PROVENANCE
+===============================================================================
+
+Read-only commands and results:
+
+  git branch --show-current
+  master
+
+  git rev-parse HEAD
+  2d9f2c2c442ae40a458c8fb6966cd6d8932c1757
+
+  git status --short
+  [empty before creating this report: clean working tree]
+
+Recent commits:
+  2d9f2c2 2026-09-13T16:52:18+07:00 docs: use the current GitHub clone URL
+  b91e06c 2026-09-13T16:50:18+07:00 refactor: focus public workflow on traffic
+                                      and add clone-ready setup
+  702c3a2 2026-09-08T08:28:08+07:00 video contact-sheet utility / sample images
+  6713135 2026-08-03T13:09:02+07:00 adaptive tracking / semantic framework
+  e94da1c 2026-08-02T18:06:19+07:00 task builder / adaptive semantic tracking
+
+The successful matching run's memory timestamp is
+2026-07-31T12:16:38.404602+07:00. Its files do not record the executing Git SHA.
+Current HEAD is later than that run. The saved resolved task also contains an
+older instruction than the current source task YAML. Therefore:
+
+  "This HEAD is the exact last version that produced the examples":
+  NOT FOUND / NEED RUNTIME EVIDENCE.
+
+The run demonstrates successful Qwen output on the laptop. It does not establish
+that the current HEAD has been rerun with live deep labels or that this was the
+last successful semantic run chronologically across all machines.
+
+The documented SHA256 for configs/tasks/traffic_objects.yaml matches the file
+currently present:
+828F32379EA9E59FC3B8A15FAC81B718F115DB2B3ABB45EF77583E3D6E27C0FB
+This static summary hash is not an executing Git SHA or proof that the older
+event's embedded semantic instruction matches the current YAML.
+
+Jetson's scripts/run_traffic_jetson.sh: NOT FOUND in this checkout.
+Jetson engine, generated config, queue, worker logs and cache: not supplied.
+
+===============================================================================
+2. ACTUAL ENTRY POINTS AND STARTUP ORDER
+===============================================================================
+
+The following files were read in full:
+  scripts/run_traffic.ps1
+  scripts/run_task_realtime.ps1
+  scripts/run_task_webcam.ps1
+
+2.1 Current default traffic entry
+
+scripts/run_traffic.ps1:3-15:
+  Source='0'; Device='auto'; SemanticWorkerMode='auto'.
+  TaskConfig='configs\tasks\traffic_realtime.yaml'.
+  OutputRoot='outputs\traffic'.
+  LiveSemanticMaxPendingEvents=4.
+  RunName includes a timestamp unless explicitly supplied.
+
+Lines 26-32 choose CUDA/live if CUDA is available, otherwise CPU/disabled.
+Lines 33-38 reject CPU Qwen profiles and check imports only. Importing
+transformers/accelerate/bitsandbytes/qwen_vl_utils does not load Qwen weights.
+Lines 40-53 pass a parameter hashtable to run_task_realtime.ps1.
+
+2.2 Task build and CV launch
+
+scripts/run_task_realtime.ps1:164-183 invokes:
+  python -m football_tracking.task_pipeline.cli build
+    --task <TaskConfig> --output-dir <run>/runtime
+    --output-video <run>/tracked_semantic.mp4 --device <Device> ...
+
+task_pipeline/builder.py:69-190 constructs the tracking payload;
+193-248 writes tracking.generated.yaml and task.resolved.json atomically.
+The generated tracking config contains detector/tracker/render settings.
+The resolved JSON contains the semantic task description and taxonomy.
+realtime.py:126-148 loads the generated config and the original task YAML to
+obtain semantic_event_payload(). Semantic semantics are not obtained by reading
+a football prompt or by performing scene discovery in this entry point.
+
+Current live launch excerpt, scripts/run_task_realtime.ps1:234-247:
+
+  if ($SemanticWorkerMode -eq "live") {
+      $LiveArgs = @($WorkerArgs) + @("--watch", "--stop-file", $WorkerStop)
+      Normalize-ProcessPathEnvironment
+      $SemanticWorker = Start-Process `
+          -FilePath $Python `
+          -ArgumentList (ConvertTo-WindowsArguments $LiveArgs) `
+          -RedirectStandardOutput $WorkerStdout `
+          -RedirectStandardError $WorkerStderr `
+          -WindowStyle Hidden `
+          -PassThru
+  }
+
+Lines 253-288 immediately invoke scripts/runtime/run_realtime_adaptive.py.
+There is no polling/waiting for worker status=ready between these statements.
+realtime.py:165-198 loads the detector/tracker and opens VideoCapture.
+Lines 203-227 warm up the detector. They do not warm up Qwen.
+
+ACTUAL LIVE CHAIN:
+  run_traffic.ps1
+    -> run_task_realtime.ps1
+    -> task builder -> runtime YAML + resolved task JSON
+    -> start worker process (--watch), initially waiting for events
+    -> run_realtime_adaptive.py -> run_realtime_tracking()
+    -> detector -> TrackTrack -> evidence queue
+    -> first pending event causes worker to load Qwen
+    -> Qwen inference -> validation/fusion -> semantic_cache.json
+    -> CV reloads cache -> decorates tracks -> draw_tracks() on future frames.
+
+QWEN READY BARRIER: NO.
+QWEN PRELOAD BEFORE CAMERA: NO.
+Camera and CV can run with detector-only labels while Qwen loads or fails.
+
+2.3 Effective queue limits
+
+scripts/run_task_realtime.ps1:185-204:
+  Explicit SemanticMaxPendingEvents > 0 overrides all other capacity rules.
+  Deferred file default: max(task max_pending_events, 4096).
+  Live default: min(task max_pending_events, LiveSemanticMaxPendingEvents).
+  Other modes: task max_pending_events.
+
+For current traffic_realtime.yaml, task capacity=12 but ordinary live capacity=4.
+It counts pending AND processing jobs. It is not a maximum lifetime track count.
+SemanticWorkerBatchSize=2 and SemanticWorkerMaxGroupImages=2 by default
+(run_task_realtime.ps1:19-22). Grouping is enabled unless explicitly disabled.
+SemanticCacheReloadFrames=5 (line 42).
+
+2.4 CameraIndex entry
+
+run_task_webcam.ps1:41-67 probes camera sources; 96-122 maps a logical camera
+index to an actual device_index and delegates to run_task_realtime.ps1.
+Lines 124-150 route a selected RTSP camera through run_ip_camera.ps1.
+It does not add a Qwen readiness barrier. A logical CameraIndex need not equal
+the OS camera index. run_traffic.ps1 -Source 0 uses the source directly instead.
+
+2.5 Deferred output
+
+run_task_realtime.ps1:347-395 waits for the CV invocation to finish, runs the
+worker with --drain, then calls adaptive_tracking.cli render-semantics for a file
+source with a semantic cache. This overwrites the output video with a semantic
+post-render using the source video, MOT tracks, final cache and tracking metadata.
+It is retrospective rendering: a label obtained later can be drawn on an earlier
+frame. It is not causal live semantic availability.
+
+===============================================================================
+3. QWEN WORKER, MODEL LOADER, QUANTIZATION AND FAILURE VISIBILITY
+===============================================================================
+
+Read in full:
+  scripts/runtime/run_realtime_semantic_worker.py
+  src/football_tracking/vlm/model_loader.py
+  src/football_tracking/vlm/qwen_runner.py
+  src/football_tracking/vlm/config.py
+  src/football_tracking/vlm/quantization.py
+
+3.1 Actual model settings source
+
+run_task_realtime.ps1:206-217 fixes the worker configuration path:
+
+  $WorkerArgs = @(
+      "scripts\runtime\run_realtime_semantic_worker.py",
+      "--queue-dir", $SemanticQueue,
+      "--vlm-config", "configs\semantics\dynamic_track.yaml",
+      "--semantic-output", $SemanticCache,
+      "--memory", $SemanticMemory,
+      "--max-events", "$SemanticWorkerBatchSize",
+      "--max-group-images", "$SemanticWorkerMaxGroupImages",
+      "--report", $WorkerReport,
+      "--pid-file", $WorkerPidFile,
+      "--status-file", $WorkerStatus,
+      "--parent-pid", "$PID"
+  )
+
+Worker line 159 calls load_vlm_tracking_config(args.vlm_config,
+overrides={"run_model": True}). vlm/config.py:164-173 reads the model fields.
+The actual Qwen loader uses dynamic_track.yaml, not model_id from a detection
+checkpoint, not an engine name and not a value inferred from a displayed class.
+The task's semantic model_id is separately embedded in the events. Current task
+validation requires Qwen/Qwen3-VL-4B-Instruct, provider=qwen, quantization=8bit
+(task_pipeline/config.py:552-568), so the two sources currently agree.
+Device passed to the PowerShell CV runner is not forwarded as a Qwen override:
+dynamic_track.yaml device=auto remains the actual worker setting.
+
+Actual defaults:
+  model_id:       Qwen/Qwen3-VL-4B-Instruct
+  quantization:   8bit, bitsandbytes at model load time
+  device:        auto
+  dtype kwarg:   "auto" (the config field is called torch_dtype)
+  device_map:    "auto" for this quantized configuration
+  generation:    max_new_tokens=128, do_sample=false
+  image budget:  min_pixels=32768, max_pixels=196608 per image
+
+model_loader.py:72-80, exact excerpt:
+
+  kwargs: dict[str, Any] = {
+      "dtype": resolve_torch_dtype(torch_module, torch_dtype),
+      "device_map": resolve_device_map(device),
+      "trust_remote_code": True,
+  }
+  if quantization_config is not None:
+      kwargs["quantization_config"] = quantization_config
+      kwargs["device_map"] = quantized_device_map(device)
+
+quantization.py:63-64:
+  if mode == "8bit":
+      return BitsAndBytesConfig(load_in_8bit=True)
+
+quantization.py:74-80:
+  normalized = str(device or "auto").strip().lower()
+  if normalized in {"auto", "cuda", "gpu"}:
+      return "auto"
+  return {"": device}
+
+Thus setting device="cuda" would still use automatic placement in this helper;
+device="cuda:0" uses {"": "cuda:0"}. Actual placement, any CPU offload and the
+resolved dtype of unquantized modules require model.hf_device_map/parameter
+runtime evidence. A config/result field saying torch_dtype="auto" does not prove
+the actual tensors are BF16 or FP16. It also does not mean every tensor is INT8.
+
+3.2 Cache-first loading and network fallback
+
+model_loader.py:151-162, exact code:
+
+  def _from_pretrained_with_local_cache(loader: Any, model_id: str, **kwargs: Any) -> Any:
+      try:
+          return loader.from_pretrained(model_id, local_files_only=True, **kwargs)
+      except Exception as local_exc:  # noqa: BLE001
+          try:
+              return loader.from_pretrained(model_id, **kwargs)
+          except Exception as remote_exc:  # noqa: BLE001
+              raise VlmModelLoadError(
+                  "Could not load from the local Hugging Face cache or Hub. "
+                  f"Local error: {type(local_exc).__name__}: {local_exc}; "
+                  f"remote error: {type(remote_exc).__name__}: {remote_exc}"
+              ) from remote_exc
+
+Processor and model both use this helper (lines 35-46). The second attempt can
+download from Hugging Face if network/offline settings allow it. Any local error
+triggers the second attempt, including an error other than a missing cache file.
+No alternative Qwen model or precision fallback is selected on failure.
+
+Before importing transformers, load_qwen_model calls enable_cached_offline_mode
+(model_loader.py:24-28). Lines 165-175 check
+FOOTBALL_TRACKING_ALLOW_HF_NETWORK; if not enabled and a cached snapshot appears
+complete, they setdefault HF_HUB_OFFLINE=1 and TRANSFORMERS_OFFLINE=1.
+Already-set environment values are preserved. Allow-network does not clear an
+externally set offline environment variable. In offline mode the second loading
+attempt is still offline, despite the helper's "Hub" wording.
+
+Custom completeness check, lines 178-210: any snapshot with config.json, ANY
+*.safetensors or *.bin, one processor config and one tokenizer config passes.
+It does not verify all shards listed in an index, a pinned revision, the full
+processor assets or every referenced blob. A partial snapshot can pass this test.
+
+Custom cache-root lookup, model_loader.py:214-221:
+  1. HF_HUB_CACHE
+  2. HF_HOME / hub
+  3. Path.home() / .cache / huggingface / hub
+On this Windows account the third is C:\Users\DELL\.cache\huggingface\hub.
+TRANSFORMERS_CACHE is not read by this project's custom completeness/root helper.
+Library-level behavior can differ; the audit describes the project helper.
+
+Current audit-process values of all six variables were unset:
+HF_HOME, HF_HUB_CACHE, TRANSFORMERS_CACHE, HF_HUB_OFFLINE,
+TRANSFORMERS_OFFLINE, FOOTBALL_TRACKING_ALLOW_HF_NETWORK.
+The default Qwen repository cache directory was absent during the audit:
+C:\Users\DELL\.cache\huggingface\hub\models--Qwen--Qwen3-VL-4B-Instruct
+This says nothing about a different process's environment or another disk cache.
+The successful run's model snapshot SHA/cache location is NOT FOUND.
+
+3.3 Status and READY semantics
+
+Worker status values actually written:
+  starting
+  waiting_for_events
+  loading_qwen
+  ready
+  processing
+  collecting_evidence
+  failed
+  stopped
+
+There is no worker lifecycle status named "error". Failed reports contain an
+"error" text field. Queue return statuses such as idle/waiting_for_evidence are
+not the same schema as the worker status file.
+
+Worker lines 113-122 wait for a pending event before loading a model.
+Lines 158-167, exact sequence:
+
+  _write_worker_status(args, "loading_qwen")
+  config = load_vlm_tracking_config(args.vlm_config, overrides={"run_model": True})
+  with QwenVlmBatchSession(config) as session:
+      _write_worker_status(args, "ready")
+      while True:
+          shutdown_reason = _shutdown_reason(args)
+          if shutdown_reason is not None:
+              exit_reason = shutdown_reason
+              break
+          _write_worker_status(args, "processing")
+
+QwenVlmBatchSession.__enter__ imports process_vision_info, loads processor/model,
+sets the processing function and returns (qwen_runner.py:38-54).
+model_loader.py:47 calls model.eval(). READY means this load completed.
+READY does not mean a test generation completed, every CUDA kernel is warmed, or
+semantic predictions exist. It is transient and can quickly become processing.
+
+Status JSON fields (worker.py:64-82):
+  status, detail, pid, parent_pid, pending_event_count, updated_unix_seconds.
+Writes use a temporary JSON file followed by replacement.
+
+3.4 What Qwen receives and does
+
+The realtime worker receives track-specific evidence images from events and a
+prompt generated from semantic_task. It does not send the full camera stream or
+the entire MOT file through Qwen for every frame.
+
+qwen_runner.py:284-328:
+  _build_user_content(prompt, image_paths, image_labels, image budgets)
+  -> messages=[{"role":"user","content":content}]
+  -> processor.apply_chat_template(..., add_generation_prompt=True)
+  -> process_vision_info(messages, image_patch_size=16)
+  -> processor(text=[text], images=..., videos=..., padding=True,
+               do_resize=False, return_tensors="pt")
+  -> inputs.to(first_model_device(model))
+  -> torch.inference_mode(): model.generate(**inputs, **generate_kwargs)
+  -> remove input tokens -> processor.batch_decode() -> answer string.
+
+Generation kwargs are max_new_tokens and do_sample; temperature is added only
+if sampling is enabled (lines 310-315). Default decoding is greedy.
+The model stays loaded across jobs in one QwenVlmBatchSession. CUDA empty_cache
+after a call does not unload its weights. Session exit releases the model.
+
+Result fields, lines 336-345:
+  status, batch_id, model_id, quantization, torch_dtype, image_count,
+  image_labels, inference_seconds, answer.
+The session wrapper additionally reports timing and CUDA memory measurements.
+
+3.5 Load failure and parent awareness
+
+Worker.py:320-330 catches SemanticQueueError, RuntimeError, ValueError, OSError,
+writes report status=failed/error, writes worker status=failed, prints stderr and
+returns exit code 2. Qwen loading/generation exceptions are wrapped as runtime
+errors and normally use that path. Other exception classes can leave a traceback
+and a stale lifecycle status; status handling is not universal.
+
+run_task_realtime.ps1:253-288 synchronously runs the CV child. There is no loop
+monitoring worker.HasExited or worker status while that child is running.
+After CV ends, lines 290-345 request shutdown, wait up to 600 seconds, inspect
+the worker exit/status and propagate failure. Timeout can force-stop the worker.
+
+Therefore a failed worker can leave CV running with base labels until camera
+termination. The parent eventually detects process failure at shutdown, not as
+an immediate fail-fast interruption of live CV. Worker-side parent PID checking
+does not provide reverse monitoring by the parent.
+Per-event malformed answers may produce completed_with_failures and exit 0;
+the worker report's failed_event_count must also be inspected.
+
+===============================================================================
+4. SEMANTIC CONFIGURATION AND THE ORIGIN OF COLOR + SUBTYPE
+===============================================================================
+
+Both requested YAMLs were read in full.
+
+4.1 configs/semantics/dynamic_track.yaml
+
+Model fields (23-34):
+  provider=qwen; model_id=Qwen/Qwen3-VL-4B-Instruct.
+  device=auto; torch_dtype=auto; quantization=8bit.
+  max_new_tokens=128; image_min_pixels=32768; image_max_pixels=196608.
+  temperature=0.0; do_sample=false; run_model=true.
+
+Generic sampling fields (12-20):
+  keyframe_interval_seconds=2.0; max_keyframes=2; max_tracks=0.
+  max_crops_per_track=2; max_model_images=2; max_tracks_per_batch=1.
+  crop_padding=0.25; crop_output_size=320.
+
+Generic prompt text (38-42):
+  Assign an open hierarchical semantic label to each selected track: a stable base class
+  plus a visually supported fine-grained subtype/species/make/model when possible.
+  Use global keyframes for context and multi-time crops for identity. Reject uncertain
+  base and fine labels independently.
+
+Its input.source_video=data/samples/match.mp4 and tracks path are generic loader
+fields. The queue worker overrides the actual per-job image paths and prompt.
+It does not reopen that example video to label traffic. The generic sampling and
+prompt fields are not the live queue's track budget, crop settings or instruction.
+max_tracks=0 is not a promise of unlimited throughput or successful deep labels.
+
+4.2 configs/tasks/traffic_realtime.yaml
+
+Detector/tracker settings (7-43):
+  YOLO26n COCO, ultralytics backend, checkpoint=yolo26n.pt.
+  class_ids=tracker_class_ids=[0,1,2,3,5,7].
+  preserve_source_classes=true; target_class_id=2; target_class_name=vehicle.
+  imgsz=640; conf=0.18; iou=0.65; max_det=300; half=true.
+  preprocessing=auto_low_light, CLAHE clip=2.0, grid=8, low-light threshold=65.
+  TrackTrack; configs/trackers/tracktrack_multiclass_realtime.yaml.
+  class stabilization=true; history=30; switch margin=0.20.
+  There is no supplemental YOLOE detector in this default task.
+
+Semantic fields (44-170):
+  enabled=true; provider=qwen; model_id=Qwen/Qwen3-VL-4B-Instruct.
+  quantization=8bit; label_mode=closed; enable_fine_labels=true.
+
+Allowed base labels (51-59):
+  pedestrian, bicycle, motorcycle, car, van, bus, truck, unknown.
+
+Base aliases (60-67):
+  person/people/human -> pedestrian
+  motorbike -> motorcycle
+  automobile/auto -> car
+  lorry -> truck
+
+Complete fine_label_taxonomy (68-118):
+  pedestrian:
+    adult pedestrian, child pedestrian, road worker, traffic officer
+  bicycle:
+    road bicycle, mountain bicycle, city bicycle, cargo bicycle
+  motorcycle:
+    scooter, moped, sport motorcycle, cruiser motorcycle,
+    commuter motorcycle, touring motorcycle
+  car:
+    sedan, SUV, crossover, hatchback, coupe, station wagon,
+    convertible, taxi, police car
+  van:
+    minivan, passenger van, cargo van, ambulance, camper van
+  bus:
+    city bus, coach, minibus, school bus, double-decker bus
+  truck:
+    pickup truck, box truck, dump truck, tanker truck, tractor-trailer,
+    flatbed truck, garbage truck, tow truck, cement mixer, fire engine
+
+Complete fine aliases (119-139):
+  saloon -> sedan
+  sport utility vehicle -> SUV
+  crossover SUV -> crossover
+  estate / estate car -> station wagon
+  MPV -> minivan
+  panel van / delivery van -> cargo van
+  transit bus / public bus -> city bus
+  coach bus -> coach
+  motor scooter -> scooter
+  pickup -> pickup truck
+  semi truck / semitruck / articulated truck / tractor trailer -> tractor-trailer
+  cement truck -> cement mixer
+  recovery truck -> tow truck
+  fire truck -> fire engine
+
+Attributes (140-141): [color].
+Generated prompt color vocabulary (semantic_queue.py:1362-1365):
+  black, white, gray, silver, red, blue, green, yellow, orange, brown,
+  beige, maroon, purple, pink, gold, unknown.
+Colors are attributes, not detector class IDs or fine subtype names.
+
+Task instruction, verbatim scalar from traffic_realtime.yaml:142-152:
+  Refine each road-user track using repeated visible evidence. Separate the stable
+  parent class from the most specific supported subtype and visible exterior color.
+  Use service labels such as taxi, ambulance, police car, or school bus only when
+  markings or vehicle structure are directly visible. Judge vehicle subtype from
+  visible body geometry across all evidence: an exposed cargo bed must produce class
+  truck and subtype pickup truck, never class car or subtype SUV; a sedan is a low
+  three-box body with a separate trunk; a hatchback is a short two-box body; a station
+  wagon has a long low roof; an SUV requires a clearly taller enclosed body and
+  increased ride height; a crossover is lower and more car-like than an SUV. A
+  front-only, tiny, blurred, or occluded crop is not enough evidence for a fine
+  subtype. Visible body geometry overrides a weak detector or open-vocabulary hint.
+  Return unknown when subtype evidence is weak; never guess make, model, license
+  plate, occupancy, or an unseen vehicle function.
+
+Thresholds (153-158):
+  unknown_threshold=0.75.
+  fine_unknown_threshold=0.72.
+  fine_minimum_margin=0.08.
+  fine_minimum_temporal_stability=0.60.
+  fast_label_hint_threshold=0.65.
+  fast_color_hint_threshold=0.55.
+
+Scheduling/evidence (159-170):
+  event_interval_frames=90, per track.
+  events_per_frame=1 successful enqueue/replacement budget per processed frame.
+  max_pending_events=12 in task; normal live effective capacity=4.
+  minimum_track_age_frames=15.
+  max_evidence_images=2 temporally selected crop records per event.
+  evidence_interval_frames=12.
+  evidence_collection_delay_seconds=0.75.
+  evidence_layout=panel; panel_width=512; panel_height=384.
+  minimum_crop_quality=0.22; replacement_quality_margin=0.07.
+
+Task loader defaults omitted from YAML (task_pipeline/config.py:632-641):
+  evidence_context_fraction=0.55; crop_padding=0.15; crop_size=256.
+These are the live queue settings, rather than dynamic_track.yaml's 0.25/320.
+One panel image contains scene context and the temporal crops. Two crop records
+do not imply two separate Qwen image inputs for one event.
+
+Fusion effective defaults (semantic_fusion.py:342 onward):
+  base minimum_margin=0.10; minimum_temporal_stability=0.60.
+  temporal_half_life_frames=900; source weights qwen=1.0, locateanything=0.9.
+  Traffic subtype required threshold=max(configured fine threshold,0.85).
+  At least two distinct evidence frame IDs are required for accepted fine labels.
+  Two crop frames in one Qwen call can satisfy that count; it is not two calls.
+
+4.3 Which stage creates white SUV / yellow taxi / white flatbed truck?
+
+Qwen receives class/subtype/color instructions and returns, for example:
+  {"p":[{"id":8,"class":"car","subtype":"SUV","color":"white",
+         "q":0.95,"sq":0.95}]}
+Parser/closed-taxonomy validation normalizes it to car + suv + color=white.
+Fusion accepts or rejects base and subtype separately.
+The renderer combines attributes.color and the accepted subtype.
+The matched original run has sources=["qwen"] for all three examples.
+
+Current traffic_realtime can use the same Qwen -> cache -> color/subtype path.
+The historical matched run used traffic_objects.yaml, sparse YOLOE and deferred
+post-render. LocateAnything was not necessary for these particular examples.
+Fast HSV color hints can also decorate base labels before Qwen; color appearing
+on a frame alone is not proof of accepted VLM output.
+
+===============================================================================
+5. END-TO-END TRACK TRACE, JSON SCHEMAS AND RENDER CONDITIONS
+===============================================================================
+
+Read in full: semantic_queue.py, semantic_cache.py, semantic_fusion.py,
+semantic_render.py and realtime.py. temporal_memory.py and draw_tracks.py were
+also read in full to distinguish stored predictions from displayed scores.
+
+5.1 Important cache-module distinction
+
+adaptive_tracking/semantic_cache.py:45-78 defines SemanticCache for SCENE
+DISCOVERY, keyed by video fingerprint/model/prompt version/sampling. Its JSON
+contains {schema_version:1, cache_key, discovery}. That is not the realtime
+track-label cache used by run_traffic.ps1.
+
+The actual realtime reader is SemanticCacheView in semantic_queue.py:720-815.
+The worker writes fused track labels directly to semantic_cache.json.
+Porting only the discovery cache would not supply track labels to live render.
+
+5.2 Detection and identity
+
+realtime.py:347-379 runs detector preprocessing/inference, converts predictions,
+partitions tracker vs render-only classes and calls tracker.update(..., frame).
+tracking/pipeline.py:455-500 preserves source class IDs/names when configured.
+TrackTrack adapter maps raw tracker IDs to visible output IDs. The semantic event
+uses that VISIBLE TrackOutput.track_id, not a separately computed detection index
+or an ID generated inside Qwen. Qwen is instructed to return that exact ID.
+
+realtime.py:387-394 stabilizes classes, associates optional fast proposals and
+adds conservative visual color hints. It records base_detector_class_name so
+semantic prompts can still receive the base class.
+
+5.3 Event eligibility and queue behavior
+
+realtime.py:411-449 ranks eligible tracks after minimum age=15, prioritizes
+unaccepted tracks, and enqueues at most the configured successful event budget.
+Age is frame_index minus first output frame; it is not a consecutive-observation
+counter. Live source frame indices can skip when frames are dropped.
+
+semantic_queue.py:206-439:
+  - Does not enqueue another job while the track is processing.
+  - Maintains/replaces a pending job per track, with a 90-frame normal cooldown.
+  - Allows temporal evidence completion at the shorter 12-frame interval.
+  - Counts pending+processing against queue capacity.
+  - Full queue increments dropped_full and puts the track on enqueue cooldown.
+  - Rejects low-quality crops; better crops can replace pending evidence.
+
+Normal refresh interval can increase for accepted tracks (realtime.py:55-80):
+unknown/unaccepted uses 90 frames; accepted base-only typically 4*90;
+accepted fine label typically 20*90. This is sparse revalidation, not every-frame
+Qwen analysis. Increasing a job cap does not make the worker process all objects
+before they leave the camera view.
+
+5.4 Crop and panel creation
+
+semantic_queue.py:591-625 pads the original bbox by 15%, clips to the original
+frame and downsizes, without upscaling, to crop_size=256 while preserving aspect.
+It records the target bbox in crop-local coordinates for optional Locate use.
+The crops belong to an ID because their boxes came from that ID at that frame.
+The crop itself is not an independent identity recognizer.
+
+Quality computation (518-555):
+  0.30*sharpness + 0.20*brightness + 0.20*size
+  + 0.20*detector_confidence + 0.10*visible_fraction.
+Sharpness uses Laplacian variance normalized by 250; size uses short bbox edge/96.
+visible_fraction measures crop clipping relative to the image, not an occlusion
+mask. It cannot establish that the entire object is visible behind another car.
+
+Temporal selection (558-588) retains the best crop plus evidence balancing image
+quality and temporal separation. Panel creation (628-694) uses highlighted scene
+context on the left (55%) and selected same-ID crops on the right.
+The scene context is the event's current frame; crops can come from older frames.
+
+5.5 Semantic event schema
+
+semantic_queue.py:366-423 writes schema_version="2.0" with these fields:
+
+  event_id: string, e.g. f000000433_t0000008
+  context_id: run config/source identity
+  frame_index: integer
+  track_id: visible integer ID
+  detector_class_id: integer
+  detector_class_name: string
+  fast_semantic_proposal: null or {
+      class_label, confidence, visual_color, visual_color_confidence, source
+  }
+  track_confidence: detector/tracker confidence
+  reason: enqueue reason, e.g. unknown_track
+  priority: numeric
+  created_unix_seconds: numeric
+  ready_after_unix_seconds: numeric
+  crop_path: absolute path
+  crop_quality: {
+      score, sharpness, sharpness_raw, brightness, brightness_raw,
+      size, visible_fraction, detector_confidence
+  }
+  target_bbox_in_crop_xyxy: [x1,y1,x2,y2]
+  evidence: [{frame_index,crop_path,quality}, ...]
+  evidence_layout: "panel" or other supported layout
+  evidence_panel_path: path
+  qwen_image_paths: [path,...]
+  qwen_image_labels: [text,...]
+  evidence_frame_indices: [integer,...]
+  semantic_task: {
+      task_id,task_name,provider,model_id,quantization,label_mode,
+      enable_fine_labels,allowed_labels,label_aliases,fine_label_taxonomy,
+      fine_label_aliases,attributes,instruction,thresholds,evidence settings,...
+  }
+
+Completed events additionally store model_result with raw model answer, model ID,
+quantization and inference timing (1825-1838). Optional Locate adds locateanything
+and changes qwen_image_paths/labels before Qwen processing.
+
+Queue directories:
+  pending/ -> processing/ -> processed/
+                          -> failed/ for invalid per-event output
+  crops/ and panels/ store the evidence.
+Claiming sorts by priority descending then frame order and atomically moves the
+event from pending to processing (1629-1651). ready_after is respected.
+Unfinished processing events are recovered to pending at worker startup.
+
+5.6 Prompt generation and Qwen JSON
+
+_qwen_job (1259-1282) takes actual images from the event. Single-track prompt
+generation is in 871-955; grouped prompt generation is in 1306-1398.
+Prompts are generated by deterministic Python template formatting with event/task
+data, not by loading a user-edited old prompt.md and not by an LLM writing prompts.
+They include expected IDs, allowed evidence frames, taxonomy, detector/fast hints,
+visible color instruction and a required JSON shape.
+
+Grouped schema:
+  {"p":[{"id":8,"class":"car","subtype":"SUV","color":"white",
+          "q":0.95,"sq":0.95}, ...]}
+
+Single-track schema can instead use track_predictions with fields:
+  track_id,class_label,fine_label,fine_label_type,attributes,
+  confidence,fine_confidence,evidence_frames.
+The parser supports both. q/sq are the model's self-reported confidence values,
+not copied detector scores and not measured accuracies.
+
+Exact grouped instruction excerpt, semantic_queue.py:1384-1397:
+  Each supplied image label identifies exactly one target track. Analyze each target separately,
+  do not transfer appearance or labels between track IDs, and return exactly one prediction for
+  every expected track below.
+  ...
+  Use q and sq for your own confidence rounded to one decimal place. Do not copy confidence
+  from a detector hint. The system already records evidence frames, so do not return them.
+  Do not return descriptions, unrequested attributes, or extra keys.
+  Keep the answer compact and return JSON only:
+
+Default grouping can combine two one-panel events into one two-image call.
+It requires compatible task descriptions and image-budget conditions; jobs with
+extra Locate views may need separate calls (1691-1703).
+
+5.7 Validation, memory and fusion
+
+semantic_queue.py:1717-1747 parses answers and checks expected track IDs. Missing
+or malformed per-track predictions go to failed output. Generation exceptions
+requeue claims and terminate through worker failure handling.
+Lines 1502-1605 enforce the closed task taxonomy and aliases, normalize names,
+separate color, and check the subtype belongs to its parent. Invalid output is
+not accepted merely because Qwen returned fluent text.
+
+Lines 1783-1821 merge TemporalSemanticMemory, fuse observations and atomically
+replace semantic_cache.json. Cache runtime timing describes the LAST batch, while
+semantic_worker_report totals describe the worker run.
+
+Memory schema, temporal_memory.py:110-131:
+  {
+    "schema_version": 2,
+    "context_id": "...",
+    "updated_at": "ISO timestamp",
+    "summary": {"track_count":...,"observation_count":...},
+    "observations": [{
+      "track_id":8,"class_label":"car","confidence":0.95,
+      "source":"qwen","attributes":{"color":"white"},
+      "evidence_frames":[229,241,433],"evidence":"",
+      "fine_label":"suv","fine_confidence":0.95,
+      "fine_label_type":"subtype","taxonomy_path":[]
+    }, ...]
+  }
+Memory load checks context_id. Merge deduplicates observations and retains up to
+32 recent observations per track by default; it is not a 32-track global limit.
+
+Fusion weights confidence by source and recency. For a candidate label:
+  score = sum(confidence * source_weight * temporal_weight).
+  temporal_weight uses half-life 900 frames.
+  consensus = best score / all candidate scores.
+  absolute confidence = best score / its accumulated weights.
+  fused confidence = absolute confidence * consensus.
+  margin = (best score - second score) / total scores.
+Base labels require confidence>=0.75, margin>=0.10 and adequate stability when
+multiple temporal groups exist. Attributes use weighted votes. The resulting
+color is not accompanied by a separately calibrated color confidence in cache.
+
+Fine acceptance excerpt, semantic_fusion.py:788-795:
+  temporal_met = len(by_frame) < 2 or temporal_stability >= minimum_temporal_stability
+  independent_evidence_met = len(by_frame) >= 2
+  accepted = (
+      confidence >= required_threshold
+      and margin >= minimum_margin
+      and temporal_met
+      and independent_evidence_met
+  )
+Subtype required_threshold=0.85 here (857-870), fine margin=0.08,
+fine temporal stability=0.60. Distinct frame IDs are the implementation's evidence
+count; they do not prove independent human verification or two separate model calls.
+
+5.8 Runtime semantic cache schema
+
+Top level, semantic_fusion.py:465-552, worker additions at queue.py:1801-1821:
+  schema_version="2.0", policy, summary, tracks, runtime.
+
+A tracks[] entry contains:
+  track_id,class_label,confidence,absolute_confidence,consensus,margin,
+  temporal_stability,temporal_observation_count,temporal_span_frames,
+  latest_evidence_frame,label_transition_count,accepted,unknown_reason,attributes,
+  fine_label,fine_label_type,fine_confidence,fine_required_threshold,fine_consensus,
+  fine_margin,fine_temporal_stability,fine_independent_evidence_frames,
+  fine_accepted,fine_unknown_reason,fine_label_scores,taxonomy_path,display_label,
+  sources,evidence_count,label_scores,task_id.
+detector_class_name is added for tracks in the current claimed batch. Historical
+entries can lack it when a later batch re-fuses all memory, so render falls back
+to the current track name. display_label can be "car > suv"; it is not the final
+color+subtype screen string.
+
+SemanticCacheView.refresh(), queue.py:728-743:
+  if self.path is None or not self.path.is_file():
+      return False
+  stat = self.path.stat()
+  if stat.st_mtime_ns == self._mtime_ns:
+      return False
+  payload = json.loads(self.path.read_text(encoding="utf-8"))
+  self.labels = {
+      int(row["track_id"]): dict(row) for row in payload.get("tracks", [])
+  }
+  self._mtime_ns = stat.st_mtime_ns
+  return True
+
+  # accepted()
+  row = self.labels.get(track_id)
+  return row if row and bool(row.get("accepted")) else None
+
+The live reader expects a TOP-LEVEL tracks array and integer-compatible IDs.
+A mapping keyed by arbitrary event IDs or a {discovery:...} cache is incompatible.
+It reloads by file mtime, not per-call model memory. It does not validate context_id
+or schema_version. Reusing a cache with restarted IDs can attach stale labels;
+fresh run directories/overwrite and identical worker/renderer paths matter.
+
+5.9 Why generic class names are visible and when they change
+
+detection/postprocessing.py:95-102 reads raw_prediction.names[class_id].
+Lines 158-164 fall back to configured source names, then person for class 0 or
+class_<id> for another ID. If a custom TensorRT result drops names and no map is
+available, generic base labels can enter the tracker.
+
+tracking/ultralytics_adapter.py:602-608 also has its own fallback:
+  class_id = int(row[6])
+  class_name = f"class_{class_id}"
+  if len(row) >= 8:
+      detection_index = int(row[-1])
+      if 0 <= detection_index < len(detections):
+          class_name = detections[detection_index].class_name
+
+A tracker output without a valid detection-index column can thus lose a named
+class even if the detection originally had one. The original project does not
+create the exact no-underscore spelling class2/class7 in these locations.
+
+When no accepted cache entry exists, SemanticCacheView.decorate():754-783 keeps
+track.class_name. It stores waiting/pending in metadata, and adds "| unknown"
+only for a modeled but rejected cache row. The currently reviewed live renderer
+does not draw pending/waiting as text. Thus base labels alone do not distinguish
+loading, waiting, queue saturation, inference failure or cache wiring failure.
+
+For a deep color/subtype label to appear:
+  a. A valid event must be created for the visible track ID.
+  b. The worker must claim it, read its real images and successfully run Qwen.
+  c. JSON must parse and match the expected ID and task taxonomy.
+  d. Fusion must produce accepted=true and, for a subtype, fine_accepted=true.
+  e. A valid color must be present or available as a compatible fast color hint.
+  f. Worker and renderer must share the same cache file, and the renderer must
+     refresh it while that track ID remains visible.
+  g. The renderer must actually use decorated tracks, not the raw tracker outputs.
+
+realtime.py:409-410 refreshes at frame 1 and every five frames in the default
+PowerShell run. Lines 458-481 call draw_tracks with semantic_cache.decorate(...).
+Qwen cache never changes MOT identities; MOT writing uses the original tracks.
+
+LIVE formatting:
+  SemanticCacheView (784-813) sets class_name to base or "base | deep".
+  _semantic_detail_label (818-868) selects accepted fine label and visible color.
+  draw_tracks.py:38-45 joins ID, class_name and track.confidence with " | ".
+  Example shape: ID 8 | car | white suv | 0.73.
+  Base may already include a fast color/proposal. track.confidence remains the
+  detector/tracker score. semantic_confidence is stored in metadata, not used
+  by draw_tracks to replace that score.
+
+DEFERRED formatting:
+  semantic_render.py:109-111 uses _semantic_display_label and cache confidence.
+  Lines 124-132 append " {confidence:.2f}" after "ID n | label".
+  Lines 272-309 choose accepted fine_label, prepend attributes.color, capitalize
+  suv -> SUV. This produces EXACTLY:
+    ID 8 | white SUV 0.95
+    ID 9 | yellow taxi 0.90
+    ID 11 | white flatbed truck 0.90
+  The number is base semantic confidence, not fine_confidence or a joint
+  color/subtype correctness probability, even when these happen to match.
+
+===============================================================================
+6. TRACKTRACK: ACTUAL ADAPTER, REID AND PARAMETERS
+===============================================================================
+
+traffic_realtime.yaml:38-43 explicitly chooses name=tracktrack and
+configs/trackers/tracktrack_multiclass_realtime.yaml.
+tracker_factory.py:49-54 creates UltralyticsTrackerAdapter; lines 87-93 load the
+configuration with default_tracker_type="tracktrack".
+ultralytics_adapter.py:356-361 imports:
+  from ultralytics.trackers.track_tracker import TRACKTRACK
+It is this installed implementation, not a class named after BoT-SORT or a
+separate paper repository. The installed wheel directory is
+.venv/Lib/site-packages/ultralytics-8.4.82.dist-info.
+The matching saved run records ultralytics=8.4.82 too.
+
+Complete principal config values (tracktrack_multiclass_realtime.yaml:2-32):
+  tracker_type=tracktrack; name=tracktrack_multiclass.
+  track_high_thresh=0.30; track_low_thresh=0.08; new_track_thresh=0.35.
+  track_buffer=60; match_thresh=0.75; lost_match_thr=0.85.
+  iou_weight=0.65; reid_weight=0.35; conf_weight=0.10; angle_weight=0.05.
+  penalty_p=0.20; penalty_q=0.40; reduce_step=0.05.
+  tai_thr=0.50; min_track_len=2.
+  gmc_method=sparseOptFlow; with_reid=false; model=auto.
+  class_aware=false; class_gate=false.
+  output.confirmed_only=true; require_recent_update=true.
+  max_time_since_update_for_output=0; min_hits_for_output=2; compact_ids=true.
+
+Additional loader defaults (ultralytics_adapter.py:138-183):
+  fuse_score=true; proximity_thresh=0.5; appearance_thresh=0.25.
+  delta_t=3; inertia=0.2; use_byte=false; alpha_fixed_emb=0.95.
+
+REID IS DISABLED in the default and the matching historical run. The presence of
+reid_weight in YAML does not enable ReID. Installed track_tracker.py:391 builds
+the encoder with with_reid; _cost_matrix():412-418 uses appearance only when the
+encoder exists, otherwise it uses HMIoU motion cost. Confidence and angle terms
+are added at 419-420. GMC uses sparse optical flow.
+If a separate profile enables with_reid=true and model=auto, the adapter replaces
+auto with yolo26n-cls.pt because direct tracker.update lacks predictor feature
+hooks (ultralytics_adapter.py:132-137). That is not this default traffic profile.
+
+Association is class-agnostic to tolerate transient detector class flips; a
+separate TrackClassStabilizer handles class display. This also means class_gating
+is not protection against cross-class identity association in this profile.
+
+The adapter calls tracker.update(results, frame) directly (510-542). The installed
+TrackTrack has predictor-side setup_predictor/compute_frame_extras hooks for
+recovered loose-NMS detections (track_tracker.py:393-407); this project adapter
+does not invoke those hooks or pass dets_del. Do not assume all native predictor
+recovery behavior is active in this direct adapter.
+
+Detector conf=0.18 means detections below 0.18 are filtered before the tracker;
+setting track_low_thresh=0.08 does not restore detections already discarded.
+track_buffer=60 is tracker update steps, not necessarily two wall-clock seconds
+when a live source is dropping frames. The output policy does not draw predicted
+boxes for lost tracks, even if their state is retained internally.
+
+Visible ID mapping (adapter.py:555-563) keys raw IDs by scene epoch and class scope.
+reset_scene():427-438 resets association and increments the epoch without
+restarting the visible-ID counter. Preserve this relationship with semantic IDs
+when porting; otherwise an old cache row can be assigned to a new identity.
+
+===============================================================================
+7. MODEL DOWNLOAD AND CACHE SETUP
+===============================================================================
+
+Search covered source, scripts, configs, requirements, docs, tests and root files
+for huggingface, snapshot_download, from_pretrained, local_files_only, HF_HOME,
+HF_HUB_CACHE, TRANSFORMERS_CACHE, download_models, Qwen3-VL and setup_webcam.
+Relevant production paths were read. Synthetic pytest caches were not treated
+as successful real-model runs. Some unrelated protected pytest temporary folders
+were inaccessible and excluded from the successful-run evidence.
+
+scripts/runtime/download_models.py:12-19, exact prefetch implementation:
+  from ultralytics import YOLO
+  YOLO("yolo26n.pt")
+  if args.qwen:
+      from huggingface_hub import snapshot_download
+      path = snapshot_download("Qwen/Qwen3-VL-4B-Instruct")
+      print(f"Qwen snapshot cached at {path}; the semantic worker loads it in 8-bit.")
+
+Documented/supported Windows prefetch commands:
+  .\scripts\setup_webcam.ps1 -TorchBackend cuda -DownloadModels
+  .\.venv\Scripts\python.exe scripts\runtime\download_models.py --qwen
+
+setup_webcam.ps1:65 determines WithSemantics from CUDA and SkipSemantics.
+Lines 85-88 invoke download_models.py and add --qwen only with semantic support.
+Lines 70-84 install/check the Windows environment and imports; they do not perform
+a test Qwen generation. Its CPU path intentionally has no Qwen worker.
+
+The original checkpoint is downloaded normally; bitsandbytes quantizes when
+loading. There is no separate Qwen INT8 repository in these commands, and no
+pre-serialized INT8 snapshot is recorded. Do not expect the download to be only
+the quantized model size. snapshot_download has no pinned revision argument.
+
+The historical command actually executed to download the matching run's weights:
+NOT FOUND / NEED RUNTIME EVIDENCE. There is no retained download transaction or
+terminal history proving it used setup_webcam, download_models or implicit
+from_pretrained. The supported setup paths above are source evidence, not a
+reconstruction of a command history that was not stored.
+
+Pre-download is not mandatory when online: model_loader can fetch on first use.
+For an offline Jetson, the complete model/processor/tokenizer snapshot and a cache
+layout or local path that the loader resolves must exist before the worker runs.
+The Windows .venv and CUDA wheel index in setup_webcam.ps1 are Windows setup
+evidence; they are not a validated Jetson installation recipe.
+
+Other relevant search hits:
+  vlm/scene_discovery.py and runtime/run_scene_discovery.py use Qwen but are not
+  called by default run_traffic.ps1.
+  locate_tracking/grounding/locate_anything_backend.py has separate from_pretrained
+  calls and optional model loading.
+  README.md and docs/USAGE.md describe prefetch/live/deferred selection.
+  tests/test_vlm_model_loader.py validates helper behavior with synthetic tests;
+  it is not evidence of a model download or successful Jetson generation.
+
+===============================================================================
+8. LOCATEANYTHING PARTICIPATION
+===============================================================================
+
+Default run_traffic.ps1: NO LocateAnything. It does not expose a LocateFirst flag.
+It delegates ordinary live/deferred Qwen settings to run_task_realtime.ps1.
+
+run_task_realtime.ps1 supports LocateFirst only with SemanticWorkerMode=deferred
+(63-65). The worker rejects --locate-first together with --watch (303-306).
+There is no default live Locate service silently running alongside Qwen.
+
+Optional parameters (24-33):
+  model_id=nvidia/LocateAnything-3B; quantization=8bit.
+  max_new_tokens=256; image_max_pixels=65536.
+  minimum_association_score=0.10; locate device uses the CV Device parameter.
+
+Worker.py:132-149 performs prepare_pending_events_with_locate before creating
+QwenVlmBatchSession. semantic_queue.py:959-1144 implements that pass:
+  - Reads each pending event's current crop, not the full video.
+  - Builds query="the <detector_class_name>" (1042-1049).
+  - Grounds boxes and matches one to target_bbox_in_crop_xyxy.
+  - Association score combines IoU and coverage (1215-1236).
+  - Requires score>=0.10 to add a refined crop.
+  - Keeps the original temporal panel as the first Qwen image.
+  - Adds a tighter Locate crop as a second view if accepted (1066-1095).
+  - Adds event.locateanything and updated Qwen paths/labels.
+  - Closes the owned Locate backend in finally (1132-1134), before Qwen loads.
+
+This is sequential GPU use, not concurrent Locate and Qwen residency in the main
+supported path. Locate refines visual evidence; Qwen still produces the closed
+traffic semantic labels. A source_weights entry named locateanything in the fusion
+policy does not mean this run contains independent Locate class votes.
+
+The matching examples run records locateanything=null and sources=["qwen"].
+It did not require LocateAnything. This optional crop refinement also does not
+run a full-frame detector to recover every person/car missed by YOLO, change MOT
+IDs, or guarantee recovery behind an occluder. Missing tracks supply no event to
+this particular post-tracking Locate pass.
+
+===============================================================================
+9. EXACT MATCHING SUCCESSFUL RUN: ARTIFACTS AND MEASUREMENTS
+===============================================================================
+
+Representative run root:
+F:\Tracking\outputs\benchmarks\youtube_traffic\youtube_traffic_monitoring_diverse_60s
+
+Source recorded in realtime_metrics.json:
+F:\videos\youtube_traffic_monitoring_exploratory_60s.mp4
+Source metadata: 1280x720, 1799 frames, 29.97002997002997 FPS.
+The source file exists. These are recorded-video tests, not an HDMI live test.
+
+Files retained:
+  runtime/tracking.generated.yaml
+  runtime/task.resolved.json
+  tracked_semantic.txt
+  realtime_metrics.json
+  semantic_queue/pending,processing,processed,failed,crops,panels
+  semantic_cache.json
+  semantic_memory.json
+  semantic_worker_report.json
+  semantic_worker.status.json
+  semantic_render.metadata.json
+  tracked_semantic.semantic.metadata.json
+  inspection/frame_10.jpg,frame_20.jpg,frame_30.jpg,frame_45.jpg,frame_55.jpg
+
+The saved metrics/render metadata point to tracked_semantic.mp4 in this run root.
+That MP4 is currently absent at its recorded path. The inspection JPEGs remain;
+frame_10.jpg was opened during this audit and visibly shows:
+  ID 8 | white SUV 0.95
+  ID 11 | white flatbed truck 0.90
+This is retained frame evidence; the audit did not play a missing video.
+
+9.1 Actual recorded components
+
+Task: traffic_objects, source_config=configs/tasks/traffic_objects.yaml.
+Primary: yolo26n.pt COCO, 640, conf=0.18, iou=0.65.
+Supplemental: yoloe-26s-seg.pt, sparse every 8 frames, 225 recorded calls.
+YOLOE prompt classes:
+  sedan, sport utility vehicle, crossover SUV, hatchback, coupe,
+  station wagon, taxi, minivan.
+Output IDs 1100-1107; only compatible with COCO car tracks (ID 2).
+Main tracker inputs remain IDs [0,1,2,3,5,7]. Sparse proposals are attached to
+tracks via FastSemanticProposalStore; they do not create separate subtype tracks.
+Tracker: TrackTrack, with_reid=false, compact_ids=true, scene_epoch=1.
+Model: Qwen/Qwen3-VL-4B-Instruct, 8bit.
+Worker mode: drain; grouped two-panel calls; Locate: null.
+Evidence max crops=3 in this saved run, compared with current traffic_realtime=2.
+Recorded queue cap=128. Current deferred default is 4096 for a file unless
+SemanticMaxPendingEvents overrides it; this historical cap was different.
+
+Saved instruction in task.resolved.json and the ID 8 event:
+  Refine each road-user track using repeated visible evidence. Separate the stable
+  parent class from the most specific supported subtype and visible exterior color.
+  Use service labels such as taxi, ambulance, police car, or school bus only when
+  markings or vehicle structure are directly visible. Return unknown when subtype
+  evidence is weak; never guess make, model, license plate, occupancy, or an unseen
+  vehicle function.
+Current traffic_objects.yaml includes additional body-geometry instructions and
+base aliases/hint settings. The historical embedded payload is authoritative
+for the saved event; current config equality is not assumed.
+
+9.2 Exact track 8 trace from saved artifacts
+
+processed event:
+semantic_queue/processed/f000000433_t0000008.json
+
+Selected actual fields:
+  track_id=8; detector_class_id=2; detector_class_name=car.
+  frame_index=433; track_confidence=0.73388671875.
+  reason=unknown_track; crop_quality.score=0.860615.
+  evidence frames=[229,241,433], crop qualities=[0.726236,0.7658,0.860615].
+  evidence_layout=panel; qwen_image_paths has one panel for ID 8.
+  fast proposal class_label=null, visual_color=white,
+  visual_color_confidence=0.6871128619597009.
+  model_result.batch_id=group_tracks_8_32.
+  model_result.model_id=Qwen/Qwen3-VL-4B-Instruct.
+  model_result.quantization=8bit; torch_dtype=auto.
+  model_result.image_count=2 (ID 8 and ID 32 panels together).
+  model_result.inference_seconds=20.329671500003315.
+
+Raw model answer, exact JSON values:
+  {
+    "p": [
+      {"id":8,"class":"car","subtype":"SUV","color":"white","q":0.95,"sq":0.95},
+      {"id":32,"class":"truck","subtype":"flatbed truck","color":"gray","q":0.95,"sq":0.95}
+    ]
+  }
+
+Saved memory observation:
+  {
+    "track_id":8,"class_label":"car","confidence":0.95,"source":"qwen",
+    "attributes":{"color":"white"},"evidence_frames":[229,241,433],
+    "evidence":"","fine_label":"suv","fine_confidence":0.95,
+    "fine_label_type":"subtype","taxonomy_path":[]
+  }
+
+Saved cache entry for ID 8:
+  {
+    "track_id":8,"class_label":"car","confidence":0.95,
+    "absolute_confidence":0.95,"consensus":1.0,"margin":1.0,
+    "temporal_stability":1.0,"temporal_observation_count":1,
+    "temporal_span_frames":204,"latest_evidence_frame":433,
+    "label_transition_count":0,"accepted":true,"unknown_reason":null,
+    "attributes":{"color":"white"},"fine_label":"suv",
+    "fine_label_type":"subtype","fine_confidence":0.95,
+    "fine_required_threshold":0.85,"fine_consensus":1.0,"fine_margin":1.0,
+    "fine_temporal_stability":1.0,"fine_independent_evidence_frames":3,
+    "fine_accepted":true,"fine_unknown_reason":null,
+    "fine_label_scores":{"suv":1.0},"taxonomy_path":["car","suv"],
+    "display_label":"car > suv","sources":["qwen"],"evidence_count":1,
+    "label_scores":{"car":1.0},"task_id":"traffic_objects"
+  }
+
+Other exact matches:
+  ID 9: class=car, fine=taxi, color=yellow, accepted/fine_accepted=true,
+        confidence/fine_confidence=0.90, three distinct evidence frames.
+  ID 11: class=truck, fine=flatbed truck, color=white,
+         accepted/fine_accepted=true, confidence/fine_confidence=0.90,
+         three distinct evidence frames.
+
+9.3 Worker totals and meaningful coverage denominators
+
+semantic_worker_report.json:
+  status=ok, mode=drain, processed_event_count=128, failed_event_count=0.
+  batch_count=64, qwen_call_count=64, grouped_event_count=128.
+  remaining_event_count=0, elapsed_seconds=863.6148879000102 (~14.39 min).
+  exit_reason=queue_drained, recovered_processing_events=0.
+  locateanything=null.
+Worker status at completion: stopped, detail=queue_drained.
+
+Final cache summary:
+  modeled tracks=128; accepted base=125; rejected base=3.
+  accepted base fraction among modeled tracks=125/128=97.65625%.
+  fine accepted=54; fine unknown=74; fine fraction among modeled=42.1875%.
+
+Final render metadata:
+  total tracked identities=152; modeled=128; unmodeled=24.
+  accepted base track coverage=125/152=82.2368421%.
+  fine accepted / all tracked identities=54/152=35.5263158%.
+  total boxes=25577; accepted semantic boxes=24010 (93.8734019%).
+  labeled tracks including detector fallback=149/152 (98.0263158%).
+  labeled boxes including fallback=25301/25577 (98.9209055%).
+These are coverage measurements, not accuracy or F1. This exploratory video has
+no retained verified semantic/identity ground truth. A plausible SUV label or a
+confidence=0.95 is not proof that its actual subtype is correct.
+
+At CV termination realtime_metrics.semantic records accepted_cached_tracks=0,
+cache_refreshes=0 and pending_events=128. That is consistent with a deferred
+worker running afterwards, rather than 125 labels already available live.
+events_enqueued=390 includes 262 pending replacements, not 390 unique modeled
+tracks. Queue dropped_full=22.
+
+9.4 Hardware and speed recorded for this run
+
+  GPU: NVIDIA GeForce RTX 4060 Laptop GPU, total bytes=8585216000.
+  CPU: Intel64 Family 6 Model 183; 14 physical / 20 logical cores.
+  System memory: 16849256448 bytes.
+  Python=3.12.10; Windows 11 build 26200.
+  PyTorch=2.11.0+cu128; CUDA runtime=12.8; Ultralytics=8.4.82.
+
+CV phase (1799 frames):
+  total_seconds=112.2934665.
+  end_to_end_fps=16.0205224; processing_fps=16.6217257.
+  steady-state processing_fps=16.6125877.
+  mean frame latency=60.1622251 ms; p95=106.8978 ms.
+  source_fps=29.9700300; keeps_up_with_source=false.
+  capture_mode=sequential; dropped_late_frames=0.
+  detector stage FPS=34.2503664; tracker stage FPS=52.8612887.
+  stage FPS values are isolated rates, not additive full-pipeline rates.
+
+Semantic drain: 863.6148879 seconds for 128 jobs / 64 calls.
+Post-render: 11.7218831 seconds, render_fps=153.4736343.
+These three durations are different scopes; 16.02 FPS excludes deferred Qwen.
+The full semantic deliverable takes roughly 16.46 minutes by summing the saved
+CV/drain/render times, excluding unrecorded orchestration overhead. This is not
+a measured live camera end-to-end latency or Jetson speed.
+
+Final-batch cache runtime:
+  inference_seconds=12.2957597, session_call_index=64.
+  peak CUDA allocated=5516395008 bytes; reserved=5645533184 bytes.
+  model_load_seconds=0.0 in that last batch means the session reused its model;
+  it does not mean the initial model loaded instantly.
+ID 8's actual grouped call took 20.3296715 seconds. Deep semantic latency cannot
+be described as merely one or two video frames on the basis of this run.
+
+9.5 Live evidence also found
+
+outputs/task_realtime/webcam_traffic contains a watch-mode worker report:
+  status=ok; processed=4; failed=0; qwen_calls=4; elapsed=277.9607247 seconds.
+  remaining_event_count=1; exit_reason=stop_requested; locateanything=null.
+  final cache has 4 accepted base tracks and 2 accepted fine tracks.
+  ID 7: car / hatchback / white, base=0.95, fine=0.85, source=qwen.
+This establishes a real watch-mode semantic result in retained artifacts, but
+not complete coverage of all camera objects. There is no retained matching
+realtime_metrics.json in that run root to substantiate its FPS in this report.
+
+Original terminal command text for the representative run:
+NOT FOUND / NEED RUNTIME EVIDENCE. Section 11 gives a source-supported command
+reconstruction and separately the current production live command.
+
+===============================================================================
+10. JETSON DETECTOR REPLACEMENT BOUNDARY AND SEMANTIC INVARIANTS
+===============================================================================
+
+User-described target, not inspected runtime evidence:
+  HDMI 0 -> YOLO26m.engine TensorRT640 -> TrackTrack multiclass
+  -> queue -> Qwen3-VL-4B 8-bit async -> cache -> live render.
+
+10.1 Where detector replacement fits
+
+task_pipeline/builder.py:79-86 places checkpoint/backend in model configuration.
+detection/detector_factory.py:129-150 creates UltralyticsDetector for backend
+"ultralytics". detector.py:85-93 allows an existing local weight/engine file;
+133-147 loads YOLO(str(weights)). The current factory has no explicit backend
+named "tensorrt": a custom Jetson implementation must not assume that adding
+backend=tensorrt is supported by the original factory.
+
+The project wrapper can pass an existing engine path into Ultralytics YOLO's
+loader, or a Jetson-specific detector adapter can return the same results contract.
+Actual engine loading/inference on AGX Orin is NOT FOUND / NEED RUNTIME EVIDENCE.
+No TensorRT engine was executed by this audit.
+
+Keep the detector result contract:
+  bbox_xyxy in ORIGINAL captured-frame pixel coordinates, finite/valid/clipped.
+  confidence float in [0,1].
+  detector class_id and meaningful class_name.
+  correct reverse letterbox/resize mapping for a fixed 640x640 engine.
+  no confusion between engine class IDs and the semantic taxonomy IDs/names.
+  source_class preservation and the intended tracker class allowlist.
+Original-image crops require unmodified original pixels in correct BGR/RGB use.
+
+For a COCO-compatible engine, expected road-user mapping is:
+  0 person, 1 bicycle, 2 car, 3 motorcycle, 5 bus, 7 truck.
+The custom engine's actual names/class count must be verified. A fine-tuned
+football model called YOLO26m cannot inherit this COCO mapping by its filename.
+YOLO does not need a native SUV/taxi/flatbed detector class for Qwen to infer a
+subtype from a car/truck track and its visual evidence.
+
+Names can arrive through Results.names or generated tracking source_class_names.
+The current task builder derives source_class_names from supplemental mappings
+(builder.py:94-96,143-144); it does not blindly copy a new arbitrary task key.
+Verify the generated tracking YAML, rather than assuming a newly added task key
+automatically reaches postprocessing. A correct names map improves base labels;
+it does not itself fix missing semantic output.
+
+The tracking checkpoint resolver labels an existing unrecognized local filename
+"fine_tuned" (tracking/checkpoint_resolver.py:59-69), including a local .engine.
+This metadata label alone does not prove the engine was fine-tuned or non-COCO.
+The separate detection/checkpoint.py helper allowing only .pt/.pth is not the
+checkpoint resolver used by this realtime path.
+
+10.2 What must remain consistent for semantic behavior
+
+  - Actual Qwen processor/model ID and 8-bit loader, not merely dependency imports.
+  - dynamic_track model/generation/image budgets and same intended task payload.
+  - Parent vs subtype vs color distinction and complete taxonomy/aliases.
+  - Expected visible track IDs and exact per-ID evidence association.
+  - Panel images, temporal evidence and sufficient evidence-frame count.
+  - Original pixel coordinates and readable Linux paths for every event image.
+  - Worker claim order, bounded queue, recovery and grouping image limits.
+  - JSON parsing, closed-taxonomy validation and fine subtype risk floor.
+  - Memory context and cache tracks[] schema / accepted flags.
+  - Shared queue/cache paths and atomic writes / cache mtime refresh.
+  - Render with decorated outputs after reading cache.
+
+If reproducing the ENTIRE historical path, its sparse YOLOE proposal stage and
+three-crop evidence settings also matter. Removing YOLOE reduces hints and changes
+foreground behavior; current traffic_realtime deliberately omits it. Qwen can
+generate fine labels without YOLOE, but that is not an identical historical run.
+
+Reproducing a live target is also different from applying final cached labels
+to every frame afterwards. Use causal timestamps when measuring label arrival.
+Matching the screenshot's formatting requires the intended color/subtype text
+and semantic confidence selection; original live draw_tracks does not use the
+same format/confidence as semantic_render.py.
+
+10.3 Jetson failure localization: tests to collect, not assumed causes
+
+  Detector stage:
+    inspect engine names, emitted class_id/class_name and original-coordinate bbox.
+    If names are class2/class7, trace its custom result builder and renderer.
+  Identity stage:
+    inspect raw ID -> visible ID -> event ID -> cache track_id equality.
+  Queue stage:
+    verify pending/processing counts, crop quality/age eligibility and image paths.
+  Worker stage:
+    verify status progresses beyond loading_qwen and a real model_result.answer exists.
+    READY alone is insufficient; inspect stderr, processed/failed events and timings.
+  Fusion stage:
+    inspect accepted, fine_accepted, unknown_reason, fine_unknown_reason and threshold.
+  Cache stage:
+    verify actual writer/reader paths, top-level tracks[], mtime and cache reload count.
+  Render stage:
+    confirm decorated TrackOutput is drawn and the selected confidence is intentional.
+
+The provided Jetson overlay proves that detection/tracking/visualization produce
+some outputs. It does not identify which later semantic stage is missing. The
+root cause on that machine is NOT FOUND / NEED RUNTIME EVIDENCE.
+
+===============================================================================
+11. EXACT ORIGINAL WORKING PIPELINE
+===============================================================================
+
+11.1 Exact path evidenced by the three matching historical labels
+
+  F:\videos\youtube_traffic_monitoring_exploratory_60s.mp4
+    -> auto_low_light preprocessing
+    -> YOLO26n COCO at 640 + sparse YOLOE-26s subtype proposals every 8 frames
+    -> TrackTrack class-agnostic, ReID off, compact visible IDs
+    -> class stabilization + fast proposals + temporal HSV color hints
+    -> per-ID original-frame crops, up to 3 temporal crops in a 512x384 panel
+    -> bounded pending queue (historical effective cap 128)
+    -> AFTER CV: --drain worker, two event panels per grouped call
+    -> Qwen/Qwen3-VL-4B-Instruct, bitsandbytes 8bit
+    -> expected-ID parsing + closed taxonomy validation
+    -> semantic_memory.json -> risk-aware temporal fusion
+    -> semantic_cache.json
+    -> source video + MOT + final cache -> semantic_render.py post-render
+    -> ID 8 | white SUV 0.95 / ID 9 | yellow taxi 0.90 /
+       ID 11 | white flatbed truck 0.90.
+
+LocateAnything was not in this successful path.
+
+A precise, source-supported COMMAND RECONSTRUCTION for the same component path:
+
+  Set-Location F:\Tracking
+  .\scripts\run_task_realtime.ps1 `
+    -TaskConfig configs\tasks\traffic_objects.yaml `
+    -Source "F:\videos\youtube_traffic_monitoring_exploratory_60s.mp4" `
+    -RunName audit_reproduce_monitoring `
+    -OutputRoot outputs\task_realtime `
+    -Device cuda `
+    -SemanticWorkerMode deferred `
+    -SemanticMaxPendingEvents 128 `
+    -SemanticWorkerBatchSize 2 `
+    -SemanticWorkerMaxGroupImages 2 `
+    -SemanticWorkerMaxEvents 0 `
+    -NoWindow `
+    -Overwrite
+
+This command was NOT executed during the audit. It is not claimed to be the
+verbatim historical shell command. The currently present task's instruction has
+changed, so exact old answers/IDs are not guaranteed. Exact historical execution
+SHA, full CLI overrides and model revision: NOT FOUND / NEED RUNTIME EVIDENCE.
+The historical task.resolved.json and per-event semantic_task preserve the old
+payload needed to compare a replay, but no extra config file was created here.
+
+11.2 Current production LIVE path at the reviewed HEAD
+
+  camera 0 / video / RTSP
+    -> timestamped capture, newest-frame dropping for live sources
+    -> selected task's YOLO26n at 640, auto_low_light if needed
+    -> TrackTrack + class stabilization + fast visual hints
+    +-> decorate from current cache -> immediate render of this frame
+    `-> per-ID evidence panel -> bounded priority queue (normal live cap 4)
+         -> persistent Qwen3-VL-4B 8bit worker (--watch)
+         -> validated JSON -> memory/fusion -> semantic_cache.json
+         -> renderer reloads cache every 5 frames -> future frames gain deep labels.
+
+Source-supported live command for the current default task:
+
+  Set-Location F:\Tracking
+  .\scripts\run_traffic.ps1 `
+    -Source 0 `
+    -TaskConfig configs\tasks\traffic_realtime.yaml `
+    -Device cuda `
+    -SemanticWorkerMode live `
+    -LiveSemanticMaxPendingEvents 4 `
+    -RunName traffic_live_semantic `
+    -Overwrite
+
+This command was NOT executed during the audit. It starts live detect/track and
+asynchronous semantic work. It does not promise an accepted deep label on every
+object's first frame or before a rapidly passing object disappears.
+There is no LocateFirst, scene discovery or domain detector router in this
+default explicit-task entry. Qwen analyzes queued evidence, not every frame.
+
+===============================================================================
+12. JETSON PORT REQUIREMENTS
+===============================================================================
+
+Minimum conditions for the same semantic mechanism:
+
+1. A Jetson-compatible Python/CUDA/TensorRT/PyTorch environment that runs BOTH
+   actual detector inference and Qwen generation. Working bitsandbytes imports
+   or CUDA availability alone do not satisfy model-generation validation.
+
+2. Complete Qwen/Qwen3-VL-4B-Instruct model, tokenizer and image processor files;
+   a verified local/cache path; BitsAndBytesConfig(load_in_8bit=True); matching
+   intended image budgets and decoding. Record model revision, hf_device_map,
+   actual dtypes, model-load time and peak memory on that machine.
+
+3. A semantic task with the traffic base taxonomy, subtype taxonomy, color
+   attribute, instructions/aliases and thresholds. Preserve the distinction
+   between configured 0.72 and effective subtype floor 0.85.
+
+4. A TrackTrack implementation compatible with this adapter's detection and
+   return-row contract, including class/detection-index fields, same visible-ID
+   mapping and reset semantics. The laptop used Ultralytics 8.4.82 and no ReID.
+
+5. The engine must emit boxes mapped back from 640x640 to the captured frame,
+   with correct confidence, meaningful class names and verified class IDs.
+   Select the target's actual source device and capture backend; Linux source 0
+   is not proof that HDMI resolves to the same camera as Windows device 0.
+
+6. Event eligibility and evidence collection must be active. Save readable Linux
+   crops/panels, expected visible IDs, evidence_frame_indices and embedded task.
+   Do not copy Windows F:\... image paths into Jetson pending events.
+
+7. Start a persistent --watch worker with the same queue and --semantic-output
+   used by realtime --semantic-queue-dir/--semantic-cache. Worker process and CV
+   process must share the same run directory. Grouping, polling and queue limits
+   must be intentional and measured.
+
+8. Keep actual parsing and validation, TemporalSemanticMemory and fusion.
+   Write the runtime cache with top-level tracks[], accepted/fine_accepted flags
+   and attributes.color. An arbitrary Qwen answer string is not a render cache.
+
+9. Reload that cache during live capture and draw decorated tracks. If the
+   desired display is strictly "ID | color subtype confidence", choose the same
+   fields/formatting as the deferred renderer. Current laptop live formatting
+   differs; the port should document which confidence it displays.
+
+10. Use fresh run context/IDs or preserve cache isolation. Prevent stale cache
+    attachment after tracker restart or scene reset. Preserve atomic cache writes
+    and readable files/mtime updates between processes.
+
+11. Collect worker stdout/stderr/status/report, queue processed/failed events,
+    raw Qwen JSON, memory, cache and realtime metrics. Monitor worker death and
+    per-event failure counts. A readiness barrier or prewarm would be an explicit
+    startup improvement, not existing laptop behavior to assume was ported.
+
+12. Measure CV FPS, source FPS, capture-to-display latency, dropped frames, Qwen
+    service time, queue wait, first-deep-label latency and the fraction of tracks
+    receiving labels before exit. Report AGX Orin hardware/power configuration.
+    Laptop deferred FPS and final-cache coverage cannot substitute for these
+    live Jetson measurements.
+
+For identical historical component behavior, also retain sparse YOLOE and
+three-crop temporal panels; for the current lean live task, no YOLOE or Locate
+is required. Declare which of these two evidenced configurations is being ported.
+
+===============================================================================
+13. AUDIT LIMITS, UNRESOLVED EVIDENCE AND VERIFICATION
+===============================================================================
+
+NOT FOUND / NEED RUNTIME EVIDENCE:
+  - The historical successful run's executing Git SHA and verbatim shell command.
+  - The exact download command used for that run's Qwen weights.
+  - Its pinned Hugging Face revision and actual resolved device_map/dtypes.
+  - The Jetson run_traffic_jetson.sh, engine class metadata and package versions.
+  - Jetson events, Qwen raw answers, status/error logs, memory/cache and renderer.
+  - A measured physical HDMI-to-display deep-label latency on AGX Orin.
+  - Verified semantic/identity ground truth for the matching exploratory video.
+  - The full matching rendered MP4 at its saved path (inspection JPEGs exist).
+
+Verified by read-only inspection:
+  - All explicitly requested entrypoint, Qwen and semantic implementation files
+    were read in full, including both requested semantic YAMLs.
+  - Actual factory/adapter/config linkage to installed TrackTrack was traced.
+  - Current Qwen 8-bit settings and cache/network fallback were traced in source.
+  - Exact historical IDs/colors/subtypes were found in final cache and raw answers.
+  - The matching run's retained frame image visibly contains the example labels.
+  - Deferred vs live timing and rendering behavior were distinguished.
+  - Git was clean before report creation; no source changes or Git mutations were
+    made. The requested audit TXT is the only file created by this task.
+
+No inference benchmark, camera test or code test suite was run: this request was
+a read-only source/artifact audit. The report provides source-supported findings
+and a concrete comparison baseline; it does not certify an unobserved Jetson run.

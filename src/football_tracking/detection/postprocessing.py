@@ -156,8 +156,8 @@ def postprocess_detections(
         if not is_valid_bbox(clipped):
             continue
         source_class_name = str(
-            row.get("class_name")
-            or class_names.get(source_class_id)
+            class_names.get(source_class_id)
+            or row.get("class_name")
             or ("person" if source_class_id == coco_person_class_id else f"class_{source_class_id}")
         )
         emitted_class_id = source_class_id if preserve_source_class else target_class_id

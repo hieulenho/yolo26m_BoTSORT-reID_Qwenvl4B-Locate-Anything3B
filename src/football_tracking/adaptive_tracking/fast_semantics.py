@@ -27,7 +27,7 @@ class FastSemanticProposalStore:
         *,
         minimum_semantic_class_id: int = 1000,
         minimum_association_score: float = 0.35,
-        minimum_observations: int = 2,
+        minimum_observations: int = 1,
         history_frames: int = 90,
         retention_frames: int = 900,
         minimum_consensus: float = 0.55,

@@ -24,7 +24,7 @@ detector:
       output_class_ids: [1100, 1101, 1102, 1103, 1104, 1105, 1106, 1107]
       class_names: [sedan, SUV, crossover, hatchback, coupe, station_wagon, taxi, minivan]
       compatible_tracker_class_ids: [2]
-      every_n_frames: 8
+      every_n_frames: 4
       half: false
   preserve_source_classes: true
   target_class_id: 2

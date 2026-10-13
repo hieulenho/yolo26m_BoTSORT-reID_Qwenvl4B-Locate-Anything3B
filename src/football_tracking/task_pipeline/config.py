@@ -121,6 +121,22 @@ def _class_ids(value: Any, name: str) -> tuple[int, ...] | None:
     return output
 
 
+def _source_class_names(value: Any, name: str) -> dict[int, str]:
+    if value is None:
+        return {}
+    mapping = _mapping(value, name)
+    output: dict[int, str] = {}
+    for key, label in mapping.items():
+        try:
+            class_id = int(key)
+        except (TypeError, ValueError) as exc:
+            raise TaskPipelineConfigError(f"{name} keys must be integer class IDs.") from exc
+        if class_id < 0 or class_id in output:
+            raise TaskPipelineConfigError(f"{name} has an invalid or duplicate class ID: {key}")
+        output[class_id] = _non_empty_string(label, f"{name}.{class_id}")
+    return output
+
+
 def _unit_interval(value: Any, name: str) -> float:
     number = float(value)
     if not 0.0 <= number <= 1.0:
@@ -226,6 +242,7 @@ class DetectorTaskConfig:
     name: str
     text_classes: tuple[str, ...]
     supplemental_detectors: tuple[dict[str, Any], ...]
+    source_class_names: dict[int, str]
     class_ids: tuple[int, ...] | None
     tracker_class_ids: tuple[int, ...] | None
     preserve_source_classes: bool
@@ -404,6 +421,9 @@ def load_task_pipeline_config(path: str | Path) -> TaskPipelineConfig:
         text_classes=text_classes,
         supplemental_detectors=_supplemental_detectors(
             detector_raw.get("supplemental_detectors")
+        ),
+        source_class_names=_source_class_names(
+            detector_raw.get("source_class_names"), "detector.source_class_names"
         ),
         class_ids=class_ids,
         tracker_class_ids=tracker_class_ids,

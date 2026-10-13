@@ -88,6 +88,10 @@ def run_realtime_tracking(
     output_mot: str | Path | None = None,
     metadata_path: str | Path | None = None,
     show_window: bool = True,
+    capture_width: int | None = None,
+    capture_height: int | None = None,
+    capture_fps: float | None = None,
+    capture_fourcc: str | None = None,
     max_frames: int | None = None,
     semantic_queue_dir: str | Path | None = None,
     semantic_cache_path: str | Path | None = None,
@@ -179,7 +183,13 @@ def run_realtime_tracking(
 
     source_value = _capture_source(stream_source)
     display_source = redact_capture_source(source_value)
-    capture, capture_backend = open_video_capture(source_value)
+    capture, capture_backend = open_video_capture(
+        source_value,
+        width=capture_width,
+        height=capture_height,
+        fps=capture_fps,
+        fourcc=capture_fourcc,
+    )
     if capture is None:
         raise RealtimeTrackingError(f"Could not open stream source: {display_source}")
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
@@ -225,13 +235,21 @@ def run_realtime_tracking(
             if prefetched_frame is None:
                 prefetched_live_sequence = warmup_sequence
             last_live_sequence = max(int(prefetched_live_sequence or 1) - 1, 0)
-    writer = _open_writer(
+    raw_writer = _open_writer(
         output_video,
         output_fps,
         width,
         height,
         asynchronous=asynchronous_video_write,
         queue_size=video_write_queue_size,
+    )
+    writer = (
+        _TimelineVideoWriter(
+            raw_writer,
+            align_to_source=latest_reader is not None,
+        )
+        if raw_writer is not None
+        else None
     )
     mot_handle = _open_mot(output_mot)
     trajectory = TrajectoryStore(config.trajectory_length, enabled=config.show_trajectory)
@@ -488,7 +506,7 @@ def run_realtime_tracking(
             )
             render_times.append(time.perf_counter() - render_started)
             if writer is not None:
-                writer.write(rendered)
+                writer.write(rendered, source_frame_index=frame_index)
             if mot_handle is not None:
                 for track in tracks:
                     mot_handle.write(format_mot_row(track) + "\n")
@@ -1009,6 +1027,52 @@ class _AsyncVideoWriter:
             "written_frames": self.written_frames,
             "dropped_frames": self.dropped_frames,
             "queue_capacity": self._queue.maxsize,
+        }
+
+
+class _TimelineVideoWriter:
+    """Preserve live-source duration when inference skips captured frames."""
+
+    def __init__(self, writer: Any, *, align_to_source: bool) -> None:
+        self._writer = writer
+        self._align_to_source = bool(align_to_source)
+        self._previous_frame: Any | None = None
+        self._previous_source_frame: int | None = None
+        self.input_frames = 0
+        self.duplicated_frames = 0
+
+    def write(self, frame: Any, *, source_frame_index: int) -> None:
+        source_index = int(source_frame_index)
+        if (
+            self._align_to_source
+            and self._previous_frame is not None
+            and self._previous_source_frame is not None
+        ):
+            duplicate_count = max(source_index - self._previous_source_frame - 1, 0)
+            for _ in range(duplicate_count):
+                self._writer.write(self._previous_frame)
+            self.duplicated_frames += duplicate_count
+        self._writer.write(frame)
+        self._previous_frame = frame
+        self._previous_source_frame = source_index
+        self.input_frames += 1
+
+    def release(self) -> None:
+        self._writer.release()
+
+    def summary(self) -> dict[str, Any]:
+        base = (
+            self._writer.summary()
+            if hasattr(self._writer, "summary")
+            else {"mode": "synchronous"}
+        )
+        return {
+            **base,
+            "timeline_mode": (
+                "source_frame_aligned" if self._align_to_source else "sequential"
+            ),
+            "input_frames": self.input_frames,
+            "duplicated_frames": self.duplicated_frames,
         }
 
 

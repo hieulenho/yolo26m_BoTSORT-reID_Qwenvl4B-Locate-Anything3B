@@ -37,3 +37,17 @@ def test_postprocessing_sorts_by_frame_confidence_and_coordinates() -> None:
     detections = postprocess_detections(raw, 2, "sequence_001", 64, 48, 0.25)
 
     assert [detection.bbox_xyxy.x1 for detection in detections] == [5, 10, 20]
+
+
+def test_configured_class_name_overrides_engine_placeholder() -> None:
+    raw = [{"xyxy": [2, 3, 20, 30], "conf": 0.8, "cls": 2, "class_name": "class2"}]
+
+    detections = postprocess_detections(
+        raw, 1, "traffic", 64, 48, 0.25,
+        keep_only_person=False,
+        source_class_names={2: "car"},
+        preserve_source_class=True,
+    )
+
+    assert detections[0].source_class_name == "car"
+    assert detections[0].target_class_name == "car"

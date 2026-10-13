@@ -33,6 +33,10 @@ def main() -> int:
     parser.add_argument("--output-mot", type=Path, default=None)
     parser.add_argument("--metadata", type=Path, default=None)
     parser.add_argument("--max-frames", type=int, default=None)
+    parser.add_argument("--capture-width", type=int, default=None)
+    parser.add_argument("--capture-height", type=int, default=None)
+    parser.add_argument("--capture-fps", type=float, default=None)
+    parser.add_argument("--capture-fourcc", default=None)
     parser.add_argument("--semantic-queue-dir", type=Path, default=None)
     parser.add_argument("--semantic-cache", type=Path, default=None)
     parser.add_argument("--task-config", type=Path, default=None)
@@ -67,6 +71,10 @@ def main() -> int:
             output_mot=args.output_mot,
             metadata_path=args.metadata,
             show_window=not args.no_window,
+            capture_width=args.capture_width,
+            capture_height=args.capture_height,
+            capture_fps=args.capture_fps,
+            capture_fourcc=args.capture_fourcc,
             max_frames=args.max_frames,
             semantic_queue_dir=args.semantic_queue_dir,
             semantic_cache_path=args.semantic_cache,

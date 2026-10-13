@@ -297,15 +297,19 @@ def _run_loaded_qwen(
             add_generation_prompt=True,
         )
         image_inputs, video_inputs = process_vision_info(messages, image_patch_size=16)
+        device = first_model_device(model)
+        padding_multiple = _jetson_int8_padding_multiple(config, device)
+        if padding_multiple is not None:
+            processor.tokenizer.padding_side = "left"
         inputs = processor(
             text=[text],
             images=image_inputs,
             videos=video_inputs,
             padding=True,
+            pad_to_multiple_of=padding_multiple,
             do_resize=False,
             return_tensors="pt",
         )
-        device = first_model_device(model)
         inputs = inputs.to(device)
         generate_kwargs = {
             "max_new_tokens": config.max_new_tokens,
@@ -344,6 +348,20 @@ def _run_loaded_qwen(
         "inference_seconds": time.perf_counter() - started,
         "answer": answer,
     }
+
+
+def _jetson_int8_padding_multiple(config: VlmTrackingConfig, device: Any) -> int | None:
+    """Avoid unaligned cuBLASLt prefill shapes in Jetson's 8-bit backend."""
+    if normalize_quantization(config.quantization) != "8bit":
+        return None
+    try:
+        import torch  # type: ignore[import-not-found]
+
+        if device.type == "cuda" and torch.cuda.get_device_capability(device) == (8, 7):
+            return 128
+    except (AttributeError, RuntimeError, ImportError):
+        pass
+    return None
 
 
 def _build_user_content(

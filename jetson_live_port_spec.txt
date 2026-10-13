@@ -1,0 +1,900 @@
+JETSON AGX ORIN LIVE TRAFFIC PORT SPECIFICATION
+===============================================
+
+Audit date: 2026-10-08 (Asia/Bangkok)
+Repository inspected: F:\Tracking
+Reviewed branch / commit: master / 2d9f2c2c442ae40a458c8fb6966cd6d8932c1757
+
+Scope: read-only specification for porting the existing Windows LIVE traffic
+pipeline to Jetson AGX Orin. No source, config, Git state, package, model, or
+runtime artifact was changed during this audit.
+
+Pre-existing untracked file at audit time:
+  traffic_pipeline_audit.txt
+It was not modified by this audit. The only new artifact requested and created
+for this task is this file.
+
+Important distinction
+---------------------
+The historical Windows run that rendered labels such as:
+
+  ID 8  | white SUV 0.95
+  ID 9  | yellow taxi 0.90
+  ID 11 | white flatbed truck 0.90
+
+was a DEFERRED file run. It tracked the whole file, drained Qwen jobs, and then
+rendered again from the completed semantic cache. It is not evidence for the
+exact format or timing of the current LIVE preview.
+
+The requested Jetson target is the current LIVE path:
+
+  HDMI capture / source 0
+    -> detector -> TrackTrack -> evidence queue -> async Qwen
+    -> temporal memory and fusion -> semantic_cache.json
+    -> decorate live tracks -> preview + MP4
+
+===============================================================================
+1. WINDOWS LIVE PIPELINE CONTRACT
+===============================================================================
+
+1.1 Entrypoint and effective command
+
+The Windows command requested for behavioral equivalence is:
+
+  Set-Location F:\Tracking
+  .\scripts\run_traffic.ps1 `
+    -Source "0" `
+    -Device cuda `
+    -SemanticWorkerMode live `
+    -LiveSemanticMaxPendingEvents 4 `
+    -RunName traffic_live_semantic `
+    -Overwrite
+
+scripts/run_traffic.ps1:3-15 defines Source, Device, SemanticWorkerMode,
+TaskConfig, RunName, OutputRoot, LiveSemanticMaxPendingEvents, MaxFrames,
+NoWindow, and Overwrite. Its default task is
+configs/tasks/traffic_realtime.yaml. Lines 40-53 delegate to
+scripts/run_task_realtime.ps1.
+
+For the explicit command above, effective key settings are:
+
+  Source                         "0"; later resolved to integer 0
+  Device                         cuda
+  Task config                    configs/tasks/traffic_realtime.yaml
+  Semantic mode                  live
+  Queue capacity                 min(task 12, explicit live cap 4) = 4
+  Worker batch size              2 events
+  Worker group-images limit      2 images
+  Grouping                       enabled (unless DisableSemanticGrouping)
+  Cache reload                   every 5 processed frames
+  Video writing                  asynchronous by default, queue size 128
+  Detector prewarm               enabled by default
+  Late-frame dropping            enabled for an integer live camera source
+  Scene-cut reset                enabled by default
+  Display window                 enabled unless --no-window is passed
+
+scripts/run_task_realtime.ps1:164-183 first calls:
+
+  python -m football_tracking.task_pipeline.cli build
+      --task <task> --output-dir <run>/runtime
+      --output-video <run>/tracked_semantic.mp4 --device cuda --overwrite
+
+The generated detector/tracker plan is therefore:
+
+  <run>/runtime/tracking.generated.yaml
+
+and the normalized task record is:
+
+  <run>/runtime/task.resolved.json
+
+1.2 Per-run paths
+
+scripts/run_task_realtime.ps1:86-104 creates these names below:
+
+  <OutputRoot>/<RunName>/
+    tracked_semantic.mp4
+    tracked_semantic.txt
+    realtime_metrics.json
+    runtime/tracking.generated.yaml
+    runtime/task.resolved.json
+    semantic_queue/
+    semantic_cache.json
+    semantic_memory.json
+    semantic_worker.stop
+    semantic_worker_report.json
+    semantic_worker.stdout.log
+    semantic_worker.stderr.log
+    semantic_worker.pid
+    semantic_worker.status.json
+    semantic_render.metadata.json
+
+The last file is only copied after a DEFERRED post-render
+(run_task_realtime.ps1:369-393). It is not an expected LIVE artifact.
+
+1.3 Live worker lifecycle
+
+scripts/run_task_realtime.ps1:206-248 builds a worker command with:
+
+  scripts/runtime/run_realtime_semantic_worker.py
+  --queue-dir <run>/semantic_queue
+  --vlm-config configs/semantics/dynamic_track.yaml
+  --semantic-output <run>/semantic_cache.json
+  --memory <run>/semantic_memory.json
+  --max-events 2
+  --max-group-images 2
+  --report <run>/semantic_worker_report.json
+  --pid-file <run>/semantic_worker.pid
+  --status-file <run>/semantic_worker.status.json
+  --parent-pid <PowerShell PID>
+  --group-events
+  --watch --stop-file <run>/semantic_worker.stop
+
+The worker is started with Start-Process before CV (lines 234-248), but there
+is NO READY barrier. Immediately after Start-Process, the parent starts the CV
+loop (lines 253-288). This matters for a physical demo: the initial frames can
+be rendered before Qwen is loaded or before a first semantic event has matured.
+
+The worker process states written to semantic_worker.status.json are:
+
+  starting
+  waiting_for_events
+  loading_qwen
+  ready
+  processing
+  collecting_evidence
+  failed
+  stopped
+
+There is no status named "error". See
+scripts/runtime/run_realtime_semantic_worker.py:64-82, 113-122, 158-212,
+317-341.
+
+The worker waits for at least one pending event before writing loading_qwen and
+loading the model (lines 113-122 and 158-161). Thus "worker started" is not
+the same as "Qwen loaded".
+
+At CV shutdown, the Windows parent creates semantic_worker.stop, waits up to
+600 seconds by default, then checks process exit and final status
+(run_task_realtime.ps1:290-344). It detects worker failure only after the CV
+process returns; it does not interrupt an already running preview immediately
+when the worker fails.
+
+1.4 Source, output, overwrite, shutdown
+
+scripts/runtime/run_realtime_adaptive.py:58-62 uses
+resolve_capture_source(). src/football_tracking/video_capture.py:14-35 converts
+a digit-only source string such as "0" to integer 0.
+
+src/football_tracking/video_capture.py:66-77 uses DirectShow only for a
+Windows integer camera; on Linux it calls cv2.VideoCapture(0) with OpenCV's
+default Linux backend. No source code proves which /dev/videoX this will become.
+
+--overwrite allows requested output video, MOT, and metrics paths to already
+exist; it does not delete them in _validate_output_paths()
+(realtime.py:825-841). The PowerShell wrapper separately removes prior semantic
+queue/cache/memory/worker files inside the same run root when -Overwrite is
+given (run_task_realtime.ps1:130-162). A timestamped run name is the safer
+production convention than repeatedly overwriting a fixed directory.
+
+===============================================================================
+2. DISPLAY / REALTIME WINDOW CONTRACT
+===============================================================================
+
+2.1 Actual preview behavior
+
+The only preview call is:
+
+  cv2.imshow("adaptive tracking", rendered)
+
+in src/football_tracking/adaptive_tracking/realtime.py:513-516. Q and Esc end
+the CV loop:
+
+  cv2.waitKey(1) & 0xFF in {ord("q"), 27}
+
+There is no cv2.resizeWindow(), cv2.namedWindow(), cv2.setWindowProperty(), or
+fullscreen code in the inspected live runner. The window name is exactly:
+
+  adaptive tracking
+
+The Python CLI maps --no-window to show_window=False
+(scripts/runtime/run_realtime_adaptive.py:53, 63-88). Therefore, for a monitor
+physically connected to Jetson, do not pass --no-window. No other change is
+required by the inspected Python preview code provided that the Jetson process
+has access to the local graphical session.
+
+2.2 Preview versus recording
+
+The order in realtime.py:458-515 is:
+
+  1. semantic_cache.decorate(tracks, ...)
+  2. draw_tracks(...)
+  3. draw_detection_overlays(...)
+  4. writer.write(rendered), if configured
+  5. cv2.imshow("adaptive tracking", rendered), if enabled
+
+Therefore preview and tracked_semantic.mp4 use the same rendered frame. The
+preview is semantic-decorated, not raw tracker output. The default writer is
+asynchronous and can drop frames when its 128-frame encoding queue is full
+(realtime.py:941-1012). Its dropped/written counts are recorded in
+realtime_metrics.json.outputs.video_writer.
+
+2.3 Display environment on Jetson
+
+The safest demo procedure is to launch the future Linux launcher from a local
+terminal in the Jetson desktop session that owns the physically connected
+monitor. This gives OpenCV HighGUI the correct Wayland/X11 session naturally.
+
+For SSH, DISPLAY and possibly XAUTHORITY must identify the active Jetson desktop
+session. Their values are session-specific and are NOT FOUND in this Windows
+repository. Do not hard-code a guessed XAUTHORITY path. First inspect them in
+the local graphical session, for example with:
+
+  echo "$DISPLAY"
+  echo "$XAUTHORITY"
+  loginctl
+
+Then a remote process must run as the appropriate local desktop user with access
+to that display server. X11 forwarding displays the window on the SSH client,
+not necessarily the Jetson's attached monitor, and adds remote-display latency.
+Wayland may not permit an SSH process to use the compositor merely by setting
+DISPLAY. Local desktop launch is therefore the evidence-supported safe choice;
+SSH display behavior is NOT FOUND / NEED JETSON RUNTIME EVIDENCE.
+
+===============================================================================
+3. EXACT LIVE LABEL BEHAVIOR
+===============================================================================
+
+3.1 Live data path
+
+The live path is:
+
+  detector result
+    -> postprocess_detections()
+    -> TrackerDetection(class_id, class_name, bbox, confidence)
+    -> TrackTrack raw row
+    -> UltralyticsTrackerAdapter._to_track_output()
+    -> TrackClassStabilizer.update()
+    -> FastSemanticProposalStore.update() and FastVisualAttributeStore.update()
+    -> SemanticEventQueue.enqueue()
+    -> async Qwen worker
+    -> TemporalSemanticMemory.merge() and fuse_track_semantics()
+    -> atomic semantic_cache.json
+    -> SemanticCacheView.refresh()/decorate()
+    -> draw_tracks()
+
+Relevant calls are realtime.py:357-395, 409-489;
+semantic_queue.py:1608-1849; and draw_tracks.py:12-88.
+
+3.2 Exact display formatting
+
+draw_tracks() always emits:
+
+  ID <track_id> | <track.class_name> | <track.confidence formatted to 2 decimals>
+
+draw_tracks.py:38-45.
+
+Before an accepted cache row, SemanticCacheView.decorate() retains the current
+track class name. With no fast proposal/appearance decoration, the requested
+example is therefore:
+
+  ID 8 | car | 0.73
+
+When semantic processing has accepted the cache entry, decorate() builds:
+
+  base_label = cache.detector_class_name (otherwise current track.class_name)
+  deep_label = semantic fine label, class label, or a fast hint
+  displayed class_name = base_label + " | " + deep_label
+
+See semantic_queue.py:745-815 and 818-868. With accepted color white and
+fine_label SUV, the live format is:
+
+  ID 8 | car | white SUV | 0.73
+
+The 0.73 remains the live tracker confidence from TrackOutput; it is NOT Qwen
+confidence. The cache stores semantic confidence separately in metadata.
+
+Qualification: live processing also executes FastSemanticProposalStore and
+FastVisualAttributeStore before cache decoration (realtime.py:389-395). If a
+stable fast color exists, it can temporarily make the current base display look
+like "white car" before Qwen. This is separate from accepted Qwen semantics.
+
+If cache contains a row but accepted is false, the display is:
+
+  ID <id> | <detector class> | unknown | <tracker confidence>
+
+If semantic is enabled but no accepted row exists, metadata records pending or
+waiting, but the visible string remains the current detector/fast class.
+
+3.3 Deferred behavior must not be confused with live behavior
+
+The deferred renderer in semantic_render.py is invoked only for a file source
+after queue drain (run_task_realtime.ps1:347-393). It produces formats like:
+
+  ID 8 | white SUV 0.95
+
+This combines semantic fields differently and displays fused semantic base
+confidence. It is not the format from the live cv2.imshow path.
+
+===============================================================================
+4. TENSORRT DETECTOR CONTRACT
+===============================================================================
+
+4.1 Detector boundary
+
+The current detector wrapper is UltralyticsDetector. It loads a local checkpoint
+path through ultralytics.YOLO(str(weights)) and calls model(frame, ...)
+(src/football_tracking/detection/detector.py:133-196). A local .engine path
+passes validate_checkpoint() when it exists (lines 85-93). TensorRT execution
+itself on Jetson is NOT VERIFIED here because no engine or Jetson log was
+provided.
+
+The engine/adapter must return a result accepted by iter_prediction_rows() in
+src/football_tracking/detection/postprocessing.py:85-103. For an Ultralytics
+Results-style object, this means:
+
+  result.boxes.xyxy : N x 4, [x1, y1, x2, y2]
+  result.boxes.conf : N confidence values
+  result.boxes.cls  : N source class IDs
+  result.names      : dict or list indexed by source class ID
+
+Alternative mapping input is also supported as dictionaries containing xyxy,
+confidence/conf, cls/class_id, and optional class_name. The postprocessor then
+requires finite coordinates, clips boxes to the ORIGINAL captured frame width
+and height, applies confidence and class allowlists, and drops invalid boxes
+(postprocessing.py:117-201).
+
+Required TensorRT adapter contract:
+
+  bbox                 xyxy, in original capture-frame pixels, not 640x640
+                       letterbox coordinates
+  class_id             integer COCO source class ID
+  class_name           supplied through result.names or per-row class_name
+  confidence           numeric in [0, 1]
+  image geometry       boxes map correctly back to the input frame before the
+                       tracker and semantic crop stage
+  allowed tracking IDs 0, 1, 2, 3, 5, 7
+  detection order      retained so TrackTrack's detection_index still indexes
+                       the same detection list for that frame
+
+The generated config preserves source classes, so emitted TrackerDetection
+class IDs/names should be the COCO names rather than target_class_name vehicle.
+
+4.2 Why class2 / class7 occur
+
+postprocess_detections() chooses a name in this order:
+
+  row.class_name
+  source_class_names[class_id]
+  "person" when class_id == 0
+  "class_<class_id>" otherwise
+
+postprocessing.py:158-164. The TrackTrack adapter repeats a comparable fallback:
+
+  class_name = f"class_{class_id}"
+  if last raw-row value is a valid detection_index:
+      class_name = detections[detection_index].class_name
+
+ultralytics_adapter.py:595-632.
+
+Thus class_2/class_7 means the result did not expose usable names and no valid
+fallback mapping reached the postprocessor, OR TrackTrack's returned final
+detection_index did not match the per-frame detections. The Jetson spelling
+class2/class7 without underscores is NOT FOUND in this checkout; it may come
+from a Jetson-only adapter or overlay.
+
+4.3 Required COCO mapping
+
+The target TensorRT result.names must provide at least:
+
+  0: person
+  1: bicycle
+  2: car
+  3: motorcycle
+  5: bus
+  7: truck
+
+This is the minimum no-source-change solution: preserve Results.names from the
+engine adapter all the way to iter_prediction_rows(). It does not touch Qwen
+taxonomy or semantic fusion.
+
+There is a critical builder limitation. TaskPipelineConfig does NOT have a
+detector.source_class_names field (task_pipeline/config.py:222-243, 375-425).
+task_pipeline/builder.py:22-35 and 94-96 derive source_class_names only from
+supplemental_detectors, then write it at line 144. Consequently, adding a
+source_class_names mapping directly to traffic_realtime_jetson.yaml is ignored
+by the current task parser/builder and is NOT a working configuration-only fix.
+
+If Result.names cannot be preserved, a future source patch must explicitly add
+the field to DetectorTaskConfig, parse it in load_task_pipeline_config(), and
+propagate it in build_tracking_payload(). That is outside this no-change audit.
+
+4.4 Proposed Jetson task file specification
+
+Future file name:
+
+  configs/tasks/traffic_realtime_jetson.yaml
+
+Copy traffic_realtime.yaml exactly. Change only the detector block values needed
+for the engine; all tracker, semantic and render sections remain byte-for-byte
+equivalent in intent:
+
+  detector:
+    name: yolo26m_tensorrt_coco_traffic
+    backend: ultralytics
+    checkpoint: <absolute-or-project-relative path to yolo26m.engine>
+    imgsz: 640
+    class_ids: [0, 1, 2, 3, 5, 7]
+    tracker_class_ids: [0, 1, 2, 3, 5, 7]
+    preserve_source_classes: true
+    target_class_id: 2
+    target_class_name: vehicle
+    conf: 0.18
+    iou: 0.65
+    max_det: 300
+    half: true
+    preprocessing: {mode: auto_low_light, clahe_clip_limit: 2.0,
+                    clahe_grid_size: 8, low_light_threshold: 65}
+
+The key operational requirement is not a YAML mapping; it is an engine adapter
+whose Results.names exposes the six names above and whose boxes are returned in
+original-frame coordinates. A proper port must inspect the generated runtime
+YAML and one raw TensorRT result to prove both facts.
+
+===============================================================================
+5. TRACKTRACK CONTRACT
+===============================================================================
+
+traffic_realtime.yaml:38-43 selects tracktrack with
+configs/trackers/tracktrack_multiclass_realtime.yaml and enables class
+stabilization. tracker_factory creates UltralyticsTrackerAdapter; it imports
+ultralytics.trackers.track_tracker.TRACKTRACK for tracker_type tracktrack
+(ultralytics_adapter.py:323-371).
+
+The Jetson port must preserve this tracker configuration:
+
+  tracker_type             tracktrack
+  track_high_thresh        0.30
+  track_low_thresh         0.08
+  new_track_thresh         0.35
+  track_buffer             60
+  match_thresh             0.75
+  lost_match_thr           0.85
+  iou_weight               0.65
+  reid_weight              0.35
+  conf_weight              0.10
+  angle_weight             0.05
+  penalty_p / penalty_q    0.20 / 0.40
+  reduce_step / tai_thr    0.05 / 0.50
+  min_track_len            2
+  gmc_method               sparseOptFlow
+  with_reid                false
+  class_aware / class_gate false / false
+  confirmed_only           true
+  require_recent_update    true, max age 0
+  min_hits_for_output      2
+  compact_ids              true
+
+Class stabilization must also remain enabled with history 30 frames and switch
+margin 0.2 (traffic_realtime.yaml:41-43). Class-agnostic association is
+intentional: a one-frame class fluctuation should not split an identity. The
+class stabilizer settles the displayed base class afterward.
+
+ReID is disabled. Keeping reid_weight=0.35 in YAML does not enable an appearance
+encoder while with_reid=false. Do not claim behavior-equivalence if Jetson turns
+ReID on or replaces TrackTrack with a different tracker.
+
+The adapter expects each returned raw track row to have at least 7 values:
+
+  [x1, y1, x2, y2, raw_track_id, confidence, class_id, ..., detection_index]
+
+The final element is read as detection_index when a row has 8 or more values.
+It must index into the exact detections list sent to TrackTrack on that frame.
+Raw coordinates are clipped against current image width/height before the
+TrackOutput is created (ultralytics_adapter.py:583-632). If the engine gives
+640-space coordinates, crops, trajectory, box display and semantic evidence are
+all incorrect even if IDs look plausible.
+
+===============================================================================
+6. QWEN MODEL LOAD CONTRACT
+===============================================================================
+
+Actual worker model source
+--------------------------
+The live parent hard-codes:
+
+  --vlm-config configs/semantics/dynamic_track.yaml
+
+at run_task_realtime.ps1:206-218. That file sets:
+
+  model_id             Qwen/Qwen3-VL-4B-Instruct
+  device               auto
+  torch_dtype          auto
+  quantization         8bit
+  max_new_tokens       128
+  image pixels         32768 to 196608
+  do_sample            false
+
+The task YAML's semantic model settings are embedded in each event for semantic
+policy/taxonomy. They do not replace the worker's dynamic_track.yaml model-load
+settings.
+
+8-bit loading
+--------------
+model_loader.py:56-80 resolves dtype=auto and device_map. With 8bit,
+quantization.py:45-80 creates:
+
+  BitsAndBytesConfig(load_in_8bit=True)
+  device_map = "auto" for device auto/cuda/gpu
+
+The exact final placement and tensor dtype depend on PyTorch, Transformers,
+Accelerate and bitsandbytes at runtime. They are NOT FOUND / NEED JETSON RUNTIME
+EVIDENCE; config "auto" is not a recorded resolved map.
+
+Cache and network behavior
+--------------------------
+model_loader.py:151-162 first calls from_pretrained(..., local_files_only=True).
+If that fails, it calls normal from_pretrained(...) as a fallback. Before that,
+enable_cached_offline_mode() detects a complete cached snapshot and sets
+HF_HUB_OFFLINE=1 and TRANSFORMERS_OFFLINE=1 unless
+FOOTBALL_TRACKING_ALLOW_HF_NETWORK is truthy (model_loader.py:165-175).
+
+The Hugging Face cache search root is:
+
+  HF_HUB_CACHE, if defined
+  else HF_HOME/hub, if defined
+  else ~/.cache/huggingface/hub
+
+TRANSFORMERS_CACHE is not consulted by _hub_cache_root(). A complete snapshot
+requires config, any weight file, processor file and tokenizer file; this is a
+completeness heuristic, not a pinned revision proof.
+
+Source-supported Qwen prefetch command
+---------------------------------------
+The repository provides scripts/runtime/download_models.py. It calls:
+
+  snapshot_download("Qwen/Qwen3-VL-4B-Instruct")
+
+when --qwen is supplied (lines 8-20). For a future Jetson production image,
+the source-supported prefetch invocation is:
+
+  <venv>/bin/python scripts/runtime/download_models.py --qwen
+
+Quantization is applied at model load, not when downloading. This command is a
+specification only and was NOT run by this audit. It does not pin a revision.
+
+Provided target environment values:
+
+  BNB_CUDA_VERSION=132
+  CUDA runtime for bitsandbytes = 13.2
+  PyTorch CUDA build = cu130
+
+The repository does not validate this particular AGX Orin combination. Its
+successful Qwen loading and actual device placement require runtime evidence.
+
+===============================================================================
+7. LIVE WORKER STARTUP CHOICE
+===============================================================================
+
+Option A: exact current laptop behavior
+---------------------------------------
+
+  Start worker in --watch mode.
+  Start CV immediately.
+  Worker stays waiting_for_events until first event exists.
+  Worker then loads Qwen, becomes ready, and processes events.
+
+This is exact with respect to timing behavior, but the first deep label is
+delayed by evidence eligibility, worker polling, model load, and inference.
+
+Option B: production demonstration improvement
+----------------------------------------------
+
+  Start and preload the persistent Qwen session.
+  Wait until a genuine ready status is observed.
+  Begin capture/preview only after the ready confirmation.
+
+This changes startup timing only. It does not need to change detection,
+TrackTrack, evidence, prompt, taxonomy, validation, temporal fusion, cache or
+rendering semantics.
+
+However, the existing worker cannot implement B by launcher arguments alone:
+in --watch mode it does not instantiate Qwen until pending events exist. A
+future patch needs a prewarm/preload worker mode that loads one persistent
+session before the capture subprocess starts and writes ready afterward. A
+throwaway separate prefetch process does not prove the live worker retains the
+same resident model session.
+
+Recommendation for a physical realtime demo: implement B in the future Jetson
+patch, measure its added startup time, and state it explicitly. Use A only when
+strict historical launch timing is more important than an immediate ready UI.
+
+===============================================================================
+8. OUTPUT / RUN DIRECTORY CONTRACT
+===============================================================================
+
+For a successful LIVE run, retain:
+
+  tracked_semantic.mp4
+  tracked_semantic.txt
+  realtime_metrics.json
+  semantic_queue/
+    pending/, processing/, processed/, failed/, crops/, panels/
+  semantic_cache.json
+  semantic_memory.json
+  semantic_worker_report.json
+  semantic_worker.status.json
+  semantic_worker.stdout.log
+  semantic_worker.stderr.log
+  runtime/tracking.generated.yaml
+  runtime/task.resolved.json
+
+semantic_render.metadata.json is meaningful for a deferred post-render only,
+not a required LIVE artifact.
+
+Minimum proof that deep semantics really ran is ALL of:
+
+  1. semantic_worker.status.json records loading_qwen, ready, then processing;
+  2. semantic_worker_report.json has processed_event_count > 0 and failed count;
+  3. semantic_queue/processed contains model_result with Qwen raw answer;
+  4. semantic_memory.json contains observations for the same context_id;
+  5. semantic_cache.json has top-level tracks and an accepted row for a track;
+  6. realtime_metrics.json has nonzero events_enqueued and cache_refreshes;
+  7. the corresponding live preview/MP4 contains a decorated label after cache
+     reload.
+
+The cache is atomically written by process_semantic_queue()
+(semantic_queue.py:1769-1821). SemanticCacheView reloads it only when its file
+mtime changes (semantic_queue.py:720-739). It reads top-level payload.tracks.
+
+===============================================================================
+9. SOURCE 0 ON JETSON
+===============================================================================
+
+On Linux, source 0 means OpenCV's numeric device index 0. It does NOT prove
+that the HDMI capture card is /dev/video0, nor that Linux will keep the same
+index after reboots or USB replugging. The code uses cv2.VideoCapture(0) with
+the default backend (video_capture.py:66-77).
+
+Before the demo, identify the HDMI capture device on Jetson with:
+
+  v4l2-ctl --list-devices
+  v4l2-ctl -d /dev/videoX --all
+  v4l2-ctl -d /dev/videoX --list-formats-ext
+
+Then verify actual delivery from the selected device, for example:
+
+  v4l2-ctl -d /dev/videoX --stream-mmap=3 --stream-count=120 --stream-to=/tmp/hdmi-test.raw
+
+An OpenCV probe that mirrors the project capture semantics can be run without
+changing source files:
+
+  <venv>/bin/python -c "import cv2; c=cv2.VideoCapture(0); ok,f=c.read(); print({'opened':c.isOpened(),'read':ok,'shape':None if f is None else f.shape,'fps':c.get(cv2.CAP_PROP_FPS)}); c.release()"
+
+Run the probe for candidate indices 0, 1, 2 and compare the delivered image
+with the laptop HDMI feed. Only after this test can "--source 0" be asserted as
+the capture card. The actual index is NOT FOUND / NEED JETSON RUNTIME EVIDENCE.
+
+===============================================================================
+10. FINAL JETSON CONFIG SPEC
+===============================================================================
+
+Future file to be created by a later implementation task:
+
+  configs/tasks/traffic_realtime_jetson.yaml
+
+It must be a copy of traffic_realtime.yaml and differ only at the detector
+boundary:
+
+  detector.name       yolo26m_tensorrt_coco_traffic
+  detector.backend    ultralytics
+  detector.checkpoint <path to yolo26m.engine>
+  detector.imgsz      640
+
+All remaining detector values must stay current, including class_ids,
+tracker_class_ids, preserve_source_classes, confidence, IoU, max_det, half and
+preprocessing. The entire tracker, semantic and render sections must be kept
+unchanged.
+
+The config itself cannot repair absent primary detector names because the
+existing builder discards a primary detector source_class_names mapping. The
+effective source of this mapping in the generated runtime config is
+task_pipeline/builder.py:94-96 and 143-144; it is populated only from
+supplemental_detectors. Therefore the port must either:
+
+  A. preserve engine Results.names as the COCO mapping above; or
+  B. make the future code patch described in section 4.3.
+
+Option A is the minimal architecture-preserving approach. It leaves semantic
+taxonomy and Qwen entirely unchanged.
+
+===============================================================================
+11. FINAL LINUX LAUNCHER SPECIFICATION (PSEUDOCODE ONLY)
+===============================================================================
+
+This section specifies, but does not create, scripts/run_traffic_jetson.sh.
+Its public CLI target is:
+
+  ./scripts/run_traffic_jetson.sh --source 0
+
+Inputs and defaults:
+
+  --source             0
+  --task               configs/tasks/traffic_realtime_jetson.yaml
+  --output-root        outputs/traffic
+  --run-name           omitted => traffic_YYYYmmdd_HHMMSS_mmm
+  --live-queue-cap     4
+  --device             cuda
+
+Required pseudocode sequence:
+
+  1. Resolve project root from the launcher location, cd there, and activate
+     .venv/bin/activate. Refuse to start if its Python is absent.
+
+  2. Export BNB_CUDA_VERSION=132 exactly as provided for the target runtime.
+     Do not claim compatibility until a real worker load has succeeded.
+
+  3. Resolve one fresh timestamped run directory. Define all paths listed in
+     section 8 beneath it. Never reuse or silently delete an unrelated run.
+
+  4. Build runtime/tracking.generated.yaml and runtime/task.resolved.json with:
+
+       python -m football_tracking.task_pipeline.cli build
+         --task <task> --output-dir <run>/runtime
+         --output-video <run>/tracked_semantic.mp4
+         --device cuda --overwrite
+
+  5. Start exactly one semantic worker in the background, redirecting stdout and
+     stderr to its run files. Pass queue, cache, memory, report, pid, status,
+     parent PID, --watch, --group-events, --max-events 2,
+     --max-group-images 2, and the stop-file path. Use POSIX paths, not Windows
+     backslash paths.
+
+  6. Start realtime CV in the foreground with:
+
+       python scripts/runtime/run_realtime_adaptive.py
+         --config <run>/runtime/tracking.generated.yaml
+         --task-config <task>
+         --source <source>
+         --output-video <run>/tracked_semantic.mp4
+         --output-mot <run>/tracked_semantic.txt
+         --metadata <run>/realtime_metrics.json
+         --semantic-queue-dir <run>/semantic_queue
+         --semantic-cache <run>/semantic_cache.json
+         --semantic-event-interval-frames 90
+         --semantic-events-per-frame 1
+         --semantic-max-pending-events 4
+         --semantic-cache-reload-frames 5
+         --overwrite
+
+     Do NOT pass --no-window. Keep default detector prewarm, live late-frame
+     dropping, scene-cut reset, and asynchronous MP4 writer unless a measured
+     Jetson test establishes another setting.
+
+  7. Install one cleanup trap before launching either background process. The
+     trap must create the stop file, wait for worker exit up to the documented
+     timeout, terminate only the tracked worker PID on timeout, then inspect
+     worker status and exit code exactly once. It must not kill unrelated Python
+     processes.
+
+  8. Propagate failure. The current Windows wrapper checks worker failure after
+     preview ends. For the new production launcher requirement, monitor the
+     worker PID/status while the CV child is running and stop CV or return failure
+     when status becomes failed. This is an intentional stronger operational
+     behavior than the current Windows parent, not behavior already present.
+
+  9. On clean completion, atomically update an outputs/traffic/latest symlink
+     to the completed timestamped directory. The current Windows scripts do not
+     create a latest symlink, so this is a Linux operational addition, not a
+     claimed existing feature.
+
+ 10. Exit nonzero when build, CV, worker, cache/report verification, or cleanup
+     fails. Print absolute run path, MP4, metrics, cache, status and report paths.
+
+For production option B from section 7, insert a real preloaded-worker ready
+barrier between steps 5 and 6 only after that worker capability is implemented.
+
+===============================================================================
+12. ACCEPTANCE TESTS: PASS / FAIL CHECKLIST
+===============================================================================
+
+Detector
+--------
+
+  [ ] PASS: v4l2 device test proves source 0 is the laptop HDMI capture card.
+  [ ] PASS: raw engine result has original-frame xyxy boxes, confidence, cls,
+            and Results.names for 0,1,2,3,5,7.
+  [ ] PASS: generated config preserves class IDs [0,1,2,3,5,7].
+  [ ] PASS: live base overlays contain person/bicycle/car/motorcycle/bus/truck,
+            never class_2/class_7 (or Jetson-specific class2/class7).
+  [ ] PASS: boxes remain aligned on the physical HDMI monitor.
+
+Tracker
+-------
+
+  [ ] PASS: realtime_metrics.json reports tracker type/config consistent with
+            TrackTrack and with_reid=false.
+  [ ] PASS: TrackTrack output rows preserve valid detection_index association.
+  [ ] PASS: IDs are stable through ordinary motion and compact visible IDs start
+            as expected after an intentional fresh run.
+  [ ] PASS: scene-cut behavior is observed and documented; no stale semantic
+            cache label is attached to a post-reset identity.
+
+Queue and evidence
+------------------
+
+  [ ] PASS: semantic_queue/pending receives an event after a track has age 15.
+  [ ] PASS: event interval is 90 frames and at most one event is emitted/frame.
+  [ ] PASS: queue in-flight count never exceeds 4 for the live invocation.
+  [ ] PASS: crop and panel images exist and show the same expected track ID.
+  [ ] PASS: processed and failed event files preserve model result or failure
+            reason; events are not silently lost.
+
+Qwen worker
+-----------
+
+  [ ] PASS: status progression records loading_qwen, ready, processing.
+  [ ] PASS: worker stdout/stderr show no model-load or generation error.
+  [ ] PASS: processed event contains a raw answer string parseable as the
+            specified JSON track_predictions response.
+  [ ] PASS: report has processed_event_count > 0 and failed_event_count is
+            explicitly reviewed.
+  [ ] PASS: prefetch cache is complete and production runs do not require an
+            unexpected remote download.
+
+Fusion and cache
+----------------
+
+  [ ] PASS: semantic_memory.json exists with matching context_id observations.
+  [ ] PASS: semantic_cache.json has top-level tracks.
+  [ ] PASS: a target track row has accepted=true; when sufficient evidence is
+            present, inspect fine_accepted, fine_label, attributes.color and
+            confidence separately.
+  [ ] PASS: semantic_cache mtime changes and cache_refreshes is nonzero.
+
+Render
+------
+
+  [ ] PASS: attached Jetson monitor shows cv2 window "adaptive tracking".
+  [ ] PASS: base labels appear before Qwen results.
+  [ ] PASS: deep labels appear only after accepted cache update, e.g.
+            ID 8 | car | white SUV | 0.73.
+  [ ] PASS: tracked_semantic.mp4 is playable and includes the same rendered
+            frames as preview, subject to documented asynchronous writer drops.
+  [ ] PASS: Q/Esc cleanly stops preview, writes metrics, and stops exactly one
+            worker.
+
+Performance
+-----------
+
+  [ ] PASS: realtime_metrics.json records end_to_end_fps, processing_fps,
+            steady_state_processing_fps, source_fps and detector/tracker/render
+            stage FPS.
+  [ ] PASS: report dropped_late_frames, late_frame_drop_rate, asynchronous video
+            writer drops, source_frames_consumed and video writer summary.
+  [ ] PASS: record Qwen model load, per-call inference seconds, queue waiting
+            time inferred from event timestamps, and first accepted deep-label
+            latency measured at the monitor.
+  [ ] PASS: record the Jetson AGX Orin power mode, clocks, engine precision,
+            capture resolution/FPS, and HDMI display configuration with results.
+
+===============================================================================
+13. UNRESOLVED ITEMS / RUNTIME EVIDENCE REQUIRED
+===============================================================================
+
+NOT FOUND / NEED JETSON RUNTIME EVIDENCE:
+
+  - scripts/run_traffic_jetson.sh does not exist in this checkout.
+  - yolo26m.engine, its engine metadata, TensorRT adapter output, names mapping,
+    original-coordinate mapping and fixed-640 behavior were not supplied.
+  - Which /dev/videoX and OpenCV index correspond to the HDMI capture card.
+  - Jetson graphical session DISPLAY/XAUTHORITY values and Wayland/X11 behavior.
+  - Qwen 8-bit load success under BNB_CUDA_VERSION=132, CUDA 13.2 and cu130.
+  - Actual device_map, resolved tensor dtype, VRAM use and Qwen latency on Orin.
+  - A physical monitor measurement of capture-to-display and first deep-label
+    latency, frame drops, FPS and long-run stability.
+  - Any exact semantic accuracy or ID-switch metric for the Jetson target.
+
+This specification distinguishes proven Windows code behavior from requested
+future Jetson behavior. It should be used as the acceptance contract for a
+subsequent implementation patch, not as proof that the unobserved Jetson system
+already works.

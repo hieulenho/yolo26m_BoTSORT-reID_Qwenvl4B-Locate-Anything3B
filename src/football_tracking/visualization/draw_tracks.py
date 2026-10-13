@@ -101,6 +101,11 @@ def draw_detection_overlays(
 
     rendered = frame.copy()
     for detection in detections:
+        # Supplemental open-vocabulary detections are candidates used to
+        # refine an existing track. Drawing them before association exposes
+        # noisy, duplicate labels such as ``DET | SUV`` in the final video.
+        if bool(detection.metadata.get("semantic_proposal")):
+            continue
         color = stable_color(100_000 + detection.class_id)
         x1 = int(round(detection.bbox_xyxy.x1))
         y1 = int(round(detection.bbox_xyxy.y1))
