@@ -20,6 +20,7 @@ sampling:
   crop_output_size: 320
 
 
+
 model:
   provider: qwen
   model_id: Qwen/Qwen3-VL-4B-Instruct
